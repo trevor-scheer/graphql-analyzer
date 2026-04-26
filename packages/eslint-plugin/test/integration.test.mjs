@@ -94,14 +94,8 @@ test("every preset loads without ESLint validation errors", async () => {
   // ESLint's flat-config validator runs over the full rule set.
   const root = mkdtempSync(path.join(tmpdir(), "preset-load-"));
   try {
-    writeFileSync(
-      path.join(root, ".graphqlrc.yaml"),
-      'schema: "schema.graphql"\n',
-    );
-    writeFileSync(
-      path.join(root, "schema.graphql"),
-      "type Query { hello: String }\n",
-    );
+    writeFileSync(path.join(root, ".graphqlrc.yaml"), 'schema: "schema.graphql"\n');
+    writeFileSync(path.join(root, "schema.graphql"), "type Query { hello: String }\n");
     for (const presetName of Object.keys(plugin.configs)) {
       const eslint = new ESLint({
         overrideConfigFile: true,
@@ -164,10 +158,7 @@ test("processor postprocess remaps line offsets back to host coords", () => {
     `\`;\n`;
   plugin.processor.preprocess(tsx, "remap.tsx");
   const merged = plugin.processor.postprocess(
-    [
-      [{ ruleId: "@graphql-analyzer/no-anonymous-operations", line: 1, column: 3 }],
-      [],
-    ],
+    [[{ ruleId: "@graphql-analyzer/no-anonymous-operations", line: 1, column: 3 }], []],
     "remap.tsx",
   );
   assert.equal(merged.length, 1);
@@ -216,10 +207,7 @@ test("fires no-anonymous-operations on embedded GraphQL in .js", async () => {
       `messages: ${JSON.stringify(results[0].messages, null, 2)}`,
   );
   // The anonymous `query {` token sits on line 4 of `src/embedded.js`.
-  assert.ok(
-    diags[0].line >= 3,
-    `expected embedded position remap; got line ${diags[0].line}`,
-  );
+  assert.ok(diags[0].line >= 3, `expected embedded position remap; got line ${diags[0].line}`);
 });
 
 // Multi-project `.graphqlrc.yaml`: two projects in the same workspace,
@@ -231,22 +219,10 @@ test("multi-project .graphqlrc routes files to matching project", async () => {
   try {
     mkdirSync(path.join(root, "projA"), { recursive: true });
     mkdirSync(path.join(root, "projB"), { recursive: true });
-    writeFileSync(
-      path.join(root, "projA", "schema.graphql"),
-      "type Query { hello: String }\n",
-    );
-    writeFileSync(
-      path.join(root, "projB", "schema.graphql"),
-      "type Query { world: String }\n",
-    );
-    writeFileSync(
-      path.join(root, "projA", "op.graphql"),
-      "query { hello }\nquery { hello }\n",
-    );
-    writeFileSync(
-      path.join(root, "projB", "op.graphql"),
-      "query Named { world }\n",
-    );
+    writeFileSync(path.join(root, "projA", "schema.graphql"), "type Query { hello: String }\n");
+    writeFileSync(path.join(root, "projB", "schema.graphql"), "type Query { world: String }\n");
+    writeFileSync(path.join(root, "projA", "op.graphql"), "query { hello }\nquery { hello }\n");
+    writeFileSync(path.join(root, "projB", "op.graphql"), "query Named { world }\n");
 
     // ProjA enables no-anonymous-operations as error.
     // ProjB doesn't enable it — its file has a named query anyway, so even

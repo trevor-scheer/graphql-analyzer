@@ -35,11 +35,7 @@ function stableJson(value: unknown): string {
 
 function cacheKey(filePath: string, source: string, overrides?: Record<string, unknown>): string {
   const overridesPart = overrides && Object.keys(overrides).length > 0 ? stableJson(overrides) : "";
-  const digest = createHash("sha1")
-    .update(source)
-    .update("\0")
-    .update(overridesPart)
-    .digest("hex");
+  const digest = createHash("sha1").update(source).update("\0").update(overridesPart).digest("hex");
   return `${filePath}\0${digest}`;
 }
 

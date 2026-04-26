@@ -449,7 +449,7 @@ impl ProjectConfig {
     /// Mirrors graphql-config's per-file project resolution: a file matches if
     /// it isn't in `exclude`, IS in `include` (or `include` is unset), and
     /// matches at least one of the project's schema or document patterns.
-    /// Used by callers (e.g. the ESLint plugin's napi binding) that route
+    /// Used by callers (e.g. the `ESLint` plugin's napi binding) that route
     /// each file to the project that owns it in multi-project configs.
     #[must_use]
     pub fn matches_file(&self, file_path: &Path, workspace_root: &Path) -> bool {
@@ -462,8 +462,8 @@ impl ProjectConfig {
         if compiled.exclude.iter().any(|p| p.matches(&rel_path_str)) {
             return false;
         }
-        let in_include_scope = self.include.is_none()
-            || compiled.include.iter().any(|p| p.matches(&rel_path_str));
+        let in_include_scope =
+            self.include.is_none() || compiled.include.iter().any(|p| p.matches(&rel_path_str));
         if !in_include_scope {
             return false;
         }

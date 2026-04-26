@@ -137,6 +137,7 @@ impl StandaloneDocumentLintRule for SelectionSetDepthRuleImpl {
 /// Fragment spreads are not followed for parity at the parity test's
 /// per-document level — depth-limit inlines them, but our cross-document
 /// linker doesn't here, and the parity fixture has no spreads.
+#[allow(clippy::too_many_arguments)]
 fn check_depth(
     selection_set: &cst::SelectionSet,
     field_depth: usize,
@@ -325,7 +326,7 @@ mod tests {
         assert_eq!(diagnostics.len(), 1);
     }
 
-    fn check_with_options(source: &str, options: serde_json::Value) -> Vec<LintDiagnostic> {
+    fn check_with_options(source: &str, options: &serde_json::Value) -> Vec<LintDiagnostic> {
         let db = RootDatabase::default();
         let rule = SelectionSetDepthRuleImpl;
         let file_id = FileId::new(0);
@@ -344,7 +345,7 @@ mod tests {
             content,
             metadata,
             project_files,
-            Some(&options),
+            Some(options),
         )
     }
 
@@ -352,7 +353,7 @@ mod tests {
     fn test_ignore_skips_field_subtree() {
         // `b` is ignored, so its subtree doesn't contribute to depth at all.
         let opts = serde_json::json!({ "maxDepth": 1, "ignore": ["b"] });
-        let diagnostics = check_with_options("query Q { a { b { c { d } } } }", opts);
+        let diagnostics = check_with_options("query Q { a { b { c { d } } } }", &opts);
         assert!(
             diagnostics.is_empty(),
             "ignored field's subtree should not trip the depth check, got: {diagnostics:?}",
@@ -363,7 +364,8 @@ mod tests {
     fn test_ignore_does_not_affect_unrelated_fields() {
         // `b` is ignored but `e` is not — `e`'s subtree still counts.
         let opts = serde_json::json!({ "maxDepth": 1, "ignore": ["b"] });
-        let diagnostics = check_with_options("query Q { e { f { g } } a { b { c { d } } } }", opts);
+        let diagnostics =
+            check_with_options("query Q { e { f { g } } a { b { c { d } } } }", &opts);
         // `e` (depth 1) → recurse into `f` (depth 2) → exceeds maxDepth=1.
         assert_eq!(diagnostics.len(), 1);
     }

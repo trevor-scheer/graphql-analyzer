@@ -284,10 +284,10 @@ impl Default for LintConfig {
 impl LintConfig {
     /// Apply per-rule overrides on top of this config and return the merged
     /// result. Each override entry fully replaces the corresponding rule's
-    /// config (severity + options) — matches ESLint convention where the
+    /// config (severity + options) — matches `ESLint` convention where the
     /// per-rule entry replaces rather than deep-merges.
     ///
-    /// Used by callers that layer runtime configuration (e.g. ESLint's
+    /// Used by callers that layer runtime configuration (e.g. `ESLint`'s
     /// `rules: { rule: [severity, options] }`) on top of the persistent
     /// `.graphqlrc.yaml` config without mutating the persistent state.
     /// Promotes a `Preset` config to `Full` so overrides have somewhere to

@@ -41,15 +41,16 @@ pub fn lint_file(
     source: String,
     overrides_json: Option<String>,
 ) -> napi::Result<Vec<JsDiagnostic>> {
-    let overrides = match overrides_json {
-        Some(s) if !s.is_empty() => Some(
-            serde_json::from_str::<std::collections::HashMap<String, graphql_linter::LintRuleConfig>>(
-                &s,
-            )
-            .map_err(|e| napi::Error::from_reason(format!("invalid overrides: {e}")))?,
-        ),
-        _ => None,
-    };
+    let overrides =
+        match overrides_json {
+            Some(s) if !s.is_empty() => Some(
+                serde_json::from_str::<
+                    std::collections::HashMap<String, graphql_linter::LintRuleConfig>,
+                >(&s)
+                .map_err(|e| napi::Error::from_reason(format!("invalid overrides: {e}")))?,
+            ),
+            _ => None,
+        };
     let mut host = host::get_host().lock();
     let diagnostics = host.lint_file(&path, &source, overrides);
     Ok(diagnostics.into_iter().map(JsDiagnostic::from).collect())

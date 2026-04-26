@@ -307,8 +307,7 @@ const EXERCISED = {
     files: {
       "schema.graphql": "type Query { user(id: ID!): User } type User { id: ID! }\n",
       "src/op.graphql":
-        "query GetUserQuery { user(id: \"x\") { id } }\n" +
-        "fragment user_fields on User { id }\n",
+        'query GetUserQuery { user(id: "x") { id } }\n' + "fragment user_fields on User { id }\n",
     },
     target: "src/op.graphql",
     severity: 1,
@@ -587,9 +586,7 @@ test("every shared rule is parity-verified", () => {
   // verified parity assertion. New rules added to either plugin force a
   // decision on first sight. Stubs are excluded — they're no-op shims for
   // drop-in compatibility, not active rules with diagnostics to compare.
-  const shared = [...ourRules()].filter(
-    (r) => theirRules().has(r) && !STUB_RULES.has(r),
-  );
+  const shared = [...ourRules()].filter((r) => theirRules().has(r) && !STUB_RULES.has(r));
   const exercised = new Set(Object.keys(EXERCISED));
 
   const unaccounted = shared.filter((r) => !exercised.has(r)).sort();
@@ -693,11 +690,7 @@ test("ESLint-config rule options reach the analyzer (no .graphqlrc.yaml lint blo
       if (drift) errors.push(`${rule}: ${drift}`);
     });
   }
-  assert.deepEqual(
-    errors,
-    [],
-    `ESLint-options-only parity drift:\n  ${errors.join("\n  ")}`,
-  );
+  assert.deepEqual(errors, [], `ESLint-options-only parity drift:\n  ${errors.join("\n  ")}`);
 });
 
 // Sibling of `withProject` that writes a `.graphqlrc.yaml` carrying *only*
@@ -750,9 +743,7 @@ test("START_ONLY_RULES tracks upstream's actual start-only rule set", async () =
       observed.add(camelOf(rule));
       // Upstream is start-only for this rule iff *all* its diagnostics omit
       // endLine. (A rule that mixes shapes would itself be a parity concern.)
-      const allStartOnly = theirDiag.every(
-        (d) => d.endLine === undefined || d.endLine === null,
-      );
+      const allStartOnly = theirDiag.every((d) => d.endLine === undefined || d.endLine === null);
       if (allStartOnly) observedStartOnly.add(camelOf(rule));
     });
   }
@@ -805,9 +796,7 @@ function canonical(diagnostics, span, skipFix = false) {
         ...pos,
         message: d.message,
         messageId: d.messageId ?? null,
-        ...(skipFix
-          ? {}
-          : { fix: d.fix ? { range: d.fix.range, text: d.fix.text } : null }),
+        ...(skipFix ? {} : { fix: d.fix ? { range: d.fix.range, text: d.fix.text } : null }),
       };
     })
     .sort((a, b) => {

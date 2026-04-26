@@ -58,8 +58,7 @@ impl NapiAnalysisHost {
             let mut host = AnalysisHost::new();
 
             if let Some(lint_value) = project.lint() {
-                let lint_config =
-                    serde_json::from_value::<graphql_linter::LintConfig>(lint_value)?;
+                let lint_config = serde_json::from_value::<graphql_linter::LintConfig>(lint_value)?;
                 if let Err(e) = lint_config.validate() {
                     return Err(anyhow::anyhow!(
                         "Invalid lint configuration in project '{name}':\n\n{e}"

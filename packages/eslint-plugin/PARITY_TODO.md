@@ -21,20 +21,20 @@ items are silent feature gaps. P2 is doc/test cleanup.**
 
 ## Status snapshot (as of latest commit on this branch)
 
-| # | Item | Status |
-| - | ---- | ------ |
-| 1 | ESLint rule-options forwarding | ✅ Closed (commit `a396cfc`) |
-| 2 | Embedded GraphQL extraction | ✅ Closed (commit `770d4d4`) |
-| 3 | `naming-convention` feature suite | ⚠ Mostly closed — schema-side casing, prefix/suffix, pattern enforcement all wired. See "what remains" below for selector parsing |
-| 4 | Autofix coverage | ✅ Closed (`alphabetize` is the entire upstream `fix` surface; commit `a396cfc` doc fix) |
-| 4b | ESLint suggestions (`suggest`) | ❌ Open — see below |
-| 4c | `alphabetize` schema-side options | ⚠ Mostly closed — `definitions`, `fields` (per-kind), `values` all sort correctly and parity-verified for messages/positions. See "what remains" below for fix-payload emission and `groups` |
-| 5 | `selection-set-depth.ignore` | ✅ Closed (commit `de4a329`) |
-| 6 | Preset surface | ✅ Closed (commit `f32d6b5`) — all 5 upstream presets, content matches byte-for-byte, validation rules stubbed for drop-in compat |
-| 7 | `no-hashtag-description` grouping | ✅ Closed (commit `221886d`) — was already implemented; doc/test caught up |
-| 8 | Multi-project `.graphqlrc` routing | ✅ Closed (commit `ee8a2d6`) |
-| 9 | `START_ONLY_RULES` drift guard | ✅ Closed (commit `109a604`) |
-| 10–12 | Doc reconciliation | ✅ Folded into the closing commit for each item |
+| #     | Item                               | Status                                                                                                                                                                                       |
+| ----- | ---------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| 1     | ESLint rule-options forwarding     | ✅ Closed (commit `a396cfc`)                                                                                                                                                                 |
+| 2     | Embedded GraphQL extraction        | ✅ Closed (commit `770d4d4`)                                                                                                                                                                 |
+| 3     | `naming-convention` feature suite  | ⚠ Mostly closed — schema-side casing, prefix/suffix, pattern enforcement all wired. See "what remains" below for selector parsing                                                            |
+| 4     | Autofix coverage                   | ✅ Closed (`alphabetize` is the entire upstream `fix` surface; commit `a396cfc` doc fix)                                                                                                     |
+| 4b    | ESLint suggestions (`suggest`)     | ❌ Open — see below                                                                                                                                                                          |
+| 4c    | `alphabetize` schema-side options  | ⚠ Mostly closed — `definitions`, `fields` (per-kind), `values` all sort correctly and parity-verified for messages/positions. See "what remains" below for fix-payload emission and `groups` |
+| 5     | `selection-set-depth.ignore`       | ✅ Closed (commit `de4a329`)                                                                                                                                                                 |
+| 6     | Preset surface                     | ✅ Closed (commit `f32d6b5`) — all 5 upstream presets, content matches byte-for-byte, validation rules stubbed for drop-in compat                                                            |
+| 7     | `no-hashtag-description` grouping  | ✅ Closed (commit `221886d`) — was already implemented; doc/test caught up                                                                                                                   |
+| 8     | Multi-project `.graphqlrc` routing | ✅ Closed (commit `ee8a2d6`)                                                                                                                                                                 |
+| 9     | `START_ONLY_RULES` drift guard     | ✅ Closed (commit `109a604`)                                                                                                                                                                 |
+| 10–12 | Doc reconciliation                 | ✅ Folded into the closing commit for each item                                                                                                                                              |
 
 ---
 
@@ -47,7 +47,7 @@ items are silent feature gaps. P2 is doc/test cleanup.**
 **Evidence:** `packages/eslint-plugin/src/rules.ts:102` — `create(context)`
 never reads `context.options`. `binding.ts:81-86` — `lintFile(filePath,
 source)` takes no options. The parity test masks this:
-`parity.test.mjs:664-670` writes options into `.graphqlrc.yaml` for us *and*
+`parity.test.mjs:664-670` writes options into `.graphqlrc.yaml` for us _and_
 into the ESLint rule entry for them (`:680, 689`), so both fire correctly
 without the ESLint-options path ever being exercised against ours.
 
@@ -63,7 +63,7 @@ without the ESLint-options path ever being exercised against ours.
 3. On the Rust side, merge ESLint-supplied options on top of the `.graphqlrc.yaml`
    `lint.rules` entry per ESLint convention (caller wins). Reject malformed
    payloads with a clear error rather than silently ignoring.
-4. Update `parity.test.mjs` to pass options *only* via the ESLint rule entry
+4. Update `parity.test.mjs` to pass options _only_ via the ESLint rule entry
    (not `.graphqlrc.yaml`) for at least one fixture per rule that takes
    options — this is what actually catches the regression.
 5. Remove the contradictory wording in
@@ -91,7 +91,7 @@ diagnostic at the right line/column.
 
 1. Add an integration test fixture: a `.tsx` file with one valid and one
    invalid embedded GraphQL block. Run ESLint with the plugin's processor
-   wired and assert at least one diagnostic at the *embedded* line/column,
+   wired and assert at least one diagnostic at the _embedded_ line/column,
    not the start of the `.tsx` file.
 2. **If it works**: lock the behavior in with a parity assertion (run the same
    fixture under `@graphql-eslint` and diff). Promote the test from
@@ -241,7 +241,7 @@ and a depth-3 selection that the ignore should exempt.
 `flat/operations-all`); we ship 2. There is **no** `flat/recommended`
 catch-all upstream — that part of the original TODO was wrong.
 
-**More importantly**, the *contents* diverge:
+**More importantly**, the _contents_ diverge:
 
 - Upstream's `flat/schema-recommended` enables 21 rules. 11 of those are
   GraphQL spec validation rules (`known-argument-names`, `known-directives`,
@@ -263,11 +263,11 @@ catch-all upstream — that part of the original TODO was wrong.
 
 **Plan (sequenced):**
 
-1. **Stub the validation rule names.** Register the 30+ KNOWN_MISSING rule
+1. **Stub the validation rule names.** Register the 30+ KNOWN*MISSING rule
    names as no-op rule modules in our plugin so users can keep their
    existing preset references without errors. Document in
    `migrating-from-graphql-eslint.mdx` that the underlying check still runs
-   as built-in validation (so behavior is preserved). Do *not* try to route
+   as built-in validation (so behavior is preserved). Do \_not* try to route
    the existing built-in diagnostics through the stub rule names yet — that
    needs analyzer-side rule-id assignment, separate concern.
 2. **Land item 3 (`naming-convention` features)** — the recommended presets
@@ -381,7 +381,7 @@ entirely) — once gone, drop both notes.
 **Status:** SOLVABLE.
 
 `migrating-from-graphql-eslint.mdx:58-76` already covers this. Audit and
-make sure the *exact* list in `KNOWN_MISSING` (`parity.test.mjs:49-83`)
+make sure the _exact_ list in `KNOWN_MISSING` (`parity.test.mjs:49-83`)
 matches what's in the doc, and consider auto-generating that list from the
 parity test rather than maintaining it twice.
 
@@ -406,7 +406,7 @@ unless they fall out naturally from work above:
 
 ## Definition of done for this branch
 
-A future "is this *really* the final parity PR?" check:
+A future "is this _really_ the final parity PR?" check:
 
 1. P0 items are closed (or P0/2 has a concrete documented reason it can't be).
 2. P1 items are closed (with the same caveat for P1/3 and P1/8).

@@ -1086,7 +1086,7 @@ mod tests {
         });
         // Operation name fails camelCase but matches ignorePattern → no diag.
         let diagnostics = check_with_options("query EAN13 { user { id } }", Some(&opts));
-        assert!(diagnostics.is_empty(), "got: {:?}", diagnostics);
+        assert!(diagnostics.is_empty(), "got: {diagnostics:?}");
     }
 
     #[test]
@@ -1099,7 +1099,7 @@ mod tests {
         });
         // After stripping the leading `_`, `_GetUser` → `GetUser`, valid PascalCase.
         let diagnostics = check_with_options("query _GetUser { user { id } }", Some(&opts));
-        assert!(diagnostics.is_empty(), "got: {:?}", diagnostics);
+        assert!(diagnostics.is_empty(), "got: {diagnostics:?}");
     }
 
     #[test]
@@ -1111,7 +1111,7 @@ mod tests {
             }
         });
         let diagnostics = check_with_options("query GetUser_ { user { id } }", Some(&opts));
-        assert!(diagnostics.is_empty(), "got: {:?}", diagnostics);
+        assert!(diagnostics.is_empty(), "got: {diagnostics:?}");
     }
 
     #[test]
@@ -1134,8 +1134,7 @@ mod tests {
         let msgs = schema_messages(&diags);
         assert!(
             msgs.contains(&"Field \"first_name\" should be in camelCase format".to_string()),
-            "got: {:?}",
-            msgs
+            "got: {msgs:?}"
         );
     }
 
@@ -1146,8 +1145,7 @@ mod tests {
         let msgs = schema_messages(&diags);
         assert!(
             msgs.contains(&"Type \"user\" should be in PascalCase format".to_string()),
-            "got: {:?}",
-            msgs
+            "got: {msgs:?}"
         );
     }
 
@@ -1159,13 +1157,11 @@ mod tests {
         assert!(
             msgs.iter()
                 .any(|m| m == "Enum value \"red\" should be in UPPER_CASE format"),
-            "got: {:?}",
-            msgs
+            "got: {msgs:?}"
         );
         assert!(
             !msgs.iter().any(|m| m.contains("\"GREEN\"")),
-            "GREEN should pass UPPER_CASE; got: {:?}",
-            msgs
+            "GREEN should pass UPPER_CASE; got: {msgs:?}"
         );
     }
 
@@ -1176,8 +1172,7 @@ mod tests {
         let msgs = schema_messages(&diags);
         assert!(
             msgs.contains(&"Input value \"ID_field\" should be in camelCase format".to_string()),
-            "got: {:?}",
-            msgs
+            "got: {msgs:?}"
         );
     }
 
@@ -1188,8 +1183,7 @@ mod tests {
         let msgs = schema_messages(&diags);
         assert!(
             msgs.contains(&"Argument \"User_Id\" should be in camelCase format".to_string()),
-            "got: {:?}",
-            msgs
+            "got: {msgs:?}"
         );
     }
 
@@ -1200,8 +1194,7 @@ mod tests {
         let msgs = schema_messages(&diags);
         assert!(
             msgs.contains(&"Directive \"My_Cool_Dir\" should be in camelCase format".to_string()),
-            "got: {:?}",
-            msgs
+            "got: {msgs:?}"
         );
     }
 
@@ -1226,26 +1219,22 @@ mod tests {
         assert!(
             msgs.iter()
                 .any(|m| m == "Interface \"my_iface\" should be in PascalCase format"),
-            "got: {:?}",
-            msgs
+            "got: {msgs:?}"
         );
         assert!(
             msgs.iter()
                 .any(|m| m == "Union \"my_union\" should be in PascalCase format"),
-            "got: {:?}",
-            msgs
+            "got: {msgs:?}"
         );
         assert!(
             msgs.iter()
                 .any(|m| m == "Scalar \"my_scalar\" should be in PascalCase format"),
-            "got: {:?}",
-            msgs
+            "got: {msgs:?}"
         );
         assert!(
             msgs.iter()
                 .any(|m| m == "Input \"my_input\" should be in PascalCase format"),
-            "got: {:?}",
-            msgs
+            "got: {msgs:?}"
         );
     }
 
@@ -1265,8 +1254,7 @@ mod tests {
             assert!(
                 msgs.iter()
                     .any(|m| m.starts_with(expected_kind) && m.contains("PascalCase")),
-                "expected umbrella diagnostic for {expected_kind}, got: {:?}",
-                msgs
+                "expected umbrella diagnostic for {expected_kind}, got: {msgs:?}"
             );
         }
     }
@@ -1288,15 +1276,13 @@ mod tests {
         // `my_type` passes snake_case → no diag.
         assert!(
             !msgs.iter().any(|m| m.contains("\"my_type\"")),
-            "object should pass override, got: {:?}",
-            msgs
+            "object should pass override, got: {msgs:?}"
         );
         // `my_iface` falls through to umbrella (PascalCase) → diag.
         assert!(
             msgs.iter()
                 .any(|m| m == "Interface \"my_iface\" should be in PascalCase format"),
-            "interface should fall through to umbrella, got: {:?}",
-            msgs
+            "interface should fall through to umbrella, got: {msgs:?}"
         );
     }
 
@@ -1309,8 +1295,7 @@ mod tests {
         let msgs = schema_messages(&diags);
         assert!(
             msgs.contains(&"Field \"getName\" should not have \"get\" prefix".to_string()),
-            "got: {:?}",
-            msgs
+            "got: {msgs:?}"
         );
     }
 
@@ -1326,7 +1311,7 @@ mod tests {
         let diags = check_schema(schema, Some(&opts));
         let msgs = schema_messages(&diags);
         // EAN13/UPC ignored, NotIgnored fails camelCase.
-        assert_eq!(msgs.len(), 1, "got: {:?}", msgs);
+        assert_eq!(msgs.len(), 1, "got: {msgs:?}");
         assert_eq!(
             msgs[0],
             "Field \"NotIgnored\" should be in camelCase format"

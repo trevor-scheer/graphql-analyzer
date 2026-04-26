@@ -44,7 +44,7 @@ impl Default for SelectionsConfig {
 /// - `false` → disabled
 /// - `true` → enabled (legacy bool form)
 /// - `["FieldDefinition", "Field", ...]` → enabled and scoped to the listed
-///   AST kinds (full per-kind filtering is PARITY_TODO item 4c — for now we
+///   AST kinds (full per-kind filtering is `PARITY_TODO` item 4c — for now we
 ///   treat any non-empty list as "on" and ignore the kind filter).
 #[derive(Debug, Clone, Deserialize, PartialEq)]
 #[serde(untagged)]
@@ -88,7 +88,7 @@ pub struct AlphabetizeOptions {
     /// Check arguments for alphabetical order. Accepts both the legacy
     /// boolean form and the array form upstream uses in `flat/schema-all` /
     /// `flat/operations-all` (`["FieldDefinition", "Field", ...]`); per-kind
-    /// filtering of the array form is PARITY_TODO item 4c.
+    /// filtering of the array form is `PARITY_TODO` item 4c.
     pub arguments: BoolOrKindList,
     /// Check variable definitions for alphabetical order
     pub variables: bool,
