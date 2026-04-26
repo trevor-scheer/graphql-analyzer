@@ -112,7 +112,7 @@ fn cmd_web(dev: bool) -> Result<()> {
         .status()
         .context("running npm script")?;
     if !status.success() {
-        bail!("npm {} failed", script);
+        bail!("npm {script} failed");
     }
     Ok(())
 }
