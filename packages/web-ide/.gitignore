@@ -1,2 +1,7 @@
 dist/
 node_modules/
+# wasm-pack output — the .d.ts stub is committed; the real artifacts are not
+src/wasm/*.js
+src/wasm/*.wasm
+src/wasm/*.ts.map
+!src/wasm/graphql_lsp_wasm.d.ts
