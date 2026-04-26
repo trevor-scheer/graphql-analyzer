@@ -19,6 +19,7 @@ pub struct Server {
 #[wasm_bindgen]
 impl Server {
     #[wasm_bindgen(constructor)]
+    #[must_use]
     pub fn new() -> Self {
         let (inbound_tx, inbound_rx) = crossbeam_channel::unbounded::<Message>();
         let (outbound_tx, outbound_rx) = crossbeam_channel::unbounded::<Message>();

@@ -102,6 +102,7 @@ pub struct GlobalStateSnapshot {
 }
 
 impl GlobalState {
+    #[must_use]
     pub fn new(
         sender: Sender<Message>,
         dispatcher: Box<dyn TaskDispatcher>,

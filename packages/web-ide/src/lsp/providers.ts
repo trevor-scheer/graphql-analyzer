@@ -26,9 +26,7 @@ export function wireProviders(client: MinimalClient): void {
         },
       };
       const result = await client.completion(params);
-      const items: LspCompletionItem[] = Array.isArray(result)
-        ? result
-        : (result?.items ?? []);
+      const items: LspCompletionItem[] = Array.isArray(result) ? result : (result?.items ?? []);
       const word = model.getWordUntilPosition(position);
       const range: monaco.IRange = {
         startLineNumber: position.lineNumber,
@@ -43,9 +41,7 @@ export function wireProviders(client: MinimalClient): void {
           insertText: typeof it.insertText === "string" ? it.insertText : it.label,
           detail: it.detail,
           documentation:
-            typeof it.documentation === "string"
-              ? it.documentation
-              : it.documentation?.value,
+            typeof it.documentation === "string" ? it.documentation : it.documentation?.value,
           range,
         })),
       };
@@ -63,26 +59,18 @@ export function wireProviders(client: MinimalClient): void {
       };
       const hover: LspHover | null = await client.hover(params);
       if (!hover) return null;
-      const contents = Array.isArray(hover.contents)
-        ? hover.contents
-        : [hover.contents];
+      const contents = Array.isArray(hover.contents) ? hover.contents : [hover.contents];
       return {
-        contents: contents.map((c) =>
-          typeof c === "string" ? { value: c } : { value: c.value },
-        ),
+        contents: contents.map((c) => (typeof c === "string" ? { value: c } : { value: c.value })),
       };
     },
   });
 
   client.onDiagnostics((params: PublishDiagnosticsParams) => {
-    const model = monaco
-      .editor
-      .getModels()
-      .find((m) => m.uri.toString() === params.uri);
+    const model = monaco.editor.getModels().find((m) => m.uri.toString() === params.uri);
     if (!model) return;
     const markers = params.diagnostics.map((d: Diagnostic) => ({
-      severity:
-        lspSeverityToMarker[d.severity ?? 1] ?? monaco.MarkerSeverity.Error,
+      severity: lspSeverityToMarker[d.severity ?? 1] ?? monaco.MarkerSeverity.Error,
       startLineNumber: d.range.start.line + 1,
       startColumn: d.range.start.character + 1,
       endLineNumber: d.range.end.line + 1,

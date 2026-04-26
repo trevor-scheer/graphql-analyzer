@@ -86,7 +86,7 @@ test("schema-aware validation flags an unknown field", async ({ page }) => {
       .find((mod: { uri: { toString(): string } }) =>
         mod.uri.toString().includes("queries/example.graphql"),
       );
-    docModel?.setValue("query Bad { user(id: \"1\") { notARealField } }\n");
+    docModel?.setValue('query Bad { user(id: "1") { notARealField } }\n');
   });
 
   // The schema-aware diagnostic should arrive within a couple seconds. We

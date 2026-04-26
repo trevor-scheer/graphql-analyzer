@@ -53,10 +53,7 @@ export class MinimalClient {
       initializationOptions: initOptions,
       workspaceFolders: null,
     };
-    const result: InitializeResult = await this.conn.sendRequest(
-      "initialize",
-      params,
-    );
+    const result: InitializeResult = await this.conn.sendRequest("initialize", params);
     await this.conn.sendNotification("initialized", {});
     return result;
   }
@@ -73,9 +70,7 @@ export class MinimalClient {
     this.conn.sendNotification("textDocument/didChange", params);
   }
 
-  completion(
-    params: CompletionParams,
-  ): Promise<CompletionList | CompletionItem[] | null> {
+  completion(params: CompletionParams): Promise<CompletionList | CompletionItem[] | null> {
     return this.conn.sendRequest("textDocument/completion", params);
   }
 

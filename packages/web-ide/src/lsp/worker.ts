@@ -1,10 +1,7 @@
 /// <reference lib="webworker" />
 // Needed for DedicatedWorkerGlobalScope to be in scope for BrowserMessageReader/Writer.
 import init, { Server } from "../wasm/graphql_lsp_wasm";
-import {
-  BrowserMessageReader,
-  BrowserMessageWriter,
-} from "vscode-jsonrpc/browser";
+import { BrowserMessageReader, BrowserMessageWriter } from "vscode-jsonrpc/browser";
 
 declare const self: DedicatedWorkerGlobalScope;
 

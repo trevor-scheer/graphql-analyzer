@@ -181,6 +181,7 @@ pub fn install_panic_hook() {
     }));
 }
 
+#[must_use]
 pub fn build_server_capabilities() -> ServerCapabilities {
     use lsp_types::CodeLensOptions;
 
