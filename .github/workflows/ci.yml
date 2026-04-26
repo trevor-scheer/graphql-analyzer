@@ -281,7 +281,7 @@ jobs:
         run: npm ci
 
       - name: Build wasm bundle (release)
-        run: wasm-pack build crates/lsp-wasm --target web --out-dir packages/web-ide/src/wasm --release
+        run: wasm-pack build crates/lsp-wasm --target web --out-dir $GITHUB_WORKSPACE/packages/web-ide/src/wasm --release
 
       - name: TypeScript check
         working-directory: packages/web-ide
