@@ -665,13 +665,14 @@ impl AnalysisHost {
                                             if language.requires_extraction() {
                                                 #[cfg(feature = "extract")]
                                                 {
-                                                    let blocks = graphql_extract::extract_from_source(
-                                                        &content,
-                                                        language,
-                                                        extract_config,
-                                                        &path_str,
-                                                    )
-                                                    .unwrap_or_default();
+                                                    let blocks =
+                                                        graphql_extract::extract_from_source(
+                                                            &content,
+                                                            language,
+                                                            extract_config,
+                                                            &path_str,
+                                                        )
+                                                        .unwrap_or_default();
                                                     if blocks.is_empty() {
                                                         continue;
                                                     }
