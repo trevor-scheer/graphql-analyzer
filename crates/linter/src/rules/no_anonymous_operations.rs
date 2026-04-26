@@ -123,6 +123,7 @@ fn check_operation_has_name(
                 message,
                 "noAnonymousOperations",
             )
+            .with_message_id("no-anonymous-operations")
             .with_help("Add a name to your operation, e.g. 'query MyQuery { ... }'"),
         );
     }

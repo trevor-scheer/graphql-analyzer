@@ -342,6 +342,7 @@ impl StandaloneDocumentLintRule for RequireDescriptionRuleImpl {
                         format!("Description is required for {label}"),
                         "requireDescription",
                     )
+                    .with_message_id("require-description")
                     .with_help(
                         "Add a `# comment` line directly above the operation to document its purpose",
                     ),
@@ -374,6 +375,7 @@ fn push_missing_description(
             format!("Description is required for {label}"),
             "requireDescription",
         )
+        .with_message_id("require-description")
         .with_help("Add a description string above the definition to document its purpose"),
     );
 }

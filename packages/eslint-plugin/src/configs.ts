@@ -14,8 +14,8 @@ export const operationsRecommended: Record<string, string> = {
   "@graphql-analyzer/no-anonymous-operations": "error",
   "@graphql-analyzer/no-deprecated": "warn",
   "@graphql-analyzer/no-duplicate-fields": "error",
-  "@graphql-analyzer/unused-variables": "warn",
-  "@graphql-analyzer/unused-fragments": "warn",
+  "@graphql-analyzer/no-unused-variables": "warn",
+  "@graphql-analyzer/no-unused-fragments": "warn",
 };
 
 export const configs: Record<string, { rules: Record<string, string> }> = {

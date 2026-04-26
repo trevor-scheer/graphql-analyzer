@@ -19,11 +19,11 @@ use std::collections::HashSet;
 ///   }
 /// }
 /// ```
-pub struct UnusedVariablesRuleImpl;
+pub struct NoUnusedVariablesRuleImpl;
 
-impl LintRule for UnusedVariablesRuleImpl {
+impl LintRule for NoUnusedVariablesRuleImpl {
     fn name(&self) -> &'static str {
-        "unusedVariables"
+        "noUnusedVariables"
     }
 
     fn description(&self) -> &'static str {
@@ -35,7 +35,7 @@ impl LintRule for UnusedVariablesRuleImpl {
     }
 }
 
-impl StandaloneDocumentLintRule for UnusedVariablesRuleImpl {
+impl StandaloneDocumentLintRule for NoUnusedVariablesRuleImpl {
     fn check(
         &self,
         db: &dyn graphql_hir::GraphQLHirDatabase,
@@ -67,10 +67,6 @@ impl StandaloneDocumentLintRule for UnusedVariablesRuleImpl {
 struct DeclaredVariable {
     /// Variable name (without $)
     name: String,
-    /// Byte offset of the variable name (for diagnostic range)
-    name_start: usize,
-    /// Byte offset of the end of the variable name
-    name_end: usize,
     /// Byte offset of the entire variable definition (including type, default value)
     def_start: usize,
     /// Byte offset of the end of the variable definition
@@ -126,15 +122,10 @@ fn check_operation_for_unused_variables(
         for variable_def in variable_definitions.variable_definitions() {
             if let Some(variable) = variable_def.variable() {
                 if let Some(name) = variable.name_text() {
-                    let name_range = variable
-                        .name_range()
-                        .unwrap_or_else(|| variable.byte_range());
                     let def_range = variable_def.byte_range();
 
                     declared_variables.push(DeclaredVariable {
                         name,
-                        name_start: name_range.start,
-                        name_end: name_range.end,
                         def_start: def_range.start,
                         def_end: def_range.end,
                     });
@@ -152,17 +143,37 @@ fn check_operation_for_unused_variables(
     let mut collector = VariableCollector::new();
     walk_operation(&mut collector, operation);
 
-    // Step 3: Report unused variables with fixes
+    // Pull the operation name once for graphql-eslint message parity. When
+    // the operation is anonymous, the message drops the `in operation "X"`
+    // suffix verbatim like graphql-js's `NoUnusedVariablesRule`.
+    let operation_name = operation.name().and_then(|n| n.text().to_string().into());
+
+    // Step 3: Report unused variables with fixes. Mirror graphql-eslint's
+    // location and message exactly: graphql-eslint's `validationToRule`
+    // re-anchors the diagnostic to the first token of the variable
+    // definition (the `$` sigil), and the text comes from graphql-js's
+    // `NoUnusedVariablesRule` verbatim.
     for var in declared_variables {
         if !collector.variables.contains(&var.name) {
-            let message = format!("Variable '${}' is declared but never used", var.name);
+            let message = match &operation_name {
+                Some(name) => format!(
+                    "Variable \"${}\" is never used in operation \"{name}\".",
+                    var.name
+                ),
+                None => format!("Variable \"${}\" is never used.", var.name),
+            };
             let fix = compute_variable_removal_fix(&var);
+
+            // `def_start` points at the `$` sigil; span just that single
+            // character to match graphql-eslint's first-token loc.
+            let dollar_start = var.def_start;
+            let dollar_end = var.def_start + 1;
 
             diagnostics.push(
                 LintDiagnostic::warning(
-                    doc.span(var.name_start, var.name_end),
+                    doc.span(dollar_start, dollar_end),
                     message,
-                    "unusedVariables",
+                    "noUnusedVariables",
                 )
                 .with_fix(fix)
                 .with_help("Remove the unused variable declaration")
@@ -209,7 +220,7 @@ mod tests {
     #[test]
     fn test_unused_variable() {
         let db = RootDatabase::default();
-        let rule = UnusedVariablesRuleImpl;
+        let rule = NoUnusedVariablesRuleImpl;
 
         let source = "
 query GetUser($id: ID!, $unused: String) {
@@ -235,7 +246,7 @@ query GetUser($id: ID!, $unused: String) {
         assert_eq!(diagnostics.len(), 1);
         assert_eq!(
             diagnostics[0].message,
-            "Variable '$unused' is declared but never used"
+            "Variable \"$unused\" is never used in operation \"GetUser\"."
         );
 
         // Verify fix is provided
@@ -250,7 +261,7 @@ query GetUser($id: ID!, $unused: String) {
     #[test]
     fn test_all_variables_used() {
         let db = RootDatabase::default();
-        let rule = UnusedVariablesRuleImpl;
+        let rule = NoUnusedVariablesRuleImpl;
 
         let source = "
 query GetUser($id: ID!, $name: String) {
@@ -279,7 +290,7 @@ query GetUser($id: ID!, $name: String) {
     #[test]
     fn test_variable_in_directive() {
         let db = RootDatabase::default();
-        let rule = UnusedVariablesRuleImpl;
+        let rule = NoUnusedVariablesRuleImpl;
 
         let source = "
 query GetUser($id: ID!, $skip: Boolean!) {
@@ -308,7 +319,7 @@ query GetUser($id: ID!, $skip: Boolean!) {
     #[test]
     fn test_variable_in_nested_field() {
         let db = RootDatabase::default();
-        let rule = UnusedVariablesRuleImpl;
+        let rule = NoUnusedVariablesRuleImpl;
 
         let source = "
 query GetUser($id: ID!, $postId: ID!) {
@@ -340,7 +351,7 @@ query GetUser($id: ID!, $postId: ID!) {
     #[test]
     fn test_variable_in_list() {
         let db = RootDatabase::default();
-        let rule = UnusedVariablesRuleImpl;
+        let rule = NoUnusedVariablesRuleImpl;
 
         let source = "
 query GetUsers($ids: [ID!]!, $id1: ID!, $id2: ID!) {
@@ -371,7 +382,7 @@ query GetUsers($ids: [ID!]!, $id1: ID!, $id2: ID!) {
     #[test]
     fn test_variable_in_object() {
         let db = RootDatabase::default();
-        let rule = UnusedVariablesRuleImpl;
+        let rule = NoUnusedVariablesRuleImpl;
 
         let source = "
 query CreateUser($name: String!, $email: String!) {
@@ -400,7 +411,7 @@ query CreateUser($name: String!, $email: String!) {
     #[test]
     fn test_multiple_unused_variables() {
         let db = RootDatabase::default();
-        let rule = UnusedVariablesRuleImpl;
+        let rule = NoUnusedVariablesRuleImpl;
 
         let source = "
 query GetUser($id: ID!, $unused1: String, $unused2: Int, $limit: Int) {
@@ -436,7 +447,7 @@ query GetUser($id: ID!, $unused1: String, $unused2: Int, $limit: Int) {
     #[test]
     fn test_no_variables() {
         let db = RootDatabase::default();
-        let rule = UnusedVariablesRuleImpl;
+        let rule = NoUnusedVariablesRuleImpl;
 
         let source = "
 query GetUser {
@@ -465,7 +476,7 @@ query GetUser {
     #[test]
     fn test_mutation_with_unused_variable() {
         let db = RootDatabase::default();
-        let rule = UnusedVariablesRuleImpl;
+        let rule = NoUnusedVariablesRuleImpl;
 
         let source = "
 mutation UpdateUser($id: ID!, $name: String!, $unused: Boolean) {
@@ -496,7 +507,7 @@ mutation UpdateUser($id: ID!, $name: String!, $unused: Boolean) {
     #[test]
     fn test_variable_in_inline_fragment_directive() {
         let db = RootDatabase::default();
-        let rule = UnusedVariablesRuleImpl;
+        let rule = NoUnusedVariablesRuleImpl;
 
         let source = "
 query GetUser($id: ID!, $include: Boolean!) {

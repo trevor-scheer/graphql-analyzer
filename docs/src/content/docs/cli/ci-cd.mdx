@@ -99,8 +99,8 @@ fi
 
 ## Enabling expensive rules in CI
 
-Some lint rules (like `unusedFields`) are too expensive for real-time editor feedback but work well in CI. You can enable them via CLI flags:
+Some lint rules (like `noUnusedFields`) are too expensive for real-time editor feedback but work well in CI. You can enable them via CLI flags:
 
 ```bash
-graphql check --rule unusedFields=error --rule unusedFragments=error
+graphql check --rule noUnusedFields=error --rule noUnusedFragments=error
 ```

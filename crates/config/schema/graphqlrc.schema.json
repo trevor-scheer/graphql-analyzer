@@ -263,11 +263,11 @@
               "$ref": "#/definitions/LintRuleConfig",
               "description": "Enforce required field selections (e.g. id, __typename) on object types for cache normalization"
             },
-            "unusedFragments": {
+            "noUnusedFragments": {
               "$ref": "#/definitions/LintRuleConfig",
               "description": "Warn about fragments that are defined but never used"
             },
-            "unusedFields": {
+            "noUnusedFields": {
               "$ref": "#/definitions/LintRuleConfig",
               "description": "Warn about fields that are selected but unused"
             },
@@ -279,7 +279,7 @@
               "$ref": "#/definitions/LintRuleConfig",
               "description": "Enforces Relay-compliant edge type definitions"
             },
-            "unusedVariables": {
+            "noUnusedVariables": {
               "$ref": "#/definitions/LintRuleConfig",
               "description": "Warn about variables that are declared but never used"
             },

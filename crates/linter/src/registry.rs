@@ -6,6 +6,7 @@ use crate::rules::{
     NoAnonymousOperationsRuleImpl, NoDeprecatedRuleImpl, NoDuplicateFieldsRuleImpl,
     NoHashtagDescriptionRuleImpl, NoOnePlaceFragmentsRuleImpl, NoRootTypeRuleImpl,
     NoScalarResultTypeOnMutationRuleImpl, NoTypenamePrefixRuleImpl, NoUnreachableTypesRuleImpl,
+    NoUnusedFieldsRuleImpl, NoUnusedFragmentsRuleImpl, NoUnusedVariablesRuleImpl,
     OperationNameSuffixRuleImpl, RedundantFieldsRuleImpl, RelayArgumentsRuleImpl,
     RelayConnectionTypesRuleImpl, RelayEdgeTypesRuleImpl, RelayPageInfoRuleImpl,
     RequireDeprecationDateRuleImpl, RequireDeprecationReasonRuleImpl, RequireDescriptionRuleImpl,
@@ -13,8 +14,7 @@ use crate::rules::{
     RequireImportFragmentRuleImpl, RequireNullableFieldsWithOneofRuleImpl,
     RequireNullableResultInRootRuleImpl, RequireSelectionsRuleImpl,
     RequireTypePatternWithOneofRuleImpl, SelectionSetDepthRuleImpl, StrictIdInTypesRuleImpl,
-    UniqueEnumValueNamesRuleImpl, UniqueNamesRuleImpl, UnusedFieldsRuleImpl,
-    UnusedFragmentsRuleImpl, UnusedVariablesRuleImpl,
+    UniqueEnumValueNamesRuleImpl, UniqueNamesRuleImpl,
 };
 use crate::traits::{
     DocumentSchemaLintRule, LintRule, ProjectLintRule, StandaloneDocumentLintRule,
@@ -39,7 +39,7 @@ static STANDALONE_DOCUMENT_RULES: LazyLock<Vec<Arc<dyn StandaloneDocumentLintRul
             Arc::new(RequireDescriptionRuleImpl),
             Arc::new(RequireImportFragmentRuleImpl),
             Arc::new(SelectionSetDepthRuleImpl),
-            Arc::new(UnusedVariablesRuleImpl),
+            Arc::new(NoUnusedVariablesRuleImpl),
         ]
     });
 
@@ -60,8 +60,8 @@ static PROJECT_RULES: LazyLock<Vec<Arc<dyn ProjectLintRule>>> = LazyLock::new(||
     vec![
         Arc::new(NoOnePlaceFragmentsRuleImpl),
         Arc::new(UniqueNamesRuleImpl),
-        Arc::new(UnusedFieldsRuleImpl),
-        Arc::new(UnusedFragmentsRuleImpl),
+        Arc::new(NoUnusedFieldsRuleImpl),
+        Arc::new(NoUnusedFragmentsRuleImpl),
     ]
 });
 
@@ -248,7 +248,7 @@ mod tests {
         assert!(names.contains(&"noAnonymousOperations"));
         assert!(names.contains(&"noDeprecated"));
         assert!(names.contains(&"uniqueNames"));
-        assert!(names.contains(&"unusedFragments"));
+        assert!(names.contains(&"noUnusedFragments"));
     }
 
     #[test]

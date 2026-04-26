@@ -164,6 +164,7 @@ impl StandaloneDocumentLintRule for RequireImportFragmentRuleImpl {
                         format!("Expected \"{frag_name}\" fragment to be imported."),
                         "requireImportFragment",
                     )
+                    .with_message_id("require-import-fragment")
                     .with_help(format!("Add import expression for \"{frag_name}\".")),
                 );
             }

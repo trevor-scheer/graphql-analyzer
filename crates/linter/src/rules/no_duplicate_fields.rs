@@ -132,6 +132,7 @@ fn check_selection_set(
                                     format!("Field `{name}` defined multiple times."),
                                     "noDuplicateFields",
                                 )
+                                .with_message_id("no-duplicate-fields")
                                 .with_help(
                                     "Remove the duplicate selection or give it a distinct alias",
                                 ),

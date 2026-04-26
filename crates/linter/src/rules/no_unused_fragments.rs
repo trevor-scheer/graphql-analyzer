@@ -4,8 +4,13 @@ use graphql_apollo_ext::{DocumentExt, NameExt, RangeExt};
 use graphql_base_db::{FileId, ProjectFiles};
 use std::collections::{HashMap, HashSet};
 
-/// Trait implementation for `unused_fragments` rule
-pub struct UnusedFragmentsRuleImpl;
+/// Length of the literal `fragment` keyword in bytes — graphql-eslint's
+/// adapter re-anchors the diagnostic onto this token, so we span the same
+/// range for parity.
+const FRAGMENT_KEYWORD_LEN: usize = 8;
+
+/// Trait implementation for `no_unused_fragments` rule
+pub struct NoUnusedFragmentsRuleImpl;
 
 /// Information about a fragment definition for fix computation
 struct FragmentInfo {
@@ -25,9 +30,9 @@ struct FragmentInfo {
     block_def_count: usize,
 }
 
-impl LintRule for UnusedFragmentsRuleImpl {
+impl LintRule for NoUnusedFragmentsRuleImpl {
     fn name(&self) -> &'static str {
-        "unusedFragments"
+        "noUnusedFragments"
     }
 
     fn description(&self) -> &'static str {
@@ -39,7 +44,7 @@ impl LintRule for UnusedFragmentsRuleImpl {
     }
 }
 
-impl ProjectLintRule for UnusedFragmentsRuleImpl {
+impl ProjectLintRule for NoUnusedFragmentsRuleImpl {
     fn check(
         &self,
         db: &dyn graphql_hir::GraphQLHirDatabase,
@@ -107,22 +112,29 @@ impl ProjectLintRule for UnusedFragmentsRuleImpl {
         // Step 3: Report unused fragments with fixes
         for frag_info in all_fragments {
             if !used_fragments.contains(&frag_info.name) {
-                let message = format!(
-                    "Fragment '{}' is defined but never used in any operation",
-                    frag_info.name
-                );
+                // Mirror graphql-eslint exactly: drop-in users see the same
+                // text and source positions on `LintMessage` as
+                // `@graphql-eslint/eslint-plugin`. graphql-eslint's adapter
+                // re-locates the diagnostic onto the `fragment` keyword token
+                // (the start of `fragmentDef`), not the fragment name; the
+                // message comes from graphql-js's `NoUnusedFragmentsRule`.
+                let message = format!("Fragment \"{}\" is never used.", frag_info.name);
 
-                // For single-definition TS/JS blocks with a declaration range,
-                // delete the entire declaration using file-level coordinates
-                let (name_span, fix) =
+                // Span the `fragment` keyword (8 bytes from def_start) in the
+                // document's coordinate space, then promote to file-level
+                // coordinates if the block has a declaration_range.
+                let keyword_doc_start = frag_info.def_start;
+                let keyword_doc_end = frag_info.def_start + FRAGMENT_KEYWORD_LEN;
+
+                let (diag_span, fix) =
                     if frag_info.block_def_count == 1 && frag_info.declaration_range.is_some() {
                         let (decl_start, decl_end) = frag_info.declaration_range.unwrap();
                         let byte_offset = frag_info.name_span.byte_offset;
 
-                        // File-level name span for the diagnostic underline
-                        let file_name_span = graphql_syntax::SourceSpan {
-                            start: byte_offset + frag_info.name_span.start,
-                            end: byte_offset + frag_info.name_span.end,
+                        // File-level keyword span for the diagnostic underline.
+                        let file_span = graphql_syntax::SourceSpan {
+                            start: byte_offset + keyword_doc_start,
+                            end: byte_offset + keyword_doc_end,
                             source: None,
                             line_offset: 0,
                             byte_offset: 0,
@@ -133,16 +145,25 @@ impl ProjectLintRule for UnusedFragmentsRuleImpl {
                             vec![TextEdit::delete(decl_start, decl_end)],
                         );
 
-                        (file_name_span, fix)
+                        (file_span, fix)
                     } else {
+                        // Document-relative keyword span. Reuse `name_span` to
+                        // inherit block context (line_offset / source) for
+                        // embedded TS/JS fragments — only the start/end need
+                        // to point at the `fragment` keyword instead of the
+                        // name.
+                        let mut keyword_span = frag_info.name_span.clone();
+                        keyword_span.start = keyword_doc_start;
+                        keyword_span.end = keyword_doc_end;
+
                         let fix = CodeFix::new(
                             format!("Remove unused fragment '{}'", frag_info.name),
                             vec![TextEdit::delete(frag_info.def_start, frag_info.def_end)],
                         );
-                        (frag_info.name_span, fix)
+                        (keyword_span, fix)
                     };
 
-                let diag = LintDiagnostic::warning(name_span, message, "unusedFragments")
+                let diag = LintDiagnostic::warning(diag_span, message, "noUnusedFragments")
                     .with_fix(fix)
                     .with_help("Remove unused fragments or reference them in an operation")
                     .with_tag(crate::diagnostics::DiagnosticTag::Unnecessary);
@@ -201,7 +222,7 @@ mod tests {
     #[test]
     fn test_unused_fragment_has_fix() {
         let db = RootDatabase::default();
-        let rule = UnusedFragmentsRuleImpl;
+        let rule = NoUnusedFragmentsRuleImpl;
 
         let source = "fragment UnusedFields on User { name }";
         let file_id = FileId::new(0);
@@ -243,7 +264,7 @@ mod tests {
     #[test]
     fn test_used_fragment_no_diagnostic() {
         let db = RootDatabase::default();
-        let rule = UnusedFragmentsRuleImpl;
+        let rule = NoUnusedFragmentsRuleImpl;
 
         let source =
             "fragment UserFields on User { name } query GetUser { user { ...UserFields } }";
@@ -267,7 +288,7 @@ mod tests {
     #[test]
     fn test_fragment_used_in_another_file() {
         let db = RootDatabase::default();
-        let rule = UnusedFragmentsRuleImpl;
+        let rule = NoUnusedFragmentsRuleImpl;
 
         // File 1: Fragment definition
         let source1 = "fragment UserFields on User { name }";
@@ -313,7 +334,7 @@ mod tests {
     #[test]
     fn test_multiple_unused_fragments() {
         let db = RootDatabase::default();
-        let rule = UnusedFragmentsRuleImpl;
+        let rule = NoUnusedFragmentsRuleImpl;
 
         let source = "fragment A on User { name } fragment B on User { email }";
         let file_id = FileId::new(0);
@@ -347,7 +368,7 @@ mod tests {
     #[test]
     fn test_fix_range_is_accurate() {
         let db = RootDatabase::default();
-        let rule = UnusedFragmentsRuleImpl;
+        let rule = NoUnusedFragmentsRuleImpl;
 
         // Fragment starts after the query - "query Q { user }" has a valid selection
         let source = "query Q { user } fragment Unused on User { name email }";
@@ -381,7 +402,7 @@ mod tests {
     #[test]
     fn test_ts_single_fragment_fix_deletes_declaration() {
         let db = RootDatabase::default();
-        let rule = UnusedFragmentsRuleImpl;
+        let rule = NoUnusedFragmentsRuleImpl;
 
         let source =
             "import { gql } from 'graphql-tag';\nconst F = gql`fragment Unused on User { name }`;\n";
@@ -418,7 +439,7 @@ mod tests {
     #[test]
     fn test_diagnostic_range_points_to_fragment_name() {
         let db = RootDatabase::default();
-        let rule = UnusedFragmentsRuleImpl;
+        let rule = NoUnusedFragmentsRuleImpl;
 
         let source = "fragment UnusedFragment on User { name }";
         let file_id = FileId::new(0);
@@ -440,8 +461,10 @@ mod tests {
         assert_eq!(file_diags.len(), 1);
 
         let diag = &file_diags[0];
-        // Diagnostic range should point to the fragment name "UnusedFragment"
-        let name_text = &source[diag.span.start..diag.span.end];
-        assert_eq!(name_text, "UnusedFragment");
+        // Diagnostic range now points at the `fragment` keyword for parity
+        // with graphql-eslint's adapter (which re-locates onto the first
+        // token of the fragment definition).
+        let keyword_text = &source[diag.span.start..diag.span.end];
+        assert_eq!(keyword_text, "fragment");
     }
 }

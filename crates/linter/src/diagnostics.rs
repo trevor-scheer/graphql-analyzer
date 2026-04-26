@@ -89,6 +89,10 @@ pub struct LintDiagnostic {
     pub message: String,
     /// Rule identifier (e.g., `"deprecated_field"`)
     pub rule: String,
+    /// Optional ESLint-compatible messageId. Stable per-diagnostic-site
+    /// identifier matching graphql-eslint's emitted messageId, so the `ESLint`
+    /// shim can surface it on `LintMessage.messageId` for drop-in parity.
+    pub message_id: Option<String>,
     /// Optional auto-fix for this diagnostic
     pub fix: Option<CodeFix>,
     /// Optional help text explaining how to resolve the issue
@@ -113,6 +117,7 @@ impl LintDiagnostic {
             severity,
             message: message.into(),
             rule: rule.into(),
+            message_id: None,
             fix: None,
             help: None,
             url: None,
@@ -132,6 +137,7 @@ impl LintDiagnostic {
             severity: LintSeverity::Warning,
             message: message.into(),
             rule: rule.into(),
+            message_id: None,
             fix: None,
             help: None,
             url: None,
@@ -151,6 +157,7 @@ impl LintDiagnostic {
             severity: LintSeverity::Error,
             message: message.into(),
             rule: rule.into(),
+            message_id: None,
             fix: None,
             help: None,
             url: None,
@@ -170,11 +177,20 @@ impl LintDiagnostic {
             severity: LintSeverity::Info,
             message: message.into(),
             rule: rule.into(),
+            message_id: None,
             fix: None,
             help: None,
             url: None,
             tags: Vec::new(),
         }
+    }
+
+    /// Add a messageId that matches graphql-eslint's per-diagnostic-site id.
+    /// The `ESLint` shim forwards this onto `LintMessage.messageId`.
+    #[must_use]
+    pub fn with_message_id(mut self, id: impl Into<String>) -> Self {
+        self.message_id = Some(id.into());
+        self
     }
 
     /// Add an auto-fix to this diagnostic

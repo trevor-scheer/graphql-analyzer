@@ -127,12 +127,15 @@ impl StandaloneDocumentLintRule for LoneExecutableDefinitionRuleImpl {
                     Some(n) => format!("{kind} \"{n}\""),
                     None => kind.to_string(),
                 };
-                diagnostics.push(LintDiagnostic::new(
-                    doc.span(start, end),
-                    LintSeverity::Warning,
-                    format!("{label} should be in a separate file."),
-                    "loneExecutableDefinition",
-                ));
+                diagnostics.push(
+                    LintDiagnostic::new(
+                        doc.span(start, end),
+                        LintSeverity::Warning,
+                        format!("{label} should be in a separate file."),
+                        "loneExecutableDefinition",
+                    )
+                    .with_message_id("lone-executable-definition"),
+                );
             }
         }
 

@@ -160,6 +160,8 @@ pub fn validate_file(
                         range,
                         source: "apollo-compiler".into(),
                         code: None,
+                        message_id: None,
+                        fix: None,
                         help: None,
                         url: None,
                         tags: Vec::new(),

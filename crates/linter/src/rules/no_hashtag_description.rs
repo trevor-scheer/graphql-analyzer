@@ -135,6 +135,7 @@ impl StandaloneSchemaLintRule for NoHashtagDescriptionRuleImpl {
                                 ),
                                 "noHashtagDescription",
                             )
+                            .with_message_id("HASHTAG_COMMENT")
                             .with_help(
                                 "Replace the hashtag comment with a string or block string description above the definition",
                             ),

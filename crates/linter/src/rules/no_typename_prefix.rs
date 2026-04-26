@@ -58,15 +58,18 @@ impl StandaloneSchemaLintRule for NoTypenamePrefixRuleImpl {
                     diagnostics_by_file
                         .entry(type_def.file_id)
                         .or_default()
-                        .push(LintDiagnostic::new(
-                            span,
-                            LintSeverity::Warning,
-                            format!(
-                                "Field \"{}\" starts with the name of the parent type \"{}\"",
-                                field.name, type_def.name,
-                            ),
-                            "noTypenamePrefix",
-                        ));
+                        .push(
+                            LintDiagnostic::new(
+                                span,
+                                LintSeverity::Warning,
+                                format!(
+                                    "Field \"{}\" starts with the name of the parent type \"{}\"",
+                                    field.name, type_def.name,
+                                ),
+                                "noTypenamePrefix",
+                            )
+                            .with_message_id("NO_TYPENAME_PREFIX"),
+                        );
                 }
             }
         }

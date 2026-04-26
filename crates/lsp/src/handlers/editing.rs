@@ -267,6 +267,7 @@ pub(crate) fn handle_code_action(
                 severity: graphql_ide::DiagnosticSeverity::Warning,
                 message: diag.message.clone(),
                 code: Some(diag.rule.clone()),
+                message_id: None,
                 source: "graphql-linter".to_string(),
                 fix: None,
                 help: diag.help.clone(),

@@ -1,15 +1,15 @@
 ---
-slug: rules/unusedFragments
-title: unusedFragments
+slug: rules/noUnusedFragments
+title: noUnusedFragments
 description: Detect unused fragment definitions.
 ---
 
-| Property         | Value             |
-| ---------------- | ----------------- |
-| Config name      | `unusedFragments` |
-| Default severity | `warn`            |
-| Context          | Project           |
-| In recommended   | Yes               |
+| Property         | Value               |
+| ---------------- | ------------------- |
+| Config name      | `noUnusedFragments` |
+| Default severity | `warn`              |
+| Context          | Project             |
+| In recommended   | Yes                 |
 
 ## What it checks
 
@@ -44,5 +44,5 @@ extensions:
   graphql-analyzer:
     lint:
       rules:
-        unusedFragments: warn # or error, off
+        noUnusedFragments: warn # or error, off
 ```

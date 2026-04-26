@@ -188,13 +188,16 @@ impl StandaloneDocumentLintRule for MatchDocumentFilenameRuleImpl {
             if let Some(expected_ext) = opts.file_extension.as_deref() {
                 if let Some(actual) = actual_extension.as_deref() {
                     if actual != expected_ext {
-                        diagnostics.push(LintDiagnostic::warning(
-                            anchor_span.clone(),
-                            format!(
-                                "File extension \"{actual}\" don't match extension \"{expected_ext}\""
-                            ),
-                            "matchDocumentFilename",
-                        ));
+                        diagnostics.push(
+                            LintDiagnostic::warning(
+                                anchor_span.clone(),
+                                format!(
+                                    "File extension \"{actual}\" don't match extension \"{expected_ext}\""
+                                ),
+                                "matchDocumentFilename",
+                            )
+                            .with_message_id("MATCH_EXTENSION"),
+                        );
                     }
                 }
             }
@@ -221,6 +224,7 @@ impl StandaloneDocumentLintRule for MatchDocumentFilenameRuleImpl {
                         ),
                         "matchDocumentFilename",
                     )
+                    .with_message_id("MATCH_STYLE")
                     .with_help(format!(
                         "Rename the file to \"{expected_full}\" or rename the {op_type_str} to match the filename"
                     )),

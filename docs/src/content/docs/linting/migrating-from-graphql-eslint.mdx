@@ -1,0 +1,119 @@
+---
+title: Migrating from @graphql-eslint/eslint-plugin
+description: Drop-in migration steps from @graphql-eslint/eslint-plugin to @graphql-analyzer/eslint-plugin, plus the current behavioral caveats.
+---
+
+`@graphql-analyzer/eslint-plugin` is designed as a **drop-in replacement** for
+[`@graphql-eslint/eslint-plugin`](https://the-guild.dev/graphql/eslint/docs).
+Plugin name, rule names, message text, source positions, and `messageId`
+values all match the upstream plugin where the rule is shared. CI enforces
+this with a parity test that fails on any unexplained drift.
+
+This page documents what to change in your project, what is structurally
+identical, and what behaviors still diverge during the alpha.
+
+## TL;DR
+
+For most projects, migration is two find-and-replace passes:
+
+1. `@graphql-eslint/eslint-plugin` → `@graphql-analyzer/eslint-plugin` (in
+   `package.json` and your ESLint config imports).
+2. The plugin object you bind in flat config keeps the same `@graphql-eslint`
+   key by convention — but you may switch it to `@graphql-analyzer` to match
+   the package name. Rule names below the prefix are unchanged.
+
+If you don't customize message text or messageIds, nothing else needs to
+change.
+
+## What's identical
+
+- **Rule names.** All 31 shared rules use the same kebab-case name as
+  upstream. Migration to a new prefix is mechanical.
+- **Recommended preset names.** `flat/schema-recommended` and
+  `flat/operations-recommended` are exposed under the `configs` export.
+- **Rule options shape.** Options pass through unchanged — anything the
+  upstream rule accepted, this plugin accepts (and ignores unknown keys
+  rather than rejecting them, for forward compatibility).
+- **`.graphqlrc.yaml` resolution.** Both plugins read schema/documents from
+  the same graphql-config file.
+- **Diagnostic shape.** `LintMessage.message`, `messageId`, `line`, `column`,
+  `endLine`, `endColumn`, and `fix` are populated to match upstream
+  per-diagnostic-site. The parity test pairs every diagnostic by source
+  position and fails on any divergence.
+
+## What changed (rule renames)
+
+Three rules were renamed during the alpha so all shared rules are 1:1 by
+name. If you were using these earlier names, update your config:
+
+| Old name (graphql-analyzer alpha)    | New name (matches graphql-eslint)       |
+| ------------------------------------ | --------------------------------------- |
+| `@graphql-analyzer/unused-fields`    | `@graphql-analyzer/no-unused-fields`    |
+| `@graphql-analyzer/unused-fragments` | `@graphql-analyzer/no-unused-fragments` |
+| `@graphql-analyzer/unused-variables` | `@graphql-analyzer/no-unused-variables` |
+
+In `.graphqlrc.yaml` lint config, the camelCase keys are now `noUnusedFields`,
+`noUnusedFragments`, `noUnusedVariables`.
+
+## Validation rules: handled, not exposed
+
+`@graphql-eslint` exposes 30+ rules that are direct re-exports of
+`graphql-js`'s `specifiedRules` (`known-type-names`,
+`fields-on-correct-type`, `no-undefined-variables`, etc.). Those run inside
+graphql-analyzer's validation pass instead of as configurable lint rules.
+
+If your existing config enables any of these rules:
+
+```js
+"@graphql-eslint/known-type-names": "error",
+"@graphql-eslint/fields-on-correct-type": "error",
+"@graphql-eslint/no-undefined-variables": "error",
+```
+
+…you can safely delete those entries during migration. The same checks still
+run; they're just not separately configurable. The full list of rules in
+this category is in `packages/eslint-plugin/test/parity.test.mjs`
+(`KNOWN_MISSING`).
+
+## What graphql-analyzer adds
+
+A handful of rules ship under `@graphql-analyzer` that don't exist in
+graphql-eslint. Adding them is optional; they don't conflict with existing
+configs:
+
+- `operation-name-suffix` — operation names should end in
+  `Query`/`Mutation`/`Subscription`.
+- `redundant-fields` — flags fields that are already covered by a sibling
+  fragment spread.
+- `require-id-field` — flags object selections that don't request `id`.
+- `unique-names` — enforces project-wide uniqueness of operation/fragment
+  names (useful for persisted-queries setups).
+
+## Known limitations during alpha
+
+- **ESLint legacy config (`.eslintrc.*`) is not supported.** Flat config
+  only.
+- **Rule options passed through ESLint's `rules: { ... }` config object are
+  not yet forwarded** to the Rust analyzer. Configure options in
+  `.graphqlrc.yaml` for now.
+- **Multi-project `.graphqlrc.yaml` configs aren't supported yet** — the
+  plugin will load whichever project is at the resolved config path.
+- **Autofix coverage is partial.** Fix parity for `alphabetize` matches
+  upstream; other graphql-eslint rules that ship autofixes have not yet
+  been wired into the ESLint shim. Open a PR or issue if a specific rule's
+  autofix is blocking your migration.
+
+## Verifying migration
+
+The plugin ships a parity test that runs `@graphql-analyzer/eslint-plugin`
+and `@graphql-eslint/eslint-plugin` against the same fixture per shared
+rule and asserts:
+
+- Same diagnostic count.
+- Same `message` text.
+- Same `messageId`.
+- Same `line` / `column` / `endLine` / `endColumn`.
+- Same `fix` (or both `null`).
+
+If you migrate and see different results, that's a parity bug — please
+[open an issue](https://github.com/trevor-scheer/graphql-analyzer/issues).

@@ -206,10 +206,10 @@ Available lint rules (use camelCase in config):
 | `noAnonymousOperations` | Require all operations to have names                              |
 | `uniqueNames`           | Ensure operation and fragment names are unique across the project |
 | `requireIdField`        | Require selection of ID fields on object types                    |
-| `unusedFragments`       | Warn about fragments that are defined but never used              |
-| `unusedFields`          | Warn about fields that are selected but unused                    |
+| `noUnusedFragments`     | Warn about fragments that are defined but never used              |
+| `noUnusedFields`        | Warn about fields that are selected but unused                    |
 | `redundantFields`       | Warn about redundant field selections                             |
-| `unusedVariables`       | Warn about variables that are declared but never used             |
+| `noUnusedVariables`     | Warn about variables that are declared but never used             |
 | `operationNameSuffix`   | Require operation names to have a specific suffix                 |
 
 Severity values: `off`, `warn`, `error`

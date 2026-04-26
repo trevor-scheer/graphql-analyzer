@@ -5,12 +5,12 @@ use apollo_parser::cst::{self, CstNode};
 use graphql_base_db::{FileId, ProjectFiles};
 use std::collections::{HashMap, HashSet};
 
-/// Trait implementation for `unused_fields` rule
-pub struct UnusedFieldsRuleImpl;
+/// Trait implementation for `no_unused_fields` rule
+pub struct NoUnusedFieldsRuleImpl;
 
-impl LintRule for UnusedFieldsRuleImpl {
+impl LintRule for NoUnusedFieldsRuleImpl {
     fn name(&self) -> &'static str {
-        "unusedFields"
+        "noUnusedFields"
     }
 
     fn description(&self) -> &'static str {
@@ -34,7 +34,7 @@ struct FieldInfo {
     span: graphql_syntax::SourceSpan,
 }
 
-impl ProjectLintRule for UnusedFieldsRuleImpl {
+impl ProjectLintRule for NoUnusedFieldsRuleImpl {
     fn check(
         &self,
         db: &dyn graphql_hir::GraphQLHirDatabase,
@@ -117,14 +117,13 @@ impl ProjectLintRule for UnusedFieldsRuleImpl {
                 .is_some_and(|set| set.contains(&field_info.field_name));
 
             if !is_used {
-                let message = format!(
-                    "Field '{}.{}' is defined in the schema but never used in any operation or fragment. \
-                    This field may be safe to remove if no external clients are using it.",
-                    field_info.type_name, field_info.field_name
-                );
+                // Mirror graphql-eslint's `no-unused-fields` message verbatim
+                // (drop-in parity expectation: same text, same messageId).
+                let message = format!("Field \"{}\" is unused", field_info.field_name);
 
                 let diag =
-                    LintDiagnostic::warning(field_info.span.clone(), message, "unusedFields")
+                    LintDiagnostic::warning(field_info.span.clone(), message, "noUnusedFields")
+                        .with_message_id("no-unused-fields")
                         .with_help("Remove the unused field, or add it to an operation or fragment")
                         .with_tag(crate::diagnostics::DiagnosticTag::Unnecessary);
 
@@ -300,7 +299,7 @@ mod tests {
     #[test]
     fn test_all_fields_used_no_warning() {
         let db = RootDatabase::default();
-        let rule = UnusedFieldsRuleImpl;
+        let rule = NoUnusedFieldsRuleImpl;
 
         let schema = r"
 type Query {
@@ -331,7 +330,7 @@ query GetUser {
     #[test]
     fn test_unused_field_warning() {
         let db = RootDatabase::default();
-        let rule = UnusedFieldsRuleImpl;
+        let rule = NoUnusedFieldsRuleImpl;
 
         let schema = r"
 type Query {
@@ -360,14 +359,14 @@ query GetUser {
         assert_eq!(diagnostics.len(), 1);
         let file_diags = diagnostics.values().next().unwrap();
         assert_eq!(file_diags.len(), 1);
-        assert!(file_diags[0].message.contains("User.unusedField"));
-        assert!(file_diags[0].message.contains("never used"));
+        assert!(file_diags[0].message.contains("\"unusedField\""));
+        assert!(file_diags[0].message.contains("is unused"));
     }
 
     #[test]
     fn test_field_used_in_fragment_not_reported() {
         let db = RootDatabase::default();
-        let rule = UnusedFieldsRuleImpl;
+        let rule = NoUnusedFieldsRuleImpl;
 
         let schema = r"
 type Query {
@@ -398,7 +397,7 @@ fragment UserFields on User {
     #[test]
     fn test_root_type_fields_not_reported() {
         let db = RootDatabase::default();
-        let rule = UnusedFieldsRuleImpl;
+        let rule = NoUnusedFieldsRuleImpl;
 
         let schema = r"
 type Query {
@@ -440,7 +439,7 @@ query GetUser {
     #[test]
     fn test_introspection_types_not_reported() {
         let db = RootDatabase::default();
-        let rule = UnusedFieldsRuleImpl;
+        let rule = NoUnusedFieldsRuleImpl;
 
         let schema = r"
 type Query {
@@ -477,7 +476,7 @@ query GetUser {
     #[test]
     fn test_multiple_unused_fields() {
         let db = RootDatabase::default();
-        let rule = UnusedFieldsRuleImpl;
+        let rule = NoUnusedFieldsRuleImpl;
 
         let schema = r"
 type Query {
@@ -510,7 +509,7 @@ query GetUser {
     #[test]
     fn test_interface_field_used_through_interface() {
         let db = RootDatabase::default();
-        let rule = UnusedFieldsRuleImpl;
+        let rule = NoUnusedFieldsRuleImpl;
 
         let schema = r"
 type Query {
@@ -552,7 +551,7 @@ query GetNode {
     #[test]
     fn test_implementing_type_field_tracked_separately() {
         let db = RootDatabase::default();
-        let rule = UnusedFieldsRuleImpl;
+        let rule = NoUnusedFieldsRuleImpl;
 
         let schema = r"
 type Query {
@@ -586,7 +585,7 @@ query GetUser {
     #[test]
     fn test_nested_field_used() {
         let db = RootDatabase::default();
-        let rule = UnusedFieldsRuleImpl;
+        let rule = NoUnusedFieldsRuleImpl;
 
         let schema = r"
 type Query {
@@ -621,7 +620,7 @@ query GetUser {
         let avatar_warnings: Vec<_> = diagnostics
             .values()
             .flatten()
-            .filter(|d| d.message.contains("Profile.avatar"))
+            .filter(|d| d.message.contains("\"avatar\""))
             .collect();
         assert_eq!(
             avatar_warnings.len(),
@@ -633,7 +632,7 @@ query GetUser {
     #[test]
     fn test_custom_schema_definition_root_types() {
         let db = RootDatabase::default();
-        let rule = UnusedFieldsRuleImpl;
+        let rule = NoUnusedFieldsRuleImpl;
 
         let schema = r"
 schema {

@@ -22,7 +22,7 @@ Edit schema → All documents re-validated (schema is a shared dependency)
 
 ## Expensive rules
 
-Project-wide rules like `unusedFields` and `unusedFragments` analyze all documents together and can be slow in very large projects. If you experience latency in the editor, disable them in your config and run them in CI instead:
+Project-wide rules like `noUnusedFields` and `noUnusedFragments` analyze all documents together and can be slow in very large projects. If you experience latency in the editor, disable them in your config and run them in CI instead:
 
 ```yaml
 extensions:
@@ -30,14 +30,14 @@ extensions:
     lint:
       extends: recommended
       rules:
-        unusedFields: off
-        unusedFragments: off
+        noUnusedFields: off
+        noUnusedFragments: off
 ```
 
 Then in CI, enable them explicitly:
 
 ```bash
-graphql check --rule unusedFields=error --rule unusedFragments=error
+graphql check --rule noUnusedFields=error --rule noUnusedFragments=error
 ```
 
 ## Structure/body separation

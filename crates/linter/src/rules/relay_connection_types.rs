@@ -73,6 +73,7 @@ impl StandaloneSchemaLintRule for RelayConnectionTypesRuleImpl {
                                     "Connection type must have `Connection` suffix.".to_string(),
                                     RULE_NAME,
                                 )
+                                .with_message_id("MUST_HAVE_CONNECTION_SUFFIX")
                                 .with_help(
                                     "Rename the type so its name ends in `Connection` (e.g., `UserConnection`)",
                                 ),
@@ -94,6 +95,7 @@ impl StandaloneSchemaLintRule for RelayConnectionTypesRuleImpl {
                             "Connection type must be an Object type.".to_string(),
                             RULE_NAME,
                         )
+                        .with_message_id("MUST_BE_OBJECT_TYPE")
                         .with_help(
                             "Relay connection types must be object types with `edges` and `pageInfo` fields",
                         ),
@@ -115,6 +117,7 @@ impl StandaloneSchemaLintRule for RelayConnectionTypesRuleImpl {
                                 "Connection type must contain a field `edges` that return a list type.".to_string(),
                                 RULE_NAME,
                             )
+                            .with_message_id("MUST_CONTAIN_FIELD_EDGES")
                             .with_help(
                                 "Add an `edges` field that returns a list type (e.g., `edges: [UserEdge]`)",
                             ),
@@ -141,6 +144,7 @@ impl StandaloneSchemaLintRule for RelayConnectionTypesRuleImpl {
                                     "`edges` field must return a list type.".to_string(),
                                     RULE_NAME,
                                 )
+                                .with_message_id("EDGES_FIELD_MUST_RETURN_LIST_TYPE")
                                 .with_help("Change the type to a list (e.g., `[UserEdge]`)"),
                             );
                     }
@@ -164,6 +168,7 @@ impl StandaloneSchemaLintRule for RelayConnectionTypesRuleImpl {
                                 "Connection type must contain a field `pageInfo` that return a non-null `PageInfo` Object type.".to_string(),
                                 RULE_NAME,
                             )
+                            .with_message_id("MUST_CONTAIN_FIELD_PAGE_INFO")
                             .with_help(
                                 "Add a `pageInfo` field that returns a non-null `PageInfo` type (e.g., `pageInfo: PageInfo!`)",
                             ),
@@ -193,6 +198,7 @@ impl StandaloneSchemaLintRule for RelayConnectionTypesRuleImpl {
                                     .to_string(),
                                 RULE_NAME,
                             )
+                            .with_message_id("PAGE_INFO_FIELD_MUST_RETURN_NON_NULL_TYPE")
                             .with_help("Change the type to `PageInfo!`"),
                         );
                     }

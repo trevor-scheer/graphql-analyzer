@@ -4,6 +4,11 @@ use napi_derive::napi;
 pub struct JsDiagnostic {
     pub rule: String,
     pub message: String,
+    /// Optional ESLint-compatible messageId. Set when the underlying lint rule
+    /// emits a stable per-diagnostic-site id (matching graphql-eslint's
+    /// equivalent emission); the ESLint shim forwards this onto
+    /// `LintMessage.messageId` for drop-in parity.
+    pub message_id: Option<String>,
     /// ESLint-style severity string: `"error"`, `"warn"`, `"info"`, or `"hint"`.
     pub severity: String,
     /// 1-based line number (ESLint convention)
@@ -57,6 +62,7 @@ impl From<graphql_ide::Diagnostic> for JsDiagnostic {
         Self {
             rule: d.code.unwrap_or_default(),
             message: d.message,
+            message_id: d.message_id,
             // Match ESLint's severity vocabulary so strings align with
             // `JsRuleMeta::default_severity`. Consumers map `"warn"` →
             // ESLint level 1, `"error"` → level 2.
