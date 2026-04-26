@@ -20,7 +20,7 @@ required-features = ["native"]
 
 [dependencies]
 # Internal deps (unconditional)
-graphql-linter = { path = "../linter" }
+graphql-linter = { path = "../linter", default-features = false }
 graphql-config = { path = "../config" }
 graphql-ide = { path = "../ide", default-features = false }
 graphql-syntax = { path = "../syntax", default-features = false }
@@ -82,7 +82,7 @@ native = [
     "introspect",
 ]
 wasm = [] # Placeholder for future wasm-only deps (tracing-wasm, etc.); current gating uses not(feature = "native")
-extract = ["dep:graphql-extract", "graphql-ide/extract", "graphql-syntax/extract"]
+extract = ["dep:graphql-extract", "graphql-ide/extract", "graphql-syntax/extract", "graphql-linter/extract"]
 introspect = ["dep:graphql-introspect", "graphql-ide/introspect"]
 
 [lints]

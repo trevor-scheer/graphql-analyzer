@@ -11,11 +11,16 @@ categories = ["development-tools", "parser-implementations"]
 
 [dependencies]
 graphql-base-db = { path = "../base-db" }
-graphql-syntax = { path = "../syntax" }
+graphql-syntax = { path = "../syntax", default-features = false }
 salsa = { workspace = true }
 apollo-parser = { workspace = true }
 apollo-compiler = { workspace = true }
 text-size = "1.1"
+
+[features]
+default = ["extract"]
+extract = ["graphql-syntax/extract"]
+native = ["graphql-syntax/native"]
 
 [dev-dependencies]
 graphql-test-utils = { path = "../test-utils" }

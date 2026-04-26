@@ -22,7 +22,7 @@ salsa = { workspace = true }
 
 [features]
 default = ["extract"]
-extract = ["graphql-syntax/extract"]
+extract = ["graphql-syntax/extract", "graphql-hir/extract"]
 
 [lints]
 workspace = true
