@@ -108,11 +108,17 @@ pub struct AlphabetizeOptions {
     /// `EnumTypeDefinition` and `EnumTypeExtension`.
     #[serde(default)]
     pub values: bool,
-    /// Explicit ordering groups (e.g. `["id", "*", "createdAt"]`). Accepted
-    /// for drop-in compatibility; the alphabetical default applies until
-    /// the explicit-ordering feature lands.
+    /// Explicit ordering groups (e.g. `["id", "*", "createdAt"]`). When
+    /// non-empty, items are sorted by group rank first (lower index =
+    /// earlier), with within-group ties broken alphabetically. `"*"` is
+    /// the catch-all bucket for names not otherwise listed.
+    ///
+    /// graphql-eslint also recognizes `"..."` (fragment spread bucket) and
+    /// `"{"` (nodes with a selection set) on the operations side. Those
+    /// match the document-side `check_selection_set_order` path; the
+    /// schema-side helpers don't see fragment spreads or selection sets,
+    /// so only `"*"` and named groups are relevant here.
     #[serde(default)]
-    #[allow(dead_code)]
     pub groups: Vec<String>,
 }
 
@@ -283,17 +289,25 @@ fn check_schema_document(
 ) {
     let doc_cst = doc.tree.document();
 
-    // 1. Top-level definition ordering.
+    // 1. Top-level definition ordering. Track each definition's full byte
+    // range so misordered pairs get a swap fix matching graphql-eslint's.
     if opts.definitions {
-        let mut prev: Option<(String, &'static str)> = None;
+        let mut prev: Option<(String, &'static str, (usize, usize))> = None;
         for definition in doc_cst.definitions() {
             let Some((kind_label, name_node)) = definition_label_and_name(&definition) else {
                 continue;
             };
             let curr_name = name_node.text().to_string();
-            if let Some((ref prev_name, prev_kind)) = prev {
-                if curr_name.to_lowercase() < prev_name.to_lowercase() {
-                    push_alphabetize_diagnostic(
+            let curr_range = {
+                let r = definition.syntax().text_range();
+                let s: usize = r.start().into();
+                let e: usize = r.end().into();
+                (s, e)
+            };
+            if let Some((ref prev_name, prev_kind, prev_range)) = prev {
+                if is_misordered(&curr_name, prev_name, &opts.groups) {
+                    let fix = swap_fix(doc.source, prev_range, curr_range);
+                    push_alphabetize_diagnostic_with_fix(
                         doc,
                         diagnostics,
                         &name_node,
@@ -301,10 +315,11 @@ fn check_schema_document(
                         &curr_name,
                         prev_kind,
                         prev_name,
+                        Some(fix),
                     );
                 }
             }
-            prev = Some((curr_name, kind_label));
+            prev = Some((curr_name, kind_label, curr_range));
         }
     }
 
@@ -314,28 +329,28 @@ fn check_schema_document(
             cst::Definition::ObjectTypeDefinition(d) => {
                 if opts.fields.includes_kind("ObjectTypeDefinition") {
                     if let Some(fd) = d.fields_definition() {
-                        check_field_definition_order(&fd, doc, diagnostics);
+                        check_field_definition_order(&fd, &opts.groups, doc, diagnostics);
                     }
                 }
             }
             cst::Definition::ObjectTypeExtension(d) => {
                 if opts.fields.includes_kind("ObjectTypeDefinition") {
                     if let Some(fd) = d.fields_definition() {
-                        check_field_definition_order(&fd, doc, diagnostics);
+                        check_field_definition_order(&fd, &opts.groups, doc, diagnostics);
                     }
                 }
             }
             cst::Definition::InterfaceTypeDefinition(d) => {
                 if opts.fields.includes_kind("InterfaceTypeDefinition") {
                     if let Some(fd) = d.fields_definition() {
-                        check_field_definition_order(&fd, doc, diagnostics);
+                        check_field_definition_order(&fd, &opts.groups, doc, diagnostics);
                     }
                 }
             }
             cst::Definition::InterfaceTypeExtension(d) => {
                 if opts.fields.includes_kind("InterfaceTypeDefinition") {
                     if let Some(fd) = d.fields_definition() {
-                        check_field_definition_order(&fd, doc, diagnostics);
+                        check_field_definition_order(&fd, &opts.groups, doc, diagnostics);
                     }
                 }
             }
@@ -345,6 +360,7 @@ fn check_schema_document(
                         check_input_value_definition_order(
                             fd.input_value_definitions(),
                             "input value",
+                            &opts.groups,
                             doc,
                             diagnostics,
                         );
@@ -357,6 +373,7 @@ fn check_schema_document(
                         check_input_value_definition_order(
                             fd.input_value_definitions(),
                             "input value",
+                            &opts.groups,
                             doc,
                             diagnostics,
                         );
@@ -366,14 +383,14 @@ fn check_schema_document(
             cst::Definition::EnumTypeDefinition(d) => {
                 if opts.values {
                     if let Some(values) = d.enum_values_definition() {
-                        check_enum_value_order(&values, doc, diagnostics);
+                        check_enum_value_order(&values, &opts.groups, doc, diagnostics);
                     }
                 }
             }
             cst::Definition::EnumTypeExtension(d) => {
                 if opts.values {
                     if let Some(values) = d.enum_values_definition() {
-                        check_enum_value_order(&values, doc, diagnostics);
+                        check_enum_value_order(&values, &opts.groups, doc, diagnostics);
                     }
                 }
             }
@@ -384,18 +401,26 @@ fn check_schema_document(
 
 fn check_field_definition_order(
     fields: &cst::FieldsDefinition,
+    groups: &[String],
     doc: &graphql_syntax::DocumentRef<'_>,
     diagnostics: &mut Vec<LintDiagnostic>,
 ) {
-    let mut prev: Option<String> = None;
+    let mut prev: Option<(String, (usize, usize))> = None;
     for field in fields.field_definitions() {
         let Some(name_node) = field.name() else {
             continue;
         };
         let name = name_node.text().to_string();
-        if let Some(ref prev_name) = prev {
-            if name.to_lowercase() < prev_name.to_lowercase() {
-                push_alphabetize_diagnostic(
+        let curr_range = {
+            let r = field.syntax().text_range();
+            let s: usize = r.start().into();
+            let e: usize = r.end().into();
+            (s, e)
+        };
+        if let Some((ref prev_name, prev_range)) = prev {
+            if is_misordered(&name, prev_name, groups) {
+                let fix = swap_fix(doc.source, prev_range, curr_range);
+                push_alphabetize_diagnostic_with_fix(
                     doc,
                     diagnostics,
                     &name_node,
@@ -403,28 +428,37 @@ fn check_field_definition_order(
                     &name,
                     "field",
                     prev_name,
+                    Some(fix),
                 );
             }
         }
-        prev = Some(name);
+        prev = Some((name, curr_range));
     }
 }
 
 fn check_input_value_definition_order(
     values: cst::CstChildren<cst::InputValueDefinition>,
     label: &'static str,
+    groups: &[String],
     doc: &graphql_syntax::DocumentRef<'_>,
     diagnostics: &mut Vec<LintDiagnostic>,
 ) {
-    let mut prev: Option<String> = None;
+    let mut prev: Option<(String, (usize, usize))> = None;
     for value in values {
         let Some(name_node) = value.name() else {
             continue;
         };
         let name = name_node.text().to_string();
-        if let Some(ref prev_name) = prev {
-            if name.to_lowercase() < prev_name.to_lowercase() {
-                push_alphabetize_diagnostic(
+        let curr_range = {
+            let r = value.syntax().text_range();
+            let s: usize = r.start().into();
+            let e: usize = r.end().into();
+            (s, e)
+        };
+        if let Some((ref prev_name, prev_range)) = prev {
+            if is_misordered(&name, prev_name, groups) {
+                let fix = swap_fix(doc.source, prev_range, curr_range);
+                push_alphabetize_diagnostic_with_fix(
                     doc,
                     diagnostics,
                     &name_node,
@@ -432,19 +466,21 @@ fn check_input_value_definition_order(
                     &name,
                     label,
                     prev_name,
+                    Some(fix),
                 );
             }
         }
-        prev = Some(name);
+        prev = Some((name, curr_range));
     }
 }
 
 fn check_enum_value_order(
     values: &cst::EnumValuesDefinition,
+    groups: &[String],
     doc: &graphql_syntax::DocumentRef<'_>,
     diagnostics: &mut Vec<LintDiagnostic>,
 ) {
-    let mut prev: Option<String> = None;
+    let mut prev: Option<(String, (usize, usize))> = None;
     for value in values.enum_value_definitions() {
         let Some(enum_value) = value.enum_value() else {
             continue;
@@ -453,9 +489,16 @@ fn check_enum_value_order(
             continue;
         };
         let name = name_node.text().to_string();
-        if let Some(ref prev_name) = prev {
-            if name.to_lowercase() < prev_name.to_lowercase() {
-                push_alphabetize_diagnostic(
+        let curr_range = {
+            let r = value.syntax().text_range();
+            let s: usize = r.start().into();
+            let e: usize = r.end().into();
+            (s, e)
+        };
+        if let Some((ref prev_name, prev_range)) = prev {
+            if is_misordered(&name, prev_name, groups) {
+                let fix = swap_fix(doc.source, prev_range, curr_range);
+                push_alphabetize_diagnostic_with_fix(
                     doc,
                     diagnostics,
                     &name_node,
@@ -463,13 +506,42 @@ fn check_enum_value_order(
                     &name,
                     "enum value",
                     prev_name,
+                    Some(fix),
                 );
             }
         }
-        prev = Some(name);
+        prev = Some((name, curr_range));
     }
 }
 
+#[allow(clippy::too_many_arguments)]
+fn push_alphabetize_diagnostic_with_fix(
+    doc: &graphql_syntax::DocumentRef<'_>,
+    diagnostics: &mut Vec<LintDiagnostic>,
+    name_node: &cst::Name,
+    curr_kind: &str,
+    curr_name: &str,
+    prev_kind: &str,
+    prev_name: &str,
+    fix: Option<CodeFix>,
+) {
+    let start: usize = name_node.syntax().text_range().start().into();
+    let end: usize = name_node.syntax().text_range().end().into();
+    let mut diag = LintDiagnostic::new(
+        doc.span(start, end),
+        LintSeverity::Warning,
+        format!("{curr_kind} \"{curr_name}\" should be before {prev_kind} \"{prev_name}\""),
+        "alphabetize",
+    )
+    .with_message_id("alphabetize")
+    .with_help("Reorder alphabetically by name");
+    if let Some(fix) = fix {
+        diag = diag.with_fix(fix);
+    }
+    diagnostics.push(diag);
+}
+
+#[allow(dead_code)]
 fn push_alphabetize_diagnostic(
     doc: &graphql_syntax::DocumentRef<'_>,
     diagnostics: &mut Vec<LintDiagnostic>,
@@ -619,6 +691,34 @@ fn check_selection_set_order(
             cst::Selection::FragmentSpread(_) => {}
         }
     }
+}
+
+/// Compare two names under the `groups` rule. Mirrors graphql-eslint's
+/// `getRank` exactly: prefer the explicit group index from the array, fall
+/// back to `"*"` (catch-all) when the name isn't listed, then break ties
+/// alphabetically (case-insensitive). When `groups` is empty the comparator
+/// degrades to plain alphabetical, matching the legacy default.
+fn group_compare(a: &str, b: &str, groups: &[String]) -> std::cmp::Ordering {
+    if groups.is_empty() {
+        return a.to_lowercase().cmp(&b.to_lowercase());
+    }
+    let rank = |name: &str| -> Option<usize> {
+        if let Some(i) = groups.iter().position(|g| g == name) {
+            return Some(i);
+        }
+        groups.iter().position(|g| g == "*")
+    };
+    match (rank(a), rank(b)) {
+        (Some(ar), Some(br)) if ar != br => ar.cmp(&br),
+        // Same group (or both ungrouped) — alphabetical within the bucket.
+        _ => a.to_lowercase().cmp(&b.to_lowercase()),
+    }
+}
+
+/// True when `curr` is misordered relative to `prev` under the configured
+/// `groups`. Wraps `group_compare` for the common "should I report?" check.
+fn is_misordered(curr: &str, prev: &str, groups: &[String]) -> bool {
+    group_compare(curr, prev, groups) == std::cmp::Ordering::Less
 }
 
 /// Build a graphql-eslint-style swap fix: replaces `[prev.start, curr.end]`
@@ -1029,5 +1129,65 @@ mod tests {
         let diagnostics = check_schema(schema, &opts);
         assert_eq!(diagnostics.len(), 1);
         assert_eq!(diagnostics[0].message_id.as_deref(), Some("alphabetize"));
+    }
+
+    // ----- groups: explicit ordering buckets -----
+
+    #[test]
+    fn test_groups_ordering_id_first_wildcard_middle() {
+        // `groups: ["id", "*", "createdAt"]` → expected order is:
+        //   id (rank 0) < {anything else} (rank 1, alphabetical) < createdAt (rank 2)
+        // The schema has fields out of that order (`name` before `id`,
+        // `createdAt` before `email`); both should fire.
+        let opts = serde_json::json!({
+            "fields": ["ObjectTypeDefinition"],
+            "groups": ["id", "*", "createdAt"]
+        });
+        let schema = "type User { name: String id: ID! createdAt: String email: String }\n";
+        let diagnostics = check_schema(schema, &opts);
+        // 2 misorderings under the group rule:
+        //   - `id` (rank 0) should be before `name` (rank 1, *)
+        //   - `email` (rank 1, *) should be before `createdAt` (rank 2)
+        assert_eq!(diagnostics.len(), 2, "got: {diagnostics:?}");
+    }
+
+    #[test]
+    fn test_groups_within_bucket_falls_back_to_alphabetical() {
+        // No name in `groups`, so everything lands in `*` and the within-
+        // bucket order is alphabetical — same as legacy behavior.
+        let opts = serde_json::json!({
+            "fields": ["ObjectTypeDefinition"],
+            "groups": ["*"]
+        });
+        let schema = "type User { name: String age: Int }\n";
+        let diagnostics = check_schema(schema, &opts);
+        assert_eq!(diagnostics.len(), 1);
+    }
+
+    #[test]
+    fn test_groups_unconfigured_uses_alphabetical() {
+        // Empty `groups` (the default) keeps the legacy alphabetical
+        // comparator — backwards-compatible for existing configs.
+        let opts = serde_json::json!({
+            "fields": ["ObjectTypeDefinition"],
+        });
+        let schema = "type User { name: String age: Int }\n";
+        let diagnostics = check_schema(schema, &opts);
+        assert_eq!(diagnostics.len(), 1);
+    }
+
+    #[test]
+    fn test_groups_named_bucket_pulls_to_front() {
+        // Even with `*` first, an explicit named bucket later in the list
+        // wins for that name. `["*", "id"]` means id is LAST.
+        let opts = serde_json::json!({
+            "fields": ["ObjectTypeDefinition"],
+            "groups": ["*", "id"]
+        });
+        let schema = "type User { id: ID! name: String age: Int }\n";
+        let diagnostics = check_schema(schema, &opts);
+        // `id` (rank 1) appearing first is a violation; `age` < `name`
+        // alphabetically within `*` is also a violation.
+        assert_eq!(diagnostics.len(), 2, "got: {diagnostics:?}");
     }
 }

@@ -232,12 +232,9 @@ const EXERCISED = {
   alphabetize: {
     // Exercises the schema-side modes: `definitions` (top-level type
     // ordering), `fields` per-kind narrowing (object type field order),
-    // and `values` (enum value order). Messages, positions, and counts
-    // match upstream byte-for-byte; `skipFix` is set because upstream
-    // emits autofix payloads for these schema-side cases and ours does
-    // not yet (the operation-side fix already works — see Rust unit
-    // tests). Closing the schema-side fix gap is a follow-up; the
-    // diagnostic itself surfaces identically today.
+    // and `values` (enum value order). Messages, positions, AND fix
+    // payloads match upstream byte-for-byte (the schema-side swap fix
+    // mirrors the operation-side `swap_fix` shape).
     options: {
       definitions: true,
       fields: ["ObjectTypeDefinition", "InterfaceTypeDefinition", "InputObjectTypeDefinition"],
@@ -253,7 +250,6 @@ const EXERCISED = {
     target: "schema.graphql",
     severity: 1,
     span: "full",
-    skipFix: true,
   },
 
   "input-name": {
@@ -288,28 +284,29 @@ const EXERCISED = {
   },
 
   "naming-convention": {
-    // Exercises style + forbiddenPrefixes on the document side via the
-    // per-kind object form. Schema-side enforcement (`FieldDefinition`,
-    // `ObjectTypeDefinition`, etc.) and variable-name casing are
-    // covered by Rust unit tests in `naming_convention.rs`. (Upstream's
-    // variable-name display has a bug where it reports `"undefined"` —
-    // fixing-our-rule-to-match-their-bug isn't in scope; see PARITY_TODO
-    // item 3.) `forbiddenPatterns` and ESLint selector keys are accepted
-    // at the deserialization layer but structured differently from
-    // upstream's schema — see PARITY_TODO item 3.
+    // Exercises:
+    // - per-kind object form (`OperationDefinition: { style, forbiddenPrefixes }`)
+    // - the ESLint selector form `FieldDefinition[parent.name.value=Query]`
+    //   that upstream's `flat/schema-recommended` uses
+    // - the comma-list selector form `EnumTypeDefinition,EnumTypeExtension`
+    // The schema-only fixture isolates the schema-side enforcement so the
+    // diagnostic ordering is stable. Variable-name casing and the
+    // `forbiddenPatterns` shape mismatch are covered by Rust unit tests.
     options: {
-      OperationDefinition: {
-        style: "PascalCase",
-        forbiddenPrefixes: ["Get"],
+      "FieldDefinition[parent.name.value=Query]": {
+        forbiddenPrefixes: ["query", "get"],
       },
-      FragmentDefinition: "PascalCase",
+      "EnumTypeDefinition,EnumTypeExtension": {
+        forbiddenPrefixes: ["Enum"],
+      },
     },
     files: {
-      "schema.graphql": "type Query { user(id: ID!): User } type User { id: ID! }\n",
-      "src/op.graphql":
-        'query GetUserQuery { user(id: "x") { id } }\n' + "fragment user_fields on User { id }\n",
+      "schema.graphql":
+        "type Query { getUser: User queryAll: [User] hello: String } " +
+        "type User { id: ID! getName: String } " +
+        "enum EnumRole { ADMIN }\n",
     },
-    target: "src/op.graphql",
+    target: "schema.graphql",
     severity: 1,
     span: "full",
   },

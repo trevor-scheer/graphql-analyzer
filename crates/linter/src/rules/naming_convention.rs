@@ -7,6 +7,7 @@ use graphql_hir::{TextRange, TypeDefKind};
 use regex::Regex;
 use serde::Deserialize;
 use std::collections::HashMap;
+use tracing::warn;
 
 /// Convention for names. Accepts the same string forms as graphql-eslint:
 /// `"camelCase"`, `"PascalCase"`, `"snake_case"`, `"UPPER_CASE"`.
@@ -206,6 +207,94 @@ fn english_join(words: &[String]) -> String {
     }
 }
 
+/// Parsed form of an ESLint-style selector key in the `naming-convention`
+/// options object. We support only the small subset that upstream's
+/// `flat/schema-recommended` and `flat/operations-recommended` presets use.
+///
+/// Unsupported forms (descendant combinators, `:has`, attribute matching
+/// beyond `parent.name.value`, multiple predicates, etc.) are rejected at
+/// parse time with a `tracing::warn!` so a typo doesn't silently disable
+/// the rule.
+#[derive(Debug, Clone, PartialEq, Eq)]
+enum Selector {
+    /// `"EnumTypeDefinition,EnumTypeExtension"` — matches any node whose
+    /// kind is in the comma-separated list. Whitespace around the commas
+    /// is allowed and trimmed.
+    Kinds(Vec<String>),
+    /// `"FieldDefinition[parent.name.value=Query]"` — matches a node of
+    /// `kind` whose immediate parent has `name.value == parent_name`.
+    KindWithParent { kind: String, parent_name: String },
+}
+
+impl Selector {
+    /// Parse a selector string. Returns `None` and logs a warning for any
+    /// shape we don't support (graceful degradation: a stray key shouldn't
+    /// nuke the user's entire lint config).
+    fn parse(raw: &str) -> Option<Self> {
+        let trimmed = raw.trim();
+
+        if let Some(open) = trimmed.find('[') {
+            if !trimmed.ends_with(']') {
+                warn!(selector = %raw, "naming-convention: malformed selector (missing trailing `]`); ignoring");
+                return None;
+            }
+            let kind = trimmed[..open].trim().to_string();
+            let predicate = &trimmed[open + 1..trimmed.len() - 1];
+            // Only `parent.name.value=<Name>` is supported.
+            if let Some((lhs, rhs)) = predicate.split_once('=') {
+                let lhs = lhs.trim();
+                let rhs = rhs.trim();
+                if lhs == "parent.name.value" && !kind.is_empty() && !rhs.is_empty() {
+                    return Some(Selector::KindWithParent {
+                        kind,
+                        parent_name: rhs.to_string(),
+                    });
+                }
+            }
+            warn!(selector = %raw, "naming-convention: unsupported selector predicate (only `parent.name.value=<Name>` is supported); ignoring");
+            return None;
+        }
+
+        if trimmed.contains(',') {
+            let kinds: Vec<String> = trimmed
+                .split(',')
+                .map(|p| p.trim().to_string())
+                .filter(|p| !p.is_empty())
+                .collect();
+            if kinds.is_empty() {
+                warn!(selector = %raw, "naming-convention: empty kind list; ignoring");
+                return None;
+            }
+            return Some(Selector::Kinds(kinds));
+        }
+
+        // Bare kind names go through the named-field path; if we got here
+        // serde already deposited a key serde didn't recognize. Treat it
+        // as an unknown selector and warn.
+        warn!(selector = %raw, "naming-convention: unrecognized selector or kind; ignoring");
+        None
+    }
+}
+
+/// `(eslint_kind, parent_name_if_any)` for the node we're about to lint.
+/// `None` for `parent_name` means "no enclosing named scope" (e.g. type
+/// definitions themselves). Used by `Selector::matches`.
+struct NodeContext<'a> {
+    kind: &'a str,
+    parent_name: Option<&'a str>,
+}
+
+impl Selector {
+    fn matches(&self, ctx: &NodeContext<'_>) -> bool {
+        match self {
+            Selector::Kinds(list) => list.iter().any(|k| k == ctx.kind),
+            Selector::KindWithParent { kind, parent_name } => {
+                ctx.kind == kind && ctx.parent_name == Some(parent_name.as_str())
+            }
+        }
+    }
+}
+
 /// Options for the `naming_convention` rule.
 ///
 /// Mirrors graphql-eslint: with no options the rule no-ops. Each AST kind
@@ -215,10 +304,11 @@ fn english_join(words: &[String]) -> String {
 /// `requiredSuffixes`, `requiredPattern`, `forbiddenPatterns`, `ignorePattern`,
 /// `allowLeadingUnderscore`, and `allowTrailingUnderscore`.
 ///
-/// Unknown keys (including ESLint-style selectors like
-/// `"FieldDefinition[parent.name.value=Query]"`) are captured into
-/// `selector_overrides` so deserialization doesn't fail; their content is
-/// not enforced today (selector parsing is deferred).
+/// ESLint-style selector keys (`"FieldDefinition[parent.name.value=Query]"`,
+/// `"EnumTypeDefinition,EnumTypeExtension"`) are captured into
+/// `selector_overrides` and parsed lazily by `parsed_selectors()`. Selectors
+/// that match a given node win over both the per-kind override and the
+/// `types` umbrella, matching upstream's specificity ordering.
 #[derive(Debug, Clone, Default, Deserialize)]
 #[serde(default)]
 pub struct NamingConventionOptions {
@@ -273,6 +363,58 @@ impl NamingConventionOptions {
         value
             .and_then(|v| serde_json::from_value(v.clone()).ok())
             .unwrap_or_default()
+    }
+
+    /// Parse the `selector_overrides` map into `(Selector, NamingRule)` pairs.
+    /// Unparseable keys log a warning and are skipped. Done eagerly because
+    /// the selector check happens once per node and re-parsing the regex-y
+    /// strings on each node would be wasteful.
+    fn parsed_selectors(&self) -> Vec<(Selector, NamingRule)> {
+        self.selector_overrides
+            .iter()
+            .filter_map(|(key, raw)| {
+                let selector = Selector::parse(key).or_else(|| {
+                    tracing::warn!(
+                        target: "naming-convention",
+                        "ignoring unsupported selector key: {key}"
+                    );
+                    None
+                })?;
+                let rule = serde_json::from_value::<NamingRule>(raw.clone())
+                    .ok()
+                    .or_else(|| {
+                        tracing::warn!(
+                            target: "naming-convention",
+                            "selector {key} value isn't a valid NamingRule"
+                        );
+                        None
+                    })?;
+                Some((selector, rule))
+            })
+            .collect()
+    }
+
+    /// Pick the selector-driven rule for a node, returning `None` if no
+    /// selector matches. Callers should fall back to the per-kind override
+    /// (and then the `types` umbrella) when this returns `None`. Selectors
+    /// take precedence over per-kind overrides per upstream's specificity.
+    /// `parent_name` is the enclosing type/operation name used for
+    /// `[parent.name.value=Foo]` predicates; pass `None` for top-level nodes.
+    fn rule_for_node(
+        node_kind: &str,
+        parent_name: Option<&str>,
+        selectors: &[(Selector, NamingRule)],
+    ) -> Option<NamingRule> {
+        let ctx = NodeContext {
+            kind: node_kind,
+            parent_name,
+        };
+        for (sel, rule) in selectors {
+            if sel.matches(&ctx) {
+                return Some(rule.clone());
+            }
+        }
+        None
     }
 
     /// Pick the rule that applies to `kind`, falling back to the `types`
@@ -578,6 +720,11 @@ impl StandaloneSchemaLintRule for NamingConventionRuleImpl {
         options: Option<&serde_json::Value>,
     ) -> HashMap<FileId, Vec<LintDiagnostic>> {
         let opts = NamingConventionOptions::from_json(options);
+        // Parse the ESLint-style selector map once; the result is consulted
+        // for every node so re-parsing per-node would be wasteful. Returns
+        // an empty Vec when the user didn't supply any selectors (the common
+        // case), which keeps the lookups in `pick_rule` cheap.
+        let selectors = opts.parsed_selectors();
         let mut diagnostics_by_file: HashMap<FileId, Vec<LintDiagnostic>> = HashMap::new();
         let schema_types = graphql_hir::schema_types(db, project_files);
 
@@ -612,10 +759,25 @@ impl StandaloneSchemaLintRule for NamingConventionRuleImpl {
                 continue;
             }
 
-            // Type/interface/enum/union/scalar/input own name (uses `types`
-            // umbrella as fallback).
-            if let Some(rule) = opts.rule_for_type_kind(type_def.kind) {
-                let normalized = NormalizedRule::from_rule(rule);
+            // Type/interface/enum/union/scalar/input own name. Selector
+            // overrides (e.g. `"EnumTypeDefinition,EnumTypeExtension"`) win
+            // over the per-kind override which wins over the `types`
+            // umbrella.
+            // `TypeDefKind` is `#[non_exhaustive]`; future kinds fall back
+            // to `ObjectTypeDefinition` (same default the umbrella uses)
+            // so selector matching at least sees a sensible kind name.
+            let type_kind_str = match type_def.kind {
+                TypeDefKind::Interface => "InterfaceTypeDefinition",
+                TypeDefKind::Enum => "EnumTypeDefinition",
+                TypeDefKind::Union => "UnionTypeDefinition",
+                TypeDefKind::Scalar => "ScalarTypeDefinition",
+                TypeDefKind::InputObject => "InputObjectTypeDefinition",
+                TypeDefKind::Object | _ => "ObjectTypeDefinition",
+            };
+            let type_rule = NamingConventionOptions::rule_for_node(type_kind_str, None, &selectors)
+                .or_else(|| opts.rule_for_type_kind(type_def.kind).cloned());
+            if let Some(rule) = type_rule {
+                let normalized = NormalizedRule::from_rule(&rule);
                 if let Some(failure) = check_name(&normalized, &type_def.name) {
                     let kind_label = match type_def.kind {
                         TypeDefKind::Interface => "interface",
@@ -643,14 +805,30 @@ impl StandaloneSchemaLintRule for NamingConventionRuleImpl {
                     continue;
                 }
 
-                let (field_rule, field_label) = if type_def.kind == TypeDefKind::InputObject {
-                    (opts.input_value_definition.as_ref(), "input value")
-                } else {
-                    (opts.field_definition.as_ref(), "field")
-                };
+                let (per_kind_rule, kind_str, field_label) =
+                    if type_def.kind == TypeDefKind::InputObject {
+                        (
+                            opts.input_value_definition.as_ref(),
+                            "InputValueDefinition",
+                            "input value",
+                        )
+                    } else {
+                        (opts.field_definition.as_ref(), "FieldDefinition", "field")
+                    };
+
+                // Selector resolution: `FieldDefinition[parent.name.value=Query]`
+                // and similar; `parent_name` is the enclosing type's name so
+                // these per-root-type predicates from upstream's recommended
+                // preset work.
+                let field_rule = NamingConventionOptions::rule_for_node(
+                    kind_str,
+                    Some(&type_def.name),
+                    &selectors,
+                )
+                .or_else(|| per_kind_rule.cloned());
 
                 if let Some(rule) = field_rule {
-                    let normalized = NormalizedRule::from_rule(rule);
+                    let normalized = NormalizedRule::from_rule(&rule);
                     if let Some(failure) = check_name(&normalized, &field.name) {
                         push_diagnostic(
                             &mut diagnostics_by_file,
@@ -661,11 +839,20 @@ impl StandaloneSchemaLintRule for NamingConventionRuleImpl {
                     }
                 }
 
-                // Field arguments use the `Argument` slot. (Upstream's `Argument`
-                // selector applies to argument definitions on field definitions.)
+                // Field arguments use the `Argument` slot. Upstream's
+                // `Argument` selector applies to argument definitions on
+                // field definitions; selector resolution uses the field's
+                // name as parent (matches upstream's `parent.name.value`
+                // convention for argument selectors).
                 if type_def.kind != TypeDefKind::InputObject {
-                    if let Some(rule) = opts.argument.as_ref() {
-                        let normalized = NormalizedRule::from_rule(rule);
+                    let arg_rule = NamingConventionOptions::rule_for_node(
+                        "Argument",
+                        Some(&field.name),
+                        &selectors,
+                    )
+                    .or_else(|| opts.argument.clone());
+                    if let Some(rule) = arg_rule {
+                        let normalized = NormalizedRule::from_rule(&rule);
                         for arg in &field.arguments {
                             if !source_file_ids.contains(&arg.file_id) {
                                 continue;
@@ -683,10 +870,17 @@ impl StandaloneSchemaLintRule for NamingConventionRuleImpl {
                 }
             }
 
-            // Enum values
-            if let Some(rule) = opts.enum_value_definition.as_ref() {
-                if type_def.kind == TypeDefKind::Enum {
-                    let normalized = NormalizedRule::from_rule(rule);
+            // Enum values. Selector form `EnumValueDefinition[parent.name.value=Role]`
+            // narrows to enum values inside a specific enum.
+            if type_def.kind == TypeDefKind::Enum {
+                let value_rule = NamingConventionOptions::rule_for_node(
+                    "EnumValueDefinition",
+                    Some(&type_def.name),
+                    &selectors,
+                )
+                .or_else(|| opts.enum_value_definition.clone());
+                if let Some(rule) = value_rule {
+                    let normalized = NormalizedRule::from_rule(&rule);
                     for value in &type_def.enum_values {
                         if let Some(failure) = check_name(&normalized, &value.name) {
                             push_diagnostic(
@@ -707,8 +901,11 @@ impl StandaloneSchemaLintRule for NamingConventionRuleImpl {
             if !source_file_ids.contains(&dir_def.file_id) {
                 continue;
             }
-            if let Some(rule) = opts.directive_definition.as_ref() {
-                let normalized = NormalizedRule::from_rule(rule);
+            let dir_rule =
+                NamingConventionOptions::rule_for_node("DirectiveDefinition", None, &selectors)
+                    .or_else(|| opts.directive_definition.clone());
+            if let Some(rule) = dir_rule {
+                let normalized = NormalizedRule::from_rule(&rule);
                 if let Some(failure) = check_name(&normalized, &dir_def.name) {
                     push_diagnostic(
                         &mut diagnostics_by_file,
@@ -718,8 +915,11 @@ impl StandaloneSchemaLintRule for NamingConventionRuleImpl {
                     );
                 }
             }
-            if let Some(rule) = opts.argument.as_ref() {
-                let normalized = NormalizedRule::from_rule(rule);
+            let dir_arg_rule =
+                NamingConventionOptions::rule_for_node("Argument", Some(&dir_def.name), &selectors)
+                    .or_else(|| opts.argument.clone());
+            if let Some(rule) = dir_arg_rule {
+                let normalized = NormalizedRule::from_rule(&rule);
                 for arg in &dir_def.arguments {
                     if !source_file_ids.contains(&arg.file_id) {
                         continue;
@@ -1316,5 +1516,95 @@ mod tests {
             msgs[0],
             "Field \"NotIgnored\" should be in camelCase format"
         );
+    }
+
+    // ----- ESLint-style selector parsing & enforcement -----
+
+    #[test]
+    fn test_selector_comma_list_matches_multiple_kinds() {
+        // `EnumTypeDefinition,EnumTypeExtension` should apply to enum types.
+        // We don't track Definition vs Extension separately at HIR level
+        // (both collapse to TypeDefKind::Enum), so listing both is fine —
+        // the selector matches any enum.
+        let opts = serde_json::json!({
+            "EnumTypeDefinition,EnumTypeExtension": {
+                "forbiddenPrefixes": ["Enum"]
+            }
+        });
+        let schema = "enum EnumRole { ADMIN } enum Status { OK }\n";
+        let diags = check_schema(schema, Some(&opts));
+        let msgs = schema_messages(&diags);
+        assert_eq!(msgs.len(), 1, "got: {msgs:?}");
+        assert_eq!(msgs[0], "Enum \"EnumRole\" should not have \"Enum\" prefix");
+    }
+
+    #[test]
+    fn test_selector_parent_predicate_narrows_to_named_parent() {
+        // The recommended preset uses `FieldDefinition[parent.name.value=Query]`
+        // to forbid `query`/`get` prefixes only on Query fields. Other types'
+        // fields shouldn't fire.
+        let opts = serde_json::json!({
+            "FieldDefinition[parent.name.value=Query]": {
+                "forbiddenPrefixes": ["query", "get"]
+            }
+        });
+        let schema = "type Query { getUser: User queryAll: [User] hello: String } \
+                      type User { getName: String }\n";
+        let diags = check_schema(schema, Some(&opts));
+        let msgs = schema_messages(&diags);
+        // Only `getUser` and `queryAll` on Query fire. `User.getName` is
+        // outside the predicate's scope; `Query.hello` doesn't trip the
+        // prefix check.
+        assert_eq!(msgs.len(), 2, "got: {msgs:?}");
+        assert!(msgs
+            .iter()
+            .any(|m| m == "Field \"getUser\" should not have \"get\" prefix"));
+        assert!(msgs
+            .iter()
+            .any(|m| m == "Field \"queryAll\" should not have \"query\" prefix"));
+    }
+
+    #[test]
+    fn test_selector_wins_over_per_kind_override() {
+        // If both `FieldDefinition` and `FieldDefinition[parent.name.value=Query]`
+        // are configured, the more specific selector wins for Query fields,
+        // and the per-kind rule applies to fields elsewhere.
+        let opts = serde_json::json!({
+            "FieldDefinition": { "style": "camelCase" },
+            "FieldDefinition[parent.name.value=Query]": {
+                "forbiddenSuffixes": ["Query"]
+            }
+        });
+        let schema = "type Query { getUserQuery: User } type User { name_field: String }\n";
+        let diags = check_schema(schema, Some(&opts));
+        let msgs = schema_messages(&diags);
+        // Query.getUserQuery hits the *selector* (forbiddenSuffixes), not
+        // the per-kind camelCase. User.name_field hits camelCase.
+        assert_eq!(msgs.len(), 2, "got: {msgs:?}");
+        assert!(msgs
+            .iter()
+            .any(|m| m == "Field \"getUserQuery\" should not have \"Query\" suffix"));
+        assert!(msgs
+            .iter()
+            .any(|m| m == "Field \"name_field\" should be in camelCase format"));
+    }
+
+    #[test]
+    fn test_selector_unparseable_key_logs_and_skips() {
+        // Selector with an unsupported predicate (`:has(...)`) should log a
+        // warning rather than erroring out. The rest of the config still
+        // works, so the per-kind override fires normally.
+        let opts = serde_json::json!({
+            "FieldDefinition:has(name)": {
+                "forbiddenPrefixes": ["Foo"]
+            },
+            "FieldDefinition": { "style": "camelCase" }
+        });
+        let schema = "type Query { name_field: String }\n";
+        let diags = check_schema(schema, Some(&opts));
+        let msgs = schema_messages(&diags);
+        // Unparseable selector ignored; per-kind camelCase still fires.
+        assert_eq!(msgs.len(), 1, "got: {msgs:?}");
+        assert!(msgs[0].contains("camelCase"));
     }
 }

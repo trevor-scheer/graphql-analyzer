@@ -21,20 +21,20 @@ items are silent feature gaps. P2 is doc/test cleanup.**
 
 ## Status snapshot (as of latest commit on this branch)
 
-| #     | Item                               | Status                                                                                                                                                                                       |
-| ----- | ---------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| 1     | ESLint rule-options forwarding     | ✅ Closed (commit `a396cfc`)                                                                                                                                                                 |
-| 2     | Embedded GraphQL extraction        | ✅ Closed (commit `770d4d4`)                                                                                                                                                                 |
-| 3     | `naming-convention` feature suite  | ⚠ Mostly closed — schema-side casing, prefix/suffix, pattern enforcement all wired. See "what remains" below for selector parsing                                                            |
-| 4     | Autofix coverage                   | ✅ Closed (`alphabetize` is the entire upstream `fix` surface; commit `a396cfc` doc fix)                                                                                                     |
-| 4b    | ESLint suggestions (`suggest`)     | ❌ Open — see below                                                                                                                                                                          |
-| 4c    | `alphabetize` schema-side options  | ⚠ Mostly closed — `definitions`, `fields` (per-kind), `values` all sort correctly and parity-verified for messages/positions. See "what remains" below for fix-payload emission and `groups` |
-| 5     | `selection-set-depth.ignore`       | ✅ Closed (commit `de4a329`)                                                                                                                                                                 |
-| 6     | Preset surface                     | ✅ Closed (commit `f32d6b5`) — all 5 upstream presets, content matches byte-for-byte, validation rules stubbed for drop-in compat                                                            |
-| 7     | `no-hashtag-description` grouping  | ✅ Closed (commit `221886d`) — was already implemented; doc/test caught up                                                                                                                   |
-| 8     | Multi-project `.graphqlrc` routing | ✅ Closed (commit `ee8a2d6`)                                                                                                                                                                 |
-| 9     | `START_ONLY_RULES` drift guard     | ✅ Closed (commit `109a604`)                                                                                                                                                                 |
-| 10–12 | Doc reconciliation                 | ✅ Folded into the closing commit for each item                                                                                                                                              |
+| #     | Item                               | Status                                                                                                                                                                                                                                                                                     |
+| ----- | ---------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| 1     | ESLint rule-options forwarding     | ✅ Closed (commit `a396cfc`)                                                                                                                                                                                                                                                               |
+| 2     | Embedded GraphQL extraction        | ✅ Closed (commit `770d4d4`)                                                                                                                                                                                                                                                               |
+| 3     | `naming-convention` feature suite  | ✅ Closed — schema-side casing, prefix/suffix, patterns, ESLint selectors (`Kind1,Kind2` and `Kind[parent.name.value=X]`) all enforced and parity-verified. Two narrow gaps remain (see below): `forbiddenPatterns` JS-RegExp shape, `requiredPattern` named-group convention enforcement. |
+| 4     | Autofix coverage                   | ✅ Closed (`alphabetize` is the entire upstream `fix` surface; commit `a396cfc` doc fix)                                                                                                                                                                                                   |
+| 4b    | ESLint suggestions (`suggest`)     | ❌ Open — see below                                                                                                                                                                                                                                                                        |
+| 4c    | `alphabetize` schema-side options  | ✅ Closed — `definitions` / `fields` (per-kind) / `values` / `groups` all parity-verified for messages, positions, AND fix payloads. Per-context `arguments` array narrowing on the schema side is the only nicety left (see below).                                                       |
+| 5     | `selection-set-depth.ignore`       | ✅ Closed (commit `de4a329`)                                                                                                                                                                                                                                                               |
+| 6     | Preset surface                     | ✅ Closed (commit `f32d6b5`) — all 5 upstream presets, content matches byte-for-byte, validation rules stubbed for drop-in compat                                                                                                                                                          |
+| 7     | `no-hashtag-description` grouping  | ✅ Closed (commit `221886d`) — was already implemented; doc/test caught up                                                                                                                                                                                                                 |
+| 8     | Multi-project `.graphqlrc` routing | ✅ Closed (commit `ee8a2d6`)                                                                                                                                                                                                                                                               |
+| 9     | `START_ONLY_RULES` drift guard     | ✅ Closed (commit `109a604`)                                                                                                                                                                                                                                                               |
+| 10–12 | Doc reconciliation                 | ✅ Folded into the closing commit for each item                                                                                                                                                                                                                                            |
 
 ---
 
@@ -113,7 +113,7 @@ GraphQL doesn't lint, the migration silently regresses.
 
 ### 3. `naming-convention` is functionally narrower than upstream
 
-**Status:** MOSTLY CLOSED.
+**Status:** CLOSED for the recommended preset; two narrow gaps remain.
 
 **What's done:**
 
@@ -132,25 +132,32 @@ GraphQL doesn't lint, the migration silently regresses.
   upstream's `checkNode`. Diagnostic message format matches
   upstream byte-for-byte (verified by parity test).
 
-**What remains:**
+- **ESLint selector parsing** _(NEW: closed)_. The minimal esquery
+  subset that the recommended presets actually use is implemented:
+  `"Kind1,Kind2"` (comma-list) and `"Kind[parent.name.value=Name]"`
+  (predicate). Selectors win over per-kind overrides which win over
+  the `types` umbrella, mirroring upstream's specificity. Unsupported
+  selector forms (`:has(...)`, deep descendant combinators, multi-
+  predicate, etc.) log a `tracing::warn!` and skip — the rest of the
+  config still applies. Parity-verified end-to-end against the
+  upstream recommended preset's selector usage.
 
-1. **`forbiddenPatterns` shape.** Upstream's schema requires each
-   pattern to be an object (`{ value, ... }`). Our deserializer takes
-   a `Vec<String>` (regex patterns directly). The Rust enforcement
-   works on string regexes; but a config copy-pasted from upstream's
-   schema-recommended preset (where `forbiddenPatterns` is a string
-   array of regexes) parses identically. The object-form schema
-   reconciliation is a serde shape change; behavior is the same.
+**What remains (narrow, low-impact):**
+
+1. **`forbiddenPatterns` shape.** Upstream's JSON schema requires
+   each pattern to be a JS RegExp instance (`{ source, flags }`-shaped
+   when serialized; really a runtime regex). Our serde takes a
+   `Vec<String>` of regex source strings, which is the only form that
+   round-trips through YAML/JSON configs anyway. JS-config users who
+   write `forbiddenPatterns: [/foo/i]` directly would need to write
+   the string form `["foo"]` instead; the Rust enforcement is
+   identical either way. Fixing this is fundamentally about JS-RegExp
+   serialization through napi, not pattern enforcement.
 2. **`requiredPattern` named-capture-group enforcement.** Upstream
-   verifies that each named group's match obeys the case style. We
-   only do simple `.is_match` testing today.
-3. **ESLint selector parsing**
-   (`"FieldDefinition[parent.name.value=Query]"`,
-   `"EnumTypeDefinition,EnumTypeExtension"`). The catch-all
-   `selector_overrides` accepts these so configs don't reject; they're
-   not enforced yet. Implementing them needs a small esquery-style
-   parser. Realistic scope: support the comma-list form (cheap) and
-   the `[parent.name.value=...]` predicate (medium); skip the rest.
+   walks the regex's named groups (e.g. `(?<entity>foo)`) and checks
+   each captured substring against a per-group case style. We only do
+   plain `is_match`. Niche feature; not used in any of upstream's
+   recommended presets.
 
 ---
 
@@ -202,20 +209,31 @@ true` with `suggest:` arrays (`no-anonymous-operations`, `no-deprecated`,
 - Diagnostic message format and positions match upstream byte-for-byte.
   Parity test exercises all three modes.
 
-**What remains:**
+**Also done in this PR:**
 
-1. **Schema-side fix-payload emission.** Operations-side `alphabetize`
-   already emits the swap-fix that upstream emits; the schema-side impl
-   reports diagnostics but no `fix`. The parity test sets
-   `skipFix: true` for this fixture so the diff still passes. Adding
-   the schema-side fix is a follow-up — same shape as the existing
-   selection-set swap fix.
-2. **`groups: ["id", "*", "createdAt"]`** explicit ordering — accepted
-   by serde but not enforced. Replaces alphabetical sort with a custom
-   group order; needs a small comparator. Realistic scope: 30-50 lines.
-3. **`arguments: ["Field", "Directive", ...]`** per-context narrowing
-   on the schema side — currently treated as "on for all contexts".
-   Easy to add once the basic argument sort exists schema-side.
+- **Schema-side fix-payload emission.** All three schema-side modes
+  emit the same swap-fix shape as the operation-side (replaces
+  `[prev.start, curr.end]` with `<curr><between><prev>`). Parity test
+  no longer needs `skipFix: true` — fix `range` and `text` match
+  upstream byte-for-byte.
+- **`groups: ["id", "*", "createdAt"]`** explicit ordering. New
+  `group_compare` comparator: explicit-name index first, `"*"`
+  catch-all bucket second, alphabetical-within-bucket as the
+  tiebreak. Empty `groups` falls back to plain alphabetical
+  (backwards compatible). Operations-side `"..."` (fragment spread
+  bucket) and `"{"` (selection-set bucket) markers are documented but
+  only reachable from the operation-side `check_selection_set_order`
+  path; they're already in the comparator's contract.
+
+**What remains (low-impact):**
+
+1. **`arguments: ["Field", "Directive", ...]`** per-context narrowing
+   on the schema side. Schema-side argument sorting isn't implemented
+   at all today — the schema-side `check_field_definition_order` and
+   `check_input_value_definition_order` don't iterate field arguments.
+   Adding it would close the remaining `arguments` gap. Operation-side
+   `arguments.enabled()` (the existing bool-or-kind-list flag) still
+   works as before and the array form is treated as "on" there.
 
 ### 5. `selection-set-depth`'s `ignore` option is recognized but a no-op
 
