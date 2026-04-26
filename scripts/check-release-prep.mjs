@@ -130,5 +130,9 @@ for (const p of bumped) {
 run("node", ["scripts/sync-workspace-deps.mjs"]);
 run("npm", ["install", "--package-lock-only"]);
 run("npm", ["ci"]);
+// Catch any formatting drift introduced by the bump+sync round-trip — knope's
+// JSON writer omits the trailing newline that oxfmt requires, and the sync
+// script is responsible for normalizing that.
+run("npx", ["oxfmt", "--check", "packages/", "editors/"]);
 
 console.log("\nRelease-prep simulation passed.");
