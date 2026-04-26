@@ -111,26 +111,27 @@ function makeRule(analyzerRuleName: string, description: string): Rule.RuleModul
                   start: { line: d.line, column: d.column - 1 },
                   end: { line: d.endLine, column: d.endColumn - 1 },
                 };
-            const fix = d.fix && ESLINT_FIXABLE_RULES.has(analyzerRuleName)
-              ? (fixer: Rule.RuleFixer) => {
-                  // Our autofixes carry source positions; ESLint's fixer wants
-                  // absolute byte ranges. Compute those from the source text.
-                  const text = context.sourceCode.text;
-                  const lineStarts = computeLineStarts(text);
-                  const edits = d.fix!.edits.map((e) => ({
-                    range: [
-                      lineStarts[e.rangeStartLine - 1] + (e.rangeStartColumn - 1),
-                      lineStarts[e.rangeEndLine - 1] + (e.rangeEndColumn - 1),
-                    ] as [number, number],
-                    text: e.newText,
-                  }));
-                  if (edits.length === 1) {
-                    return fixer.replaceTextRange(edits[0].range, edits[0].text);
+            const fix =
+              d.fix && ESLINT_FIXABLE_RULES.has(analyzerRuleName)
+                ? (fixer: Rule.RuleFixer) => {
+                    // Our autofixes carry source positions; ESLint's fixer wants
+                    // absolute byte ranges. Compute those from the source text.
+                    const text = context.sourceCode.text;
+                    const lineStarts = computeLineStarts(text);
+                    const edits = d.fix!.edits.map((e) => ({
+                      range: [
+                        lineStarts[e.rangeStartLine - 1] + (e.rangeStartColumn - 1),
+                        lineStarts[e.rangeEndLine - 1] + (e.rangeEndColumn - 1),
+                      ] as [number, number],
+                      text: e.newText,
+                    }));
+                    if (edits.length === 1) {
+                      return fixer.replaceTextRange(edits[0].range, edits[0].text);
+                    }
+                    // Multi-edit: chain via the array form.
+                    return edits.map((e) => fixer.replaceTextRange(e.range, e.text));
                   }
-                  // Multi-edit: chain via the array form.
-                  return edits.map((e) => fixer.replaceTextRange(e.range, e.text));
-                }
-              : undefined;
+                : undefined;
             if (d.messageId) {
               ensureMessageId(rule, analyzerRuleName, d.messageId);
               context.report({

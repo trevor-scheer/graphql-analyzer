@@ -272,16 +272,15 @@ fn check_selection_set_order(
 /// ops which ESLint coalesces into a single edit covering both ranges; we
 /// produce the equivalent collapsed edit directly so the napi shim can
 /// surface a single `fix` to ESLint.
-fn swap_fix(
-    source: &str,
-    prev: (usize, usize),
-    curr: (usize, usize),
-) -> CodeFix {
+fn swap_fix(source: &str, prev: (usize, usize), curr: (usize, usize)) -> CodeFix {
     let prev_text = &source[prev.0..prev.1];
     let curr_text = &source[curr.0..curr.1];
     let between = &source[prev.1..curr.0];
     let new_text = format!("{curr_text}{between}{prev_text}");
-    CodeFix::new("Reorder alphabetically", vec![TextEdit::new(prev.0, curr.1, new_text)])
+    CodeFix::new(
+        "Reorder alphabetically",
+        vec![TextEdit::new(prev.0, curr.1, new_text)],
+    )
 }
 
 fn check_argument_order(

@@ -146,9 +146,7 @@ fn check_operation_for_unused_variables(
     // Pull the operation name once for graphql-eslint message parity. When
     // the operation is anonymous, the message drops the `in operation "X"`
     // suffix verbatim like graphql-js's `NoUnusedVariablesRule`.
-    let operation_name = operation
-        .name()
-        .and_then(|n| n.text().to_string().into());
+    let operation_name = operation.name().and_then(|n| n.text().to_string().into());
 
     // Step 3: Report unused variables with fixes. Mirror graphql-eslint's
     // location and message exactly: graphql-eslint's `validationToRule`

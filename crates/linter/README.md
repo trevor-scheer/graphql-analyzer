@@ -250,8 +250,8 @@ The `recommended` preset includes rules that are objectively beneficial without 
 | `no_anonymous_operations` | error    | Named operations improve debugging and tooling |
 | `no_deprecated`           | warn     | Alerts to deprecated API usage                 |
 | `redundant_fields`        | warn     | Removes unnecessary duplication                |
-| `no_unused_fragments`        | warn     | Dead code removal                              |
-| `no_unused_fields`           | warn     | Identifies unused schema surface area          |
+| `no_unused_fragments`     | warn     | Dead code removal                              |
+| `no_unused_fields`        | warn     | Identifies unused schema surface area          |
 
 Other rules like `unique_names` and `require_id_field` are available but not included by default since they're tied to specific tooling choices (persisted queries, normalized caching, etc.).
 

@@ -687,10 +687,8 @@ fn convert_lint_diagnostics(
                     let (es_line, es_col, ee_line, ee_col) =
                         if let Some(ref block_source) = ld.span.source {
                             let block_line_index = graphql_syntax::LineIndex::new(block_source);
-                            let (sl, sc) =
-                                block_line_index.line_col(edit.offset_range.start);
-                            let (el, ec) =
-                                block_line_index.line_col(edit.offset_range.end);
+                            let (sl, sc) = block_line_index.line_col(edit.offset_range.start);
+                            let (el, ec) = block_line_index.line_col(edit.offset_range.end);
                             (sl, sc, el, ec)
                         } else {
                             let (sl, sc) = file_line_index.line_col(edit.offset_range.start);
