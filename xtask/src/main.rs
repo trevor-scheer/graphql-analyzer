@@ -94,10 +94,13 @@ fn project_root() -> PathBuf {
 fn cmd_web(dev: bool) -> Result<()> {
     let workspace = project_root();
     let pkg_dir = workspace.join("packages/web-ide/src/wasm");
-    let status = Command::new("wasm-pack")
-        .args(["build", "crates/lsp-wasm", "--target", "web", "--out-dir"])
-        .arg(&pkg_dir)
-        .arg("--dev")
+    let mut cmd = Command::new("wasm-pack");
+    cmd.args(["build", "crates/lsp-wasm", "--target", "web", "--out-dir"]);
+    cmd.arg(&pkg_dir);
+    if dev {
+        cmd.arg("--dev");
+    }
+    let status = cmd
         .current_dir(&workspace)
         .status()
         .context("running wasm-pack")?;
