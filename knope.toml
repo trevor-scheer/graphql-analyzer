@@ -65,14 +65,14 @@ changelog = "packages/eslint-plugin/CHANGELOG.md"
 owner = "trevor-scheer"
 repo = "graphql-analyzer"
 
-# Prepare a release PR - consumes changesets and creates a PR with version bump
-# Currently in alpha phase. To release stable versions, remove prerelease_label.
+# Prepare a release PR - consumes changesets and creates a PR with version bump.
+# Releases are stable; reintroduce `prerelease_label` here to ship `-alpha.N`,
+# `-rc.N`, etc.
 [[workflows]]
 name = "prepare-release"
 
 [[workflows.steps]]
 type = "PrepareRelease"
-prerelease_label = "alpha"
 
 # Knope only bumps `version` fields. Re-pin intra-workspace npm deps to the
 # new core version so published packages list the exact version they were
