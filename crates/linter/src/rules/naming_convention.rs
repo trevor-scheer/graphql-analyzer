@@ -480,13 +480,31 @@ fn check_name(rule: &NormalizedRule<'_>, name: &str) -> Option<CheckFailure> {
     }
 
     if let Some(pat) = rule.required_pattern {
-        match Regex::new(pat) {
-            Ok(re) if !re.is_match(stripped) => {
+        if let Ok(re) = Regex::new(pat) {
+            if !re.is_match(stripped) {
                 return Some(CheckFailure {
                     message_body: format!("contain the required pattern: /{pat}/"),
                 });
             }
-            _ => {}
+            // Named-capture-group convention check (mirrors upstream): each
+            // named group's captured substring must obey the configured
+            // `style`. Unnamed groups are skipped (they're not part of the
+            // convention contract). When `style` is unset there's nothing
+            // to enforce.
+            if let (Some(style), Some(caps)) = (rule.style, re.captures(stripped)) {
+                for name in re.capture_names().flatten() {
+                    if let Some(m) = caps.name(name) {
+                        if !style.check(m.as_str()) {
+                            return Some(CheckFailure {
+                                message_body: format!(
+                                    "have the named group \"{name}\" in {} format",
+                                    style.label()
+                                ),
+                            });
+                        }
+                    }
+                }
+            }
         }
     }
 
@@ -1606,5 +1624,66 @@ mod tests {
         // Unparseable selector ignored; per-kind camelCase still fires.
         assert_eq!(msgs.len(), 1, "got: {msgs:?}");
         assert!(msgs[0].contains("camelCase"));
+    }
+
+    // ----- requiredPattern named-group convention enforcement -----
+
+    #[test]
+    fn test_required_pattern_named_groups_obey_style() {
+        // Pattern has a named group `entity`; under `style: PascalCase`,
+        // the captured value must be PascalCase. `getuserlist` matches
+        // the pattern but fails the per-group style check.
+        let opts = serde_json::json!({
+            "FieldDefinition": {
+                "style": "PascalCase",
+                "requiredPattern": "^get(?<entity>.+)$"
+            }
+        });
+        let schema = "type Query { getuserlist: String }\n";
+        let diags = check_schema(schema, Some(&opts));
+        let msgs = schema_messages(&diags);
+        assert_eq!(msgs.len(), 1, "got: {msgs:?}");
+        assert!(
+            msgs[0].contains("named group \"entity\""),
+            "expected named-group failure msg, got: {}",
+            msgs[0]
+        );
+    }
+
+    #[test]
+    fn test_required_pattern_named_groups_pass_when_in_correct_style() {
+        // `entity` group captures `UserList` which IS PascalCase → no
+        // diagnostic. The bare-style check on the whole field name fails
+        // (`getUserList` isn't PascalCase) but that's a different concern;
+        // make the field name PascalCase too to isolate the named-group path.
+        let opts = serde_json::json!({
+            "FieldDefinition": {
+                "style": "PascalCase",
+                "requiredPattern": "^Get(?<entity>.+)$"
+            }
+        });
+        let schema = "type Query { GetUserList: String }\n";
+        let diags = check_schema(schema, Some(&opts));
+        assert!(
+            schema_messages(&diags).is_empty(),
+            "got: {:?}",
+            schema_messages(&diags)
+        );
+    }
+
+    #[test]
+    fn test_required_pattern_unnamed_groups_skipped() {
+        // Unnamed groups don't participate in the convention check; only
+        // named groups do. `(.*)` shouldn't trigger a per-group style
+        // failure even though the captured value isn't PascalCase.
+        let opts = serde_json::json!({
+            "FieldDefinition": {
+                "style": "PascalCase",
+                "requiredPattern": "^Get(.*)$"
+            }
+        });
+        let schema = "type Query { GetUserList: String }\n";
+        let diags = check_schema(schema, Some(&opts));
+        assert!(schema_messages(&diags).is_empty());
     }
 }

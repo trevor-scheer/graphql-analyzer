@@ -18,11 +18,24 @@ pub struct JsDiagnostic {
     pub end_line: u32,
     pub end_column: u32,
     pub fix: Option<JsFix>,
+    /// Manual quick-fix suggestions. Surface as ESLint `suggest` arrays;
+    /// each entry carries a `desc` (label shown in IDE menus) and a
+    /// single-edit `fix` payload. Empty for diagnostics without
+    /// suggestions.
+    pub suggestions: Vec<JsCodeSuggestion>,
     pub help: Option<String>,
     pub url: Option<String>,
     /// Originating subsystem, e.g. `"graphql-analyzer"`. Surfaced in
     /// downstream tools that group diagnostics by producer.
     pub source: String,
+}
+
+#[napi(object)]
+pub struct JsCodeSuggestion {
+    /// Short label shown in the IDE quick-fix menu.
+    pub desc: String,
+    /// The single fix this suggestion would apply.
+    pub fix: JsFix,
 }
 
 #[napi(object)]
@@ -78,9 +91,23 @@ impl From<graphql_ide::Diagnostic> for JsDiagnostic {
             end_line: d.range.end.line + 1,
             end_column: d.range.end.character + 1,
             fix: d.fix.map(JsFix::from),
+            suggestions: d
+                .suggestions
+                .into_iter()
+                .map(JsCodeSuggestion::from)
+                .collect(),
             help: d.help,
             url: d.url,
             source: d.source,
+        }
+    }
+}
+
+impl From<graphql_ide::CodeSuggestion> for JsCodeSuggestion {
+    fn from(s: graphql_ide::CodeSuggestion) -> Self {
+        Self {
+            desc: s.desc,
+            fix: JsFix::from(s.fix),
         }
     }
 }

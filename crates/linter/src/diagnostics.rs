@@ -45,6 +45,54 @@ pub struct CodeFix {
     pub edits: Vec<TextEdit>,
 }
 
+/// A suggestion (manual quick-fix) that surfaces alongside a diagnostic but
+/// requires explicit user opt-in. Matches graphql-eslint's `suggest:` array
+/// shape: each entry has a human-readable description and a single fix
+/// payload. Surfaced as `LintMessage.suggestions[]` in `ESLint` output.
+///
+/// Suggestions differ from autofixes (`CodeFix` on the diagnostic itself) in
+/// that `ESLint`'s `--fix` flag does NOT apply them automatically — they show
+/// up as "Quick fix" options in IDE menus instead. Used for fixes that
+/// might change semantics (rename a field, remove an unused declaration).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct CodeSuggestion {
+    /// Short label shown in the suggestion menu (e.g. `"Remove `Foo` prefix"`).
+    pub desc: String,
+    /// The single text edit this suggestion would apply.
+    pub fix: CodeFix,
+}
+
+impl CodeSuggestion {
+    /// Build a suggestion that replaces a byte range with new text.
+    #[must_use]
+    pub fn replace(
+        desc: impl Into<String>,
+        start: usize,
+        end: usize,
+        new_text: impl Into<String>,
+    ) -> Self {
+        Self {
+            desc: desc.into(),
+            fix: CodeFix {
+                label: String::new(),
+                edits: vec![TextEdit::new(start, end, new_text.into())],
+            },
+        }
+    }
+
+    /// Build a suggestion that deletes a byte range outright.
+    #[must_use]
+    pub fn delete(desc: impl Into<String>, start: usize, end: usize) -> Self {
+        Self {
+            desc: desc.into(),
+            fix: CodeFix {
+                label: String::new(),
+                edits: vec![TextEdit::delete(start, end)],
+            },
+        }
+    }
+}
+
 impl CodeFix {
     /// Create a new code fix
     #[must_use]
@@ -89,12 +137,17 @@ pub struct LintDiagnostic {
     pub message: String,
     /// Rule identifier (e.g., `"deprecated_field"`)
     pub rule: String,
-    /// Optional ESLint-compatible messageId. Stable per-diagnostic-site
-    /// identifier matching graphql-eslint's emitted messageId, so the `ESLint`
+    /// Optional `ESLint`-compatible messageId. Stable per-diagnostic-site
+    /// identifier matching graphql-eslint's emitted messageId, so the ``ESLint``
     /// shim can surface it on `LintMessage.messageId` for drop-in parity.
     pub message_id: Option<String>,
     /// Optional auto-fix for this diagnostic
     pub fix: Option<CodeFix>,
+    /// Manual quick-fix suggestions surfaced through `ESLint`'s `suggest`
+    /// array. Distinct from `fix` (autofix): users opt in per-suggestion
+    /// from their IDE, and `--fix` does not apply them. Empty for rules
+    /// that don't ship suggestions.
+    pub suggestions: Vec<CodeSuggestion>,
     /// Optional help text explaining how to resolve the issue
     pub help: Option<String>,
     /// Optional documentation URL for the rule
@@ -119,6 +172,7 @@ impl LintDiagnostic {
             rule: rule.into(),
             message_id: None,
             fix: None,
+            suggestions: Vec::new(),
             help: None,
             url: None,
             tags: Vec::new(),
@@ -139,6 +193,7 @@ impl LintDiagnostic {
             rule: rule.into(),
             message_id: None,
             fix: None,
+            suggestions: Vec::new(),
             help: None,
             url: None,
             tags: Vec::new(),
@@ -159,6 +214,7 @@ impl LintDiagnostic {
             rule: rule.into(),
             message_id: None,
             fix: None,
+            suggestions: Vec::new(),
             help: None,
             url: None,
             tags: Vec::new(),
@@ -179,14 +235,30 @@ impl LintDiagnostic {
             rule: rule.into(),
             message_id: None,
             fix: None,
+            suggestions: Vec::new(),
             help: None,
             url: None,
             tags: Vec::new(),
         }
     }
 
+    /// Attach a suggestion. Multiple suggestions can be added via repeated
+    /// calls or via `with_suggestions(...)`.
+    #[must_use]
+    pub fn with_suggestion(mut self, suggestion: CodeSuggestion) -> Self {
+        self.suggestions.push(suggestion);
+        self
+    }
+
+    /// Attach a list of suggestions, replacing any previously-set ones.
+    #[must_use]
+    pub fn with_suggestions(mut self, suggestions: Vec<CodeSuggestion>) -> Self {
+        self.suggestions = suggestions;
+        self
+    }
+
     /// Add a messageId that matches graphql-eslint's per-diagnostic-site id.
-    /// The `ESLint` shim forwards this onto `LintMessage.messageId`.
+    /// The ``ESLint`` shim forwards this onto `LintMessage.messageId`.
     #[must_use]
     pub fn with_message_id(mut self, id: impl Into<String>) -> Self {
         self.message_id = Some(id.into());

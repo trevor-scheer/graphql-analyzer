@@ -63,6 +63,35 @@ function diagnosticsFor(
 // the right snapshot.
 const overridesByRule = new Map<string, { severity: string; options?: unknown }>();
 
+// Recursively convert any `RegExp` instances to their `.source` string. JS
+// configs (e.g. `forbiddenPatterns: [/foo/i]`) carry RegExp instances; those
+// get lost on `JSON.stringify` (RegExp serializes to `{}`), so we normalize
+// them to the string form the Rust analyzer's `regex` crate accepts. The
+// flag suffix is preserved when present (`(?i)foo` style) by prefixing
+// `regex` syntax flags so the underlying regex still respects them.
+function normalizeRegExps(value: unknown): unknown {
+  if (value instanceof RegExp) {
+    // The `regex` crate's syntax for inline flags is `(?<flags>:pattern)`.
+    // JS flags map: `i` (case-insensitive), `m` (multi-line), `s` (dotall),
+    // `u` and `y` are not relevant to pattern semantics here. Only inline
+    // the flags we know map cleanly.
+    const flags = value.flags
+      .split("")
+      .filter((f) => f === "i" || f === "m" || f === "s")
+      .join("");
+    return flags ? `(?${flags})${value.source}` : value.source;
+  }
+  if (Array.isArray(value)) return value.map(normalizeRegExps);
+  if (value !== null && typeof value === "object") {
+    const out: Record<string, unknown> = {};
+    for (const k of Object.keys(value as Record<string, unknown>)) {
+      out[k] = normalizeRegExps((value as Record<string, unknown>)[k]);
+    }
+    return out;
+  }
+  return value;
+}
+
 function registerOverride(analyzerRuleName: string, options: unknown): void {
   // ESLint only invokes `create()` for rules enabled at warn or error
   // (level >= 1), so just registering forces the analyzer to enable the
@@ -70,9 +99,10 @@ function registerOverride(analyzerRuleName: string, options: unknown): void {
   // not the user-facing severity — ESLint stamps its own level on the
   // resulting messages. `"warn"` is the safe lower bound that always
   // enables the rule.
+  const normalized = options !== undefined ? normalizeRegExps(options) : undefined;
   overridesByRule.set(analyzerRuleName, {
     severity: "warn",
-    ...(options !== undefined ? { options } : {}),
+    ...(normalized !== undefined ? { options: normalized } : {}),
   });
 }
 
@@ -155,6 +185,11 @@ function makeRule(analyzerRuleName: string, description: string): Rule.RuleModul
       // `"code"` for every rule so any underlying rule's autofix flows
       // through. Rules without fixes simply never produce a fix payload.
       fixable: "code",
+      // ESLint refuses to surface `suggest` arrays unless `hasSuggestions`
+      // is set. Declare `true` for every rule so the analyzer's suggestions
+      // (when present on a diagnostic) flow through; rules whose Rust impl
+      // doesn't emit suggestions just produce empty arrays.
+      hasSuggestions: true,
       docs: { description },
       schema: OPTIONS_SCHEMA,
       messages: {},
@@ -179,37 +214,48 @@ function makeRule(analyzerRuleName: string, description: string): Rule.RuleModul
                   start: { line: d.line, column: d.column - 1 },
                   end: { line: d.endLine, column: d.endColumn - 1 },
                 };
+            // Materialize line-starts once per Program() visit so both fix
+            // and suggestion fixers reuse the same offset table.
+            const lineStarts = computeLineStarts(context.sourceCode.text);
+            const buildFixer = (jsFix: binding.JsFix) => (fixer: Rule.RuleFixer) => {
+              const edits = jsFix.edits.map((e) => ({
+                range: [
+                  lineStarts[e.rangeStartLine - 1] + (e.rangeStartColumn - 1),
+                  lineStarts[e.rangeEndLine - 1] + (e.rangeEndColumn - 1),
+                ] as [number, number],
+                text: e.newText,
+              }));
+              if (edits.length === 1) {
+                return fixer.replaceTextRange(edits[0].range, edits[0].text);
+              }
+              return edits.map((e) => fixer.replaceTextRange(e.range, e.text));
+            };
             const fix =
-              d.fix && ESLINT_FIXABLE_RULES.has(analyzerRuleName)
-                ? (fixer: Rule.RuleFixer) => {
-                    // Our autofixes carry source positions; ESLint's fixer wants
-                    // absolute byte ranges. Compute those from the source text.
-                    const text = context.sourceCode.text;
-                    const lineStarts = computeLineStarts(text);
-                    const edits = d.fix!.edits.map((e) => ({
-                      range: [
-                        lineStarts[e.rangeStartLine - 1] + (e.rangeStartColumn - 1),
-                        lineStarts[e.rangeEndLine - 1] + (e.rangeEndColumn - 1),
-                      ] as [number, number],
-                      text: e.newText,
-                    }));
-                    if (edits.length === 1) {
-                      return fixer.replaceTextRange(edits[0].range, edits[0].text);
-                    }
-                    // Multi-edit: chain via the array form.
-                    return edits.map((e) => fixer.replaceTextRange(e.range, e.text));
-                  }
+              d.fix && ESLINT_FIXABLE_RULES.has(analyzerRuleName) ? buildFixer(d.fix) : undefined;
+            // Suggestions are independent of the fix surface — every
+            // analyzer-emitted suggestion routes through ESLint's `suggest`
+            // array regardless of whether the rule also surfaces a `fix`.
+            const suggest =
+              d.suggestions && d.suggestions.length > 0
+                ? d.suggestions.map((s) => ({
+                    desc: s.desc,
+                    fix: buildFixer(s.fix),
+                  }))
                 : undefined;
+            const reportExtras = {
+              ...(fix ? { fix } : {}),
+              ...(suggest ? { suggest } : {}),
+            };
             if (d.messageId) {
               ensureMessageId(rule, analyzerRuleName, d.messageId);
               context.report({
                 messageId: d.messageId,
                 data: { message: d.message },
                 loc,
-                ...(fix ? { fix } : {}),
+                ...reportExtras,
               });
             } else {
-              context.report({ message: d.message, loc, ...(fix ? { fix } : {}) });
+              context.report({ message: d.message, loc, ...reportExtras });
             }
           }
         },

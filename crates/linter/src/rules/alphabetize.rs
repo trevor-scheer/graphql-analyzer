@@ -221,7 +221,8 @@ impl StandaloneSchemaLintRule for AlphabetizeRuleImpl {
         let opts = AlphabetizeOptions::from_json(options);
         let mut diagnostics_by_file: HashMap<FileId, Vec<LintDiagnostic>> = HashMap::new();
 
-        if !opts.definitions && !opts.fields.enabled() && !opts.values {
+        if !opts.definitions && !opts.fields.enabled() && !opts.values && !opts.arguments.enabled()
+        {
             return diagnostics_by_file;
         }
 
@@ -394,7 +395,53 @@ fn check_schema_document(
                     }
                 }
             }
+            cst::Definition::DirectiveDefinition(d) => {
+                // Directive arguments. Selector context is `DirectiveDefinition`
+                // — narrow with `arguments: ["DirectiveDefinition"]` (mirrors
+                // upstream's array form). Bool `true` enables every context.
+                if opts.arguments.includes_kind("DirectiveDefinition") {
+                    if let Some(args) = d.arguments_definition() {
+                        check_input_value_definition_order(
+                            args.input_value_definitions(),
+                            "argument",
+                            &opts.groups,
+                            doc,
+                            diagnostics,
+                        );
+                    }
+                }
+            }
             _ => {}
+        }
+    }
+
+    // 3. Field-argument ordering on object/interface fields. Selector
+    // context is `FieldDefinition` (the field that owns the argument list);
+    // upstream's `arguments: ["FieldDefinition", ...]` enables this slice
+    // independently of the bare-field ordering above.
+    if opts.arguments.includes_kind("FieldDefinition") {
+        for definition in doc_cst.definitions() {
+            let fd_iter = match definition {
+                cst::Definition::ObjectTypeDefinition(d) => d.fields_definition(),
+                cst::Definition::ObjectTypeExtension(d) => d.fields_definition(),
+                cst::Definition::InterfaceTypeDefinition(d) => d.fields_definition(),
+                cst::Definition::InterfaceTypeExtension(d) => d.fields_definition(),
+                _ => None,
+            };
+            let Some(fields) = fd_iter else {
+                continue;
+            };
+            for field in fields.field_definitions() {
+                if let Some(args) = field.arguments_definition() {
+                    check_input_value_definition_order(
+                        args.input_value_definitions(),
+                        "argument",
+                        &opts.groups,
+                        doc,
+                        diagnostics,
+                    );
+                }
+            }
         }
     }
 }
@@ -1174,6 +1221,53 @@ mod tests {
         let schema = "type User { name: String age: Int }\n";
         let diagnostics = check_schema(schema, &opts);
         assert_eq!(diagnostics.len(), 1);
+    }
+
+    // ----- schema-side `arguments` per-context narrowing -----
+
+    #[test]
+    fn test_arguments_field_definition_unordered_fires() {
+        // `arguments: ["FieldDefinition"]` enables sorting field-arg
+        // definitions on object/interface types. `name(b, a)` is
+        // misordered → 1 diagnostic.
+        let opts = serde_json::json!({ "arguments": ["FieldDefinition"] });
+        let schema = "type Query { user(b: Int, a: Int): String }\n";
+        let diagnostics = check_schema(schema, &opts);
+        assert_eq!(diagnostics.len(), 1, "got: {diagnostics:?}");
+    }
+
+    #[test]
+    fn test_arguments_directive_definition_unordered_fires() {
+        // `arguments: ["DirectiveDefinition"]` enables sorting
+        // arguments on directive defs.
+        let opts = serde_json::json!({ "arguments": ["DirectiveDefinition"] });
+        let schema = "directive @demo(b: Int, a: Int) on FIELD\n";
+        let diagnostics = check_schema(schema, &opts);
+        assert_eq!(diagnostics.len(), 1, "got: {diagnostics:?}");
+    }
+
+    #[test]
+    fn test_arguments_per_context_narrowing_excludes_other_kinds() {
+        // `arguments: ["FieldDefinition"]` should NOT fire on
+        // directive args (they're a different context). `["DirectiveDefinition"]`
+        // similarly should not fire on field args.
+        let opts = serde_json::json!({ "arguments": ["FieldDefinition"] });
+        let schema = "directive @demo(b: Int, a: Int) on FIELD\n\
+                      type Query { user(b: Int, a: Int): String }\n";
+        let diagnostics = check_schema(schema, &opts);
+        // Only the field args fire; the directive args are skipped.
+        assert_eq!(diagnostics.len(), 1, "got: {diagnostics:?}");
+    }
+
+    #[test]
+    fn test_arguments_bool_true_covers_both_contexts() {
+        // Bool form enables every context; both field args and directive
+        // args should fire.
+        let opts = serde_json::json!({ "arguments": true });
+        let schema = "directive @demo(b: Int, a: Int) on FIELD\n\
+                      type Query { user(b: Int, a: Int): String }\n";
+        let diagnostics = check_schema(schema, &opts);
+        assert_eq!(diagnostics.len(), 2, "got: {diagnostics:?}");
     }
 
     #[test]

@@ -27,8 +27,8 @@ items are silent feature gaps. P2 is doc/test cleanup.**
 | 2     | Embedded GraphQL extraction        | ✅ Closed (commit `770d4d4`)                                                                                                                                                                                                                                                               |
 | 3     | `naming-convention` feature suite  | ✅ Closed — schema-side casing, prefix/suffix, patterns, ESLint selectors (`Kind1,Kind2` and `Kind[parent.name.value=X]`) all enforced and parity-verified. Two narrow gaps remain (see below): `forbiddenPatterns` JS-RegExp shape, `requiredPattern` named-group convention enforcement. |
 | 4     | Autofix coverage                   | ✅ Closed (`alphabetize` is the entire upstream `fix` surface; commit `a396cfc` doc fix)                                                                                                                                                                                                   |
-| 4b    | ESLint suggestions (`suggest`)     | ❌ Open — see below                                                                                                                                                                                                                                                                        |
-| 4c    | `alphabetize` schema-side options  | ✅ Closed — `definitions` / `fields` (per-kind) / `values` / `groups` all parity-verified for messages, positions, AND fix payloads. Per-context `arguments` array narrowing on the schema side is the only nicety left (see below).                                                       |
+| 4b    | ESLint suggestions (`suggest`)     | ⚠ Infrastructure done — `CodeSuggestion` plumbed through linter → analysis → ide → napi → JS shim; rule meta declares `hasSuggestions: true`; suggestions route as `context.report({ suggest: [...] })`. Per-rule suggestion fix payloads are the remaining slice (see below).             |
+| 4c    | `alphabetize` schema-side options  | ✅ Closed — `definitions` / `fields` (per-kind) / `values` / `groups` / per-context `arguments` (FieldDefinition + DirectiveDefinition) all parity-verified for messages, positions, AND fix payloads.                                                                                     |
 | 5     | `selection-set-depth.ignore`       | ✅ Closed (commit `de4a329`)                                                                                                                                                                                                                                                               |
 | 6     | Preset surface                     | ✅ Closed (commit `f32d6b5`) — all 5 upstream presets, content matches byte-for-byte, validation rules stubbed for drop-in compat                                                                                                                                                          |
 | 7     | `no-hashtag-description` grouping  | ✅ Closed (commit `221886d`) — was already implemented; doc/test caught up                                                                                                                                                                                                                 |
@@ -175,21 +175,51 @@ true` with `suggest:` arrays (`no-anonymous-operations`, `no-deprecated`,
 `require-selections`, `input-name`, `require-nullable-result-in-root`,
 `no-scalar-result-type-on-mutation`, others). 11 ship neither.
 
-**Plan:**
+**Infrastructure (done in this PR):**
 
-1. Doc fix: change `eslint-plugin.mdx:158` to match the migration guide —
-   `alphabetize` is wired and that's the entire upstream `fix` surface.
-2. **New sub-item ("4b: ESLint suggestions")** — wire `suggest` for the 22
-   rules upstream ships them on. Our Rust diagnostics already carry `fix`
-   payloads on most of these (we surface them via LSP "Quick Fix" already);
-   the work is exposing them as ESLint suggestions instead of fixes.
-   - Plumb `JsDiagnostic.suggestions: Array<{ messageId, fix }>` (new field)
-     through the napi boundary.
-   - In `rules.ts`, when a diagnostic carries suggestions, populate
-     `context.report({ suggest: [...] })` rather than `fix`.
-   - Add a SUGGEST set parallel to `ESLINT_FIXABLE_RULES`.
-   - Extend the parity test to compare `suggest` arrays (currently only
-     `fix` is in `canonical()` at `parity.test.mjs:631`).
+- `CodeSuggestion { desc, fix }` added to `graphql_linter::diagnostics`,
+  `graphql_analysis::diagnostics`, `graphql_ide::types`, and
+  `graphql_analyzer_napi::types`. Field threaded through every conversion
+  hop (linter byte-offsets → analysis line/col → ide POD → napi JS shape).
+- `LintDiagnostic::with_suggestion(...)` and `with_suggestions(...)`
+  builder methods on the linter side.
+- ESLint shim (`packages/eslint-plugin/src/rules.ts`) declares
+  `meta.hasSuggestions: true` for every rule and routes
+  `JsDiagnostic.suggestions[]` as `context.report({ suggest: [...] })`.
+- JS shim's `normalizeRegExps` walker (also new) converts JS RegExp
+  instances in options to the analyzer's regex-source string form, so
+  upstream's `forbiddenPatterns: [/foo/i]` JS configs reach Rust intact.
+
+**What remains: per-rule suggestion fix payloads.** The 18 upstream rules
+that ship `suggest:` arrays (audited in `node_modules/@graphql-eslint/eslint-plugin/cjs/rules/*/index.js`)
+each call `fixer.remove(node.parent)` or `fixer.replaceText(...)` against
+some specific AST node. To match upstream byte-for-byte we need:
+
+1. **HIR access to full AST node byte ranges** (not just `name_range`).
+   The HIR's `TypeDef`, `FieldDefinition`, `EnumValueDefinition`, etc.
+   currently carry only the _name_ token's range, mirroring graphql-js's
+   AST shape. Upstream's `fixer.remove(node.parent)` removes the _full_
+   declaration. We'd add a `def_range` to each HIR shape (or re-parse
+   the schema CST per rule, the way `no_hashtag_description` already does).
+2. **Per-rule suggestion implementations.** Each rule writes its own
+   `with_suggestion(CodeSuggestion::delete(desc, start, end))` or
+   `::replace(...)` call inside its `check()` body. Estimate ~20-40
+   lines per rule + a parity fixture update. Audit list:
+   `no-anonymous-operations`, `no-deprecated`, `description-style`,
+   `no-duplicate-fields`, `no-hashtag-description`, `no-typename-prefix`,
+   `no-unreachable-types`, `no-root-type`, `require-deprecation-date`,
+   `require-import-fragment`, `selection-set-depth`,
+   `unique-enum-value-names`, `naming-convention`, `no-unused-fields`,
+   `require-selections`, `input-name`,
+   `require-nullable-result-in-root`, `no-scalar-result-type-on-mutation`.
+3. **Parity test suggestion comparison.** `canonical()` already drops
+   `suggestions` from the diff today (we don't ship them yet). Once
+   per-rule implementations land, extend the canonical shape to include
+   `suggestions: [{desc, fix.range, fix.text}]` and add a `compareSuggestions`
+   knob on fixtures so the existing 33 fixtures don't regress.
+
+The infrastructure in place means each per-rule suggestion is now a
+pure-additive change — no plumbing left to do.
 
 ---
 
