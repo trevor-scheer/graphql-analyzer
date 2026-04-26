@@ -1,10 +1,9 @@
 use wasm_bindgen_test::*;
 wasm_bindgen_test_configure!(run_in_browser);
 
-// Runtime verification of `initialize` requires the wasm-side handshake bootstrap
-// that `tick` doesn't yet handle (native path uses `Connection::initialize` outside
-// the dispatch loop). This compiles to catch wasm-side type errors; the actual
-// round-trip will be exercised via Playwright e2e once the handshake is wired up.
+// Logically correct but requires `wasm-pack test --headless --chrome` to run.
+// Playwright e2e provides equivalent coverage until that infrastructure is wired
+// into CI.
 #[wasm_bindgen_test]
 #[ignore]
 fn initialize_roundtrip() {
