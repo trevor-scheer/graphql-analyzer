@@ -24,6 +24,7 @@ pub(crate) struct LintConfigInput {
 /// - Automatic invalidation (only config-dependent queries re-run on changes)
 /// - No deadlock risk (Salsa manages all locking internally)
 /// - Snapshot isolation (config is immutable in Analysis snapshots)
+#[cfg(feature = "extract")]
 #[salsa::input]
 pub(crate) struct ExtractConfigInput {
     pub config: Arc<graphql_extract::ExtractConfig>,
@@ -42,6 +43,7 @@ pub(crate) struct ExtractConfigInput {
 pub(crate) struct IdeDatabase {
     pub(crate) storage: salsa::Storage<Self>,
     pub(crate) lint_config_input: Option<LintConfigInput>,
+    #[cfg(feature = "extract")]
     pub(crate) extract_config_input: Option<ExtractConfigInput>,
     /// Project files input - stores the current `ProjectFiles` Salsa input directly.
     /// Unlike the old `Arc<RwLock<...>>` approach, this enables proper Salsa dependency
@@ -63,6 +65,7 @@ impl Default for IdeDatabase {
                 _ => {}
             }))),
             lint_config_input: None,
+            #[cfg(feature = "extract")]
             extract_config_input: None,
             project_files_input: None,
         };
@@ -72,10 +75,13 @@ impl Default for IdeDatabase {
             &db,
             Arc::new(graphql_linter::LintConfig::default()),
         ));
-        db.extract_config_input = Some(ExtractConfigInput::new(
-            &db,
-            Arc::new(graphql_extract::ExtractConfig::default()),
-        ));
+        #[cfg(feature = "extract")]
+        {
+            db.extract_config_input = Some(ExtractConfigInput::new(
+                &db,
+                Arc::new(graphql_extract::ExtractConfig::default()),
+            ));
+        }
 
         db
     }
@@ -86,6 +92,7 @@ impl salsa::Database for IdeDatabase {}
 
 #[salsa::db]
 impl graphql_syntax::GraphQLSyntaxDatabase for IdeDatabase {
+    #[cfg(feature = "extract")]
     fn extract_config(&self) -> Option<Arc<graphql_extract::ExtractConfig>> {
         self.extract_config_input
             .map(|input| input.config(self).clone())

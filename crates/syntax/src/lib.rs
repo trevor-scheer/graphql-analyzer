@@ -177,14 +177,13 @@ pub fn parse(
     metadata: FileMetadata,
 ) -> Parse {
     let uri = metadata.uri(db);
-    let language = metadata.language(db);
 
-    // Dispatch based on language: GraphQL parses directly, others need extraction
-    if language.requires_extraction() {
-        extract_and_parse(db, &content.text(db), uri.as_str())
-    } else {
-        parse_graphql(&content.text(db), uri.as_str())
+    #[cfg(feature = "extract")]
+    if metadata.language(db).requires_extraction() {
+        return extract_and_parse(db, &content.text(db), uri.as_str());
     }
+    // When the extract feature is off (wasm), all files parse as raw GraphQL.
+    parse_graphql(&content.text(db), uri.as_str())
 }
 
 /// Parse pure GraphQL content into a single block at offset 0
@@ -225,6 +224,7 @@ fn parse_graphql(content: &str, uri: &str) -> Parse {
 }
 
 /// Extract GraphQL from TypeScript/JavaScript and parse each block
+#[cfg(feature = "extract")]
 fn extract_and_parse(db: &dyn GraphQLSyntaxDatabase, content: &str, uri: &str) -> Parse {
     use graphql_extract::{extract_from_source, ExtractConfig, Language};
 
@@ -709,6 +709,7 @@ pub trait GraphQLSyntaxDatabase: salsa::Database {
     /// Get the extract configuration for TypeScript/JavaScript extraction
     /// Returns None by default, which means use `ExtractConfig::default()`
     /// Implementations can override to provide custom configuration
+    #[cfg(feature = "extract")]
     fn extract_config(&self) -> Option<Arc<graphql_extract::ExtractConfig>> {
         None
     }

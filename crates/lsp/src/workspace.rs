@@ -18,7 +18,21 @@ use std::path::PathBuf;
 use graphql_ide::AnalysisHost;
 use lsp_types::Uri;
 
+#[cfg(feature = "native")]
 use crate::conversions::uri_to_file_path;
+
+/// Strip the scheme/authority prefix from a URI, returning the path component
+/// for glob-pattern matching against project `schema`/`documents` patterns.
+///
+/// Used on wasm where `uri_to_file_path` is unavailable; the caller has already
+/// determined the URI belongs to a known workspace, so what remains is matching
+/// the URI's path against the project's globs as if it were a relative path.
+#[cfg(not(feature = "native"))]
+fn uri_relative_path(uri: &Uri) -> String {
+    let s = uri.as_str();
+    let after_scheme = s.split_once("://").map_or(s, |(_, rest)| rest);
+    after_scheme.trim_start_matches('/').to_string()
+}
 
 /// Manages workspace state for the GraphQL Language Server.
 pub struct WorkspaceManager {
@@ -117,20 +131,39 @@ impl WorkspaceManager {
 
         // For virtual files (non-file:// scheme), search all hosts
         if !uri_string.starts_with("file://") {
-            return self.find_host_for_virtual_file(&uri_string);
+            if let Some(entry) = self.find_host_for_virtual_file(&uri_string) {
+                return Some(entry);
+            }
+
+            // In the wasm path, route unrecognised virtual files to the first
+            // installed workspace so that `didOpen` can add them to a host.
+            #[cfg(not(feature = "native"))]
+            if let Some((workspace_uri, config)) = self.configs.iter().next() {
+                let project_name = config
+                    .projects()
+                    .next()
+                    .map(|(n, _)| n)
+                    .unwrap_or("default");
+                return Some((workspace_uri.clone(), project_name.to_string()));
+            }
+
+            return None;
         }
 
-        let doc_path = uri_to_file_path(document_uri)?;
-        for (workspace_uri, workspace_path) in &self.workspace_roots {
-            if doc_path.starts_with(workspace_path.as_path()) {
-                if let Some(config) = self.configs.get(workspace_uri.as_str()) {
-                    if let Some(project_name) =
-                        config.find_project_for_document(&doc_path, workspace_path)
-                    {
-                        return Some((workspace_uri.clone(), project_name.to_string()));
+        #[cfg(feature = "native")]
+        {
+            let doc_path = uri_to_file_path(document_uri)?;
+            for (workspace_uri, workspace_path) in &self.workspace_roots {
+                if doc_path.starts_with(workspace_path.as_path()) {
+                    if let Some(config) = self.configs.get(workspace_uri.as_str()) {
+                        if let Some(project_name) =
+                            config.find_project_for_document(&doc_path, workspace_path)
+                        {
+                            return Some((workspace_uri.clone(), project_name.to_string()));
+                        }
                     }
+                    return None;
                 }
-                return None;
             }
         }
 
@@ -166,10 +199,20 @@ impl WorkspaceManager {
         workspace_uri: &str,
         project_name: &str,
     ) -> Option<graphql_config::FileType> {
-        let doc_path = uri_to_file_path(uri)?;
-        let workspace_path = self.workspace_roots.get(workspace_uri)?;
-        let config = self.configs.get(workspace_uri)?;
-        config.get_file_type(&doc_path, workspace_path, project_name)
+        #[cfg(not(feature = "native"))]
+        {
+            let config = self.configs.get(workspace_uri)?;
+            let rel_path = uri_relative_path(uri);
+            return config.get_file_type_by_rel_path(&rel_path, project_name);
+        }
+
+        #[cfg(feature = "native")]
+        {
+            let doc_path = uri_to_file_path(uri)?;
+            let workspace_path = self.workspace_roots.get(workspace_uri)?;
+            let config = self.configs.get(workspace_uri)?;
+            config.get_file_type(&doc_path, workspace_path, project_name)
+        }
     }
 }
 

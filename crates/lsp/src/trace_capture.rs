@@ -7,6 +7,7 @@ use std::path::PathBuf;
 use std::sync::Mutex;
 use std::time::Instant;
 
+#[cfg(feature = "native")]
 use tracing_chrome::ChromeLayerBuilder;
 use tracing_subscriber::Layer;
 
@@ -38,6 +39,7 @@ struct ActiveCapture {
     started_at: Instant,
     // The FlushGuard flushes and closes the trace file when dropped.
     // Stored as Option so we can take() it on stop.
+    #[cfg(feature = "native")]
     _flush_guard: tracing_chrome::FlushGuard,
 }
 
@@ -81,54 +83,65 @@ impl TraceCaptureManager {
     }
 
     pub fn start(&self) -> TraceCaptureResult {
-        let mut active = self.active.lock().unwrap();
-
-        if active.is_some() {
-            return TraceCaptureResult {
-                status: "error".to_string(),
-                path: None,
-                message: Some("Trace capture is already running".to_string()),
-                duration_ms: None,
-            };
-        }
-
-        let timestamp = chrono_timestamp();
-        let trace_file_path =
-            std::env::temp_dir().join(format!("graphql-analyzer-trace-{timestamp}.json"));
-
-        let (chrome_layer, flush_guard) = ChromeLayerBuilder::new()
-            .file(trace_file_path.clone())
-            .include_args(true)
-            .build();
-
-        // Don't use .with_filter() here — per-layer filtering requires
-        // registering a FilterId at subscriber build time, which can't
-        // happen for a layer created at runtime via reload. The chrome
-        // layer captures all spans; users can filter in the trace viewer.
-        let layer: BoxedLayer = Box::new(chrome_layer);
-
-        if let Err(e) = self.reload_handle.reload(layer) {
-            return TraceCaptureResult {
-                status: "error".to_string(),
-                path: None,
-                message: Some(format!("Failed to enable trace layer: {e}")),
-                duration_ms: None,
-            };
-        }
-
-        *active = Some(ActiveCapture {
-            trace_file_path: trace_file_path.clone(),
-            started_at: Instant::now(),
-            _flush_guard: flush_guard,
-        });
-
-        TraceCaptureResult {
-            status: "started".to_string(),
-            path: Some(trace_file_path.to_string_lossy().to_string()),
-            message: Some(format!(
-                "Trace capture started. Auto-stops after {AUTO_STOP_SECS}s."
-            )),
+        #[cfg(not(feature = "native"))]
+        return TraceCaptureResult {
+            status: "error".to_string(),
+            path: None,
+            message: Some("Trace capture is not supported on this platform".to_string()),
             duration_ms: None,
+        };
+
+        #[cfg(feature = "native")]
+        {
+            let mut active = self.active.lock().unwrap();
+
+            if active.is_some() {
+                return TraceCaptureResult {
+                    status: "error".to_string(),
+                    path: None,
+                    message: Some("Trace capture is already running".to_string()),
+                    duration_ms: None,
+                };
+            }
+
+            let timestamp = chrono_timestamp();
+            let trace_file_path =
+                std::env::temp_dir().join(format!("graphql-analyzer-trace-{timestamp}.json"));
+
+            let (chrome_layer, flush_guard) = ChromeLayerBuilder::new()
+                .file(trace_file_path.clone())
+                .include_args(true)
+                .build();
+
+            // Don't use .with_filter() here — per-layer filtering requires
+            // registering a FilterId at subscriber build time, which can't
+            // happen for a layer created at runtime via reload. The chrome
+            // layer captures all spans; users can filter in the trace viewer.
+            let layer: BoxedLayer = Box::new(chrome_layer);
+
+            if let Err(e) = self.reload_handle.reload(layer) {
+                return TraceCaptureResult {
+                    status: "error".to_string(),
+                    path: None,
+                    message: Some(format!("Failed to enable trace layer: {e}")),
+                    duration_ms: None,
+                };
+            }
+
+            *active = Some(ActiveCapture {
+                trace_file_path: trace_file_path.clone(),
+                started_at: Instant::now(),
+                _flush_guard: flush_guard,
+            });
+
+            TraceCaptureResult {
+                status: "started".to_string(),
+                path: Some(trace_file_path.to_string_lossy().to_string()),
+                message: Some(format!(
+                    "Trace capture started. Auto-stops after {AUTO_STOP_SECS}s."
+                )),
+                duration_ms: None,
+            }
         }
     }
 
@@ -184,6 +197,7 @@ impl TraceCaptureManager {
     }
 }
 
+#[cfg(feature = "native")]
 fn chrono_timestamp() -> String {
     use std::time::SystemTime;
 
@@ -203,6 +217,7 @@ fn chrono_timestamp() -> String {
     format!("{year:04}-{month:02}-{day:02}T{hours:02}-{minutes:02}-{seconds:02}")
 }
 
+#[cfg(feature = "native")]
 fn epoch_days_to_date(days: u64) -> (u64, u64, u64) {
     // Algorithm from http://howardhinnant.github.io/date_algorithms.html
     let z = days + 719_468;

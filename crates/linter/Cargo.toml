@@ -12,8 +12,8 @@ categories = ["development-tools"]
 [dependencies]
 # Internal dependencies - NEW ARCHITECTURE
 graphql-base-db = { path = "../base-db" }
-graphql-syntax = { path = "../syntax" }
-graphql-hir = { path = "../hir" }
+graphql-syntax = { path = "../syntax", default-features = false }
+graphql-hir = { path = "../hir", default-features = false }
 graphql-apollo-ext = { path = "../apollo-ext" }
 
 # GraphQL parsing
@@ -26,6 +26,11 @@ serde_json = { workspace = true }
 
 # Logging
 tracing = "0.1"
+
+[features]
+default = ["extract"]
+extract = ["graphql-syntax/extract", "graphql-hir/extract"]
+native = ["graphql-syntax/native", "graphql-hir/native"]
 
 [dev-dependencies]
 serde-saphyr = { workspace = true }

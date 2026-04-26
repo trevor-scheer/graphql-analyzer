@@ -2,11 +2,14 @@
 
 use crate::conversions::convert_ide_diagnostic;
 use crate::global_state::GlobalState;
+#[cfg(feature = "native")]
 use crate::loading;
 use graphql_ide::{DocumentKind, Language};
+#[cfg(feature = "native")]
+use lsp_types::FileChangeType;
 use lsp_types::{
     DidChangeTextDocumentParams, DidChangeWatchedFilesParams, DidCloseTextDocumentParams,
-    DidOpenTextDocumentParams, DidSaveTextDocumentParams, FileChangeType, Uri,
+    DidOpenTextDocumentParams, DidSaveTextDocumentParams, Uri,
 };
 use std::path::Path;
 use std::str::FromStr;
@@ -192,58 +195,66 @@ pub(crate) fn handle_did_change_watched_files(
     state: &mut GlobalState,
     params: DidChangeWatchedFilesParams,
 ) {
-    tracing::debug!("Watched files changed: {} file(s)", params.changes.len());
+    #[cfg(feature = "native")]
+    {
+        tracing::debug!("Watched files changed: {} file(s)", params.changes.len());
 
-    for change in params.changes {
-        let uri = change.uri;
-        tracing::debug!("File changed: {} (type: {:?})", uri.path(), change.typ);
+        for change in params.changes {
+            let uri = change.uri;
+            tracing::debug!("File changed: {} (type: {:?})", uri.path(), change.typ);
 
-        let Some(config_path) = crate::conversions::uri_to_file_path(&uri) else {
-            tracing::warn!("Failed to convert URI to file path: {:?}", uri);
-            continue;
-        };
+            let Some(config_path) = crate::conversions::uri_to_file_path(&uri) else {
+                tracing::warn!("Failed to convert URI to file path: {:?}", uri);
+                continue;
+            };
 
-        let workspace_uri: Option<String> = state
-            .workspace
-            .config_paths
-            .iter()
-            .find(|(_, path)| **path == config_path)
-            .map(|(ws_uri, _)| ws_uri.clone());
+            let workspace_uri: Option<String> = state
+                .workspace
+                .config_paths
+                .iter()
+                .find(|(_, path)| **path == config_path)
+                .map(|(ws_uri, _)| ws_uri.clone());
 
-        if let Some(workspace_uri) = workspace_uri {
-            match change.typ {
-                FileChangeType::CREATED | FileChangeType::CHANGED => {
-                    tracing::info!("Config file changed for workspace: {}", workspace_uri);
-                    loading::reload_workspace_config(state, &workspace_uri);
+            if let Some(workspace_uri) = workspace_uri {
+                match change.typ {
+                    FileChangeType::CREATED | FileChangeType::CHANGED => {
+                        tracing::info!("Config file changed for workspace: {}", workspace_uri);
+                        loading::reload_workspace_config(state, &workspace_uri);
+                    }
+                    FileChangeType::DELETED => {
+                        tracing::warn!("Config file deleted for workspace: {}", workspace_uri);
+                        state.send_notification::<lsp_types::notification::ShowMessage>(
+                            lsp_types::ShowMessageParams {
+                                typ: lsp_types::MessageType::WARNING,
+                                message: "GraphQL config file was deleted".to_owned(),
+                            },
+                        );
+                    }
+                    _ => {}
                 }
-                FileChangeType::DELETED => {
-                    tracing::warn!("Config file deleted for workspace: {}", workspace_uri);
-                    state.send_notification::<lsp_types::notification::ShowMessage>(
-                        lsp_types::ShowMessageParams {
-                            typ: lsp_types::MessageType::WARNING,
-                            message: "GraphQL config file was deleted".to_owned(),
-                        },
-                    );
-                }
-                _ => {}
+                continue;
             }
-            continue;
-        }
 
-        let resolved_match: Option<(String, String)> = state
-            .workspace
-            .resolved_schema_paths
-            .iter()
-            .find(|(_, path)| **path == config_path)
-            .map(|((ws, proj), _)| (ws.clone(), proj.clone()));
+            let resolved_match: Option<(String, String)> = state
+                .workspace
+                .resolved_schema_paths
+                .iter()
+                .find(|(_, path)| **path == config_path)
+                .map(|((ws, proj), _)| (ws.clone(), proj.clone()));
 
-        if let Some((ws_uri, proj_name)) = resolved_match {
-            if matches!(
-                change.typ,
-                FileChangeType::CREATED | FileChangeType::CHANGED
-            ) {
-                loading::reload_resolved_schema(state, &ws_uri, &proj_name, &config_path);
+            if let Some((ws_uri, proj_name)) = resolved_match {
+                if matches!(
+                    change.typ,
+                    FileChangeType::CREATED | FileChangeType::CHANGED
+                ) {
+                    loading::reload_resolved_schema(state, &ws_uri, &proj_name, &config_path);
+                }
             }
         }
     }
+
+    // Under wasm the server has no access to the host filesystem, so watched-file
+    // notifications are a no-op. Config loading happens via init options instead.
+    #[cfg(not(feature = "native"))]
+    let _ = (state, params);
 }

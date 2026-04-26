@@ -30,12 +30,18 @@ anyhow = { workspace = true }
 
 # Internal crates (query-based layers)
 graphql-base-db = { path = "../base-db" }
-graphql-syntax = { path = "../syntax" }
-graphql-hir = { path = "../hir" }
-graphql-analysis = { path = "../analysis" }
-graphql-linter = { path = "../linter" }
-graphql-extract = { path = "../extract" }
-graphql-introspect = { path = "../introspect" }
+graphql-syntax = { path = "../syntax", default-features = false }
+graphql-hir = { path = "../hir", default-features = false }
+graphql-analysis = { path = "../analysis", default-features = false }
+graphql-linter = { path = "../linter", default-features = false }
+graphql-extract = { path = "../extract", optional = true }
+graphql-introspect = { path = "../introspect", optional = true }
+
+[features]
+default = ["native", "extract", "introspect"]
+native = ["graphql-syntax/native", "graphql-hir/native", "graphql-analysis/native", "graphql-linter/native"]
+extract = ["dep:graphql-extract", "graphql-syntax/extract", "graphql-hir/extract", "graphql-analysis/extract", "graphql-linter/extract", "graphql-ide-db/extract"]
+introspect = ["dep:graphql-introspect"]
 
 [dev-dependencies]
 tempfile = "3.0"

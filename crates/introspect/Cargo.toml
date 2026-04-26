@@ -12,10 +12,17 @@ categories = ["development-tools", "web-programming"]
 [dependencies]
 serde = { workspace = true }
 serde_json = { workspace = true }
-reqwest = { workspace = true }
 thiserror = { workspace = true }
 tracing = "0.1"
+
+[target.'cfg(not(target_arch = "wasm32"))'.dependencies]
+reqwest = { version = "0.13", default-features = false, features = ["json", "rustls"] }
 tokio = { workspace = true, features = ["time"] }
+
+[target.'cfg(target_arch = "wasm32")'.dependencies]
+reqwest = { version = "0.13", default-features = false, features = ["json"] }
+# wasm tokio: only time is supported; no rt-multi-thread
+tokio = { version = "1", default-features = false, features = ["time"] }
 
 [dev-dependencies]
 tokio = { workspace = true, features = ["time"] }

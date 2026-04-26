@@ -4,15 +4,22 @@
 //! that take `&mut GlobalState`.
 
 use std::path::Path;
+#[cfg(feature = "native")]
 use std::str::FromStr;
 
+#[cfg(feature = "native")]
 use lsp_types::{Diagnostic, MessageType, Uri};
 
+#[cfg(feature = "native")]
 use crate::conversions::convert_ide_diagnostic;
-use crate::global_state::{GlobalState, IntrospectionRequest};
+use crate::global_state::GlobalState;
+#[cfg(feature = "native")]
+use crate::global_state::IntrospectionRequest;
+#[cfg(feature = "native")]
 use crate::server::validation_errors_to_diagnostics;
 
 /// Load a workspace config and all its projects.
+#[cfg(feature = "native")]
 pub fn load_workspace_config(state: &mut GlobalState, workspace_uri: &str, workspace_path: &Path) {
     tracing::debug!(path = ?workspace_path, "Loading GraphQL config");
 
@@ -118,6 +125,7 @@ pub fn load_workspace_config(state: &mut GlobalState, workspace_uri: &str, works
 }
 
 /// Load all project files from a config into their respective `AnalysisHost` instances.
+#[cfg(feature = "native")]
 fn load_all_project_files(
     state: &mut GlobalState,
     workspace_uri: &str,
@@ -348,6 +356,7 @@ fn load_all_project_files(
 }
 
 /// Reload configuration for a workspace.
+#[cfg(feature = "native")]
 pub fn reload_workspace_config(state: &mut GlobalState, workspace_uri: &str) {
     tracing::debug!("Reloading configuration for workspace: {}", workspace_uri);
 
@@ -374,6 +383,7 @@ pub fn reload_workspace_config(state: &mut GlobalState, workspace_uri: &str) {
 }
 
 /// Reload a resolved schema file that changed on disk.
+#[cfg(feature = "native")]
 pub fn reload_resolved_schema(
     state: &mut GlobalState,
     workspace_uri: &str,
@@ -427,4 +437,31 @@ pub fn reload_resolved_schema(
             .collect();
         state.publish_diagnostics(file_uri, lsp_diagnostics, None);
     }
+}
+
+/// Install a workspace from LSP `initializationOptions` JSON, bypassing the on-disk
+/// `.graphqlrc.yaml` lookup. The JSON shape must deserialize to `graphql_config::GraphQLConfig`.
+///
+/// Used by the wasm entrypoint where the host page declares the project shape (schema +
+/// documents URIs) up front, rather than relying on filesystem discovery. Native callers
+/// can still use `load_workspace_config` to load from disk.
+pub fn install_workspace_from_init_options(
+    state: &mut GlobalState,
+    workspace_uri: &str,
+    workspace_path: &Path,
+    init_options: serde_json::Value,
+) -> Result<(), String> {
+    let config: graphql_config::GraphQLConfig =
+        serde_json::from_value(init_options).map_err(|e| {
+            format!("`initializationOptions` is not a valid graphql_config::GraphQLConfig: {e}")
+        })?;
+    state
+        .workspace
+        .workspace_roots
+        .insert(workspace_uri.to_string(), workspace_path.to_path_buf());
+    state
+        .workspace
+        .configs
+        .insert(workspace_uri.to_string(), config);
+    Ok(())
 }

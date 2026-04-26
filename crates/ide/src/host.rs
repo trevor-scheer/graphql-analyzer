@@ -13,7 +13,9 @@ fn next_snapshot_id() -> u64 {
 }
 
 use crate::analysis::Analysis;
-use crate::database::{ExtractConfigInput, IdeDatabase, LintConfigInput};
+#[cfg(feature = "extract")]
+use crate::database::ExtractConfigInput;
+use crate::database::{IdeDatabase, LintConfigInput};
 use crate::discovery::{
     determine_document_file_kind, expand_braces, path_to_file_path, DiscoveredFile, LoadedFile,
 };
@@ -290,9 +292,11 @@ impl AnalysisHost {
                             match std::fs::read_to_string(&entry) {
                                 Ok(content) => {
                                     let file_uri = path_to_file_uri(&entry);
+                                    #[cfg(feature = "extract")]
                                     let language = graphql_extract::Language::from_path(&entry);
 
                                     // Check if this is a TS/JS file that needs extraction
+                                    #[cfg(feature = "extract")]
                                     if let Some(lang) = language {
                                         if lang.requires_extraction() {
                                             // Extract GraphQL from TS/JS file
@@ -379,6 +383,7 @@ impl AnalysisHost {
                                     }
 
                                     // JSON introspection result file support
+                                    #[cfg(feature = "introspect")]
                                     if entry.extension().and_then(|e| e.to_str()) == Some("json")
                                         && graphql_introspect::is_introspection_json(&content)
                                     {
@@ -567,6 +572,7 @@ impl AnalysisHost {
     ///
     /// This properly invalidates all queries that depend on extract config via Salsa's
     /// dependency tracking. Only extract-dependent queries will re-run when config changes.
+    #[cfg(feature = "extract")]
     pub fn set_extract_config(&mut self, config: graphql_extract::ExtractConfig) {
         if let Some(input) = self.db.extract_config_input {
             input.set_config(&mut self.db).to(Arc::new(config));
@@ -577,6 +583,7 @@ impl AnalysisHost {
     }
 
     /// Get the extract configuration for the project
+    #[cfg(feature = "extract")]
     pub fn get_extract_config(&self) -> graphql_extract::ExtractConfig {
         self.db
             .extract_config_input
@@ -598,6 +605,8 @@ impl AnalysisHost {
     ///
     /// * `config` - The project configuration containing document patterns
     /// * `workspace_path` - The base directory for glob pattern resolution
+    /// * `extract_config` - Configuration for TS/JS GraphQL extraction
+    ///   (only present when the `extract` feature is enabled)
     ///
     /// # Returns
     ///
@@ -607,7 +616,7 @@ impl AnalysisHost {
         &mut self,
         config: &graphql_config::ProjectConfig,
         workspace_path: &std::path::Path,
-        extract_config: &graphql_extract::ExtractConfig,
+        #[cfg(feature = "extract")] extract_config: &graphql_extract::ExtractConfig,
     ) -> (Vec<LoadedFile>, DocumentLoadResult) {
         let Some(documents_config) = &config.documents else {
             return (Vec::new(), DocumentLoadResult::default());
@@ -654,14 +663,23 @@ impl AnalysisHost {
 
                                             // Skip files that require extraction but contain no GraphQL
                                             if language.requires_extraction() {
-                                                let blocks = graphql_extract::extract_from_source(
-                                                    &content,
-                                                    language,
-                                                    extract_config,
-                                                    &path_str,
-                                                )
-                                                .unwrap_or_default();
-                                                if blocks.is_empty() {
+                                                #[cfg(feature = "extract")]
+                                                {
+                                                    let blocks =
+                                                        graphql_extract::extract_from_source(
+                                                            &content,
+                                                            language,
+                                                            extract_config,
+                                                            &path_str,
+                                                        )
+                                                        .unwrap_or_default();
+                                                    if blocks.is_empty() {
+                                                        continue;
+                                                    }
+                                                }
+                                                #[cfg(not(feature = "extract"))]
+                                                {
+                                                    // No extractor available; skip files that need extraction.
                                                     continue;
                                                 }
                                             }

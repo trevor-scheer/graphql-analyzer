@@ -1,3 +1,4 @@
+#[cfg(feature = "native")]
 use lsp_types::Diagnostic;
 
 /// Parameters for the `graphql/virtualFileContent` custom request.
@@ -25,13 +26,16 @@ impl lsp_types::request::Request for PingRequest {
 }
 
 /// Custom notification sent from server to client to indicate loading status.
+#[cfg(feature = "native")]
 pub enum StatusNotification {}
 
+#[cfg(feature = "native")]
 impl lsp_types::notification::Notification for StatusNotification {
     type Params = StatusParams;
     const METHOD: &'static str = "graphql-analyzer/status";
 }
 
+#[cfg(feature = "native")]
 #[derive(Debug, serde::Serialize, serde::Deserialize)]
 pub struct StatusParams {
     pub status: String,
@@ -46,6 +50,7 @@ pub struct PingResponse {
 }
 
 /// Convert config validation errors to LSP diagnostics.
+#[cfg(feature = "native")]
 pub fn validation_errors_to_diagnostics(
     errors: &[graphql_config::ConfigValidationError],
     config_content: &str,

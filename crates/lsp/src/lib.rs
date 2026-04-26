@@ -14,6 +14,15 @@ pub(crate) mod server;
 pub mod trace_capture;
 mod workspace;
 
+pub use crate::global_state::{GlobalState, InlineDispatcher, TaskDispatcher};
+pub use crate::loading::install_workspace_from_init_options;
+pub use crate::main_loop::{tick, ControlFlow};
+
+/// No-op workspace bootstrap for the wasm path; documents are loaded
+/// lazily via `textDocument/didOpen` notifications instead.
+pub fn load_wasm_workspace(_state: &mut GlobalState) {}
+
+#[cfg(feature = "native")]
 use std::path::PathBuf;
 
 use lsp_types::{
@@ -29,7 +38,7 @@ use tracing_subscriber::layer::SubscriberExt;
 use tracing_subscriber::Layer;
 use tracing_subscriber::Registry;
 
-use global_state::GlobalState;
+#[cfg(feature = "native")]
 use server::{StatusNotification, StatusParams};
 
 /// Build a tracing `EnvFilter`, always suppressing Salsa's internal logs
@@ -45,6 +54,7 @@ fn build_env_filter(default: &str) -> tracing_subscriber::EnvFilter {
 }
 
 /// Initialize tracing with OpenTelemetry support.
+#[cfg(feature = "native")]
 fn init_tracing_with_otel() -> Option<trace_capture::ReloadHandle> {
     use opentelemetry::trace::TracerProvider;
     use opentelemetry_otlp::WithExportConfig;
@@ -134,6 +144,7 @@ fn init_tracing_without_otel() -> Option<trace_capture::ReloadHandle> {
 
 #[must_use]
 pub fn init_tracing() -> Option<trace_capture::ReloadHandle> {
+    #[cfg(feature = "native")]
     if std::env::var("OTEL_TRACES_ENABLED").is_ok() {
         return init_tracing_with_otel();
     }
@@ -170,7 +181,8 @@ pub fn install_panic_hook() {
     }));
 }
 
-fn build_server_capabilities() -> ServerCapabilities {
+#[must_use]
+pub fn build_server_capabilities() -> ServerCapabilities {
     use lsp_types::CodeLensOptions;
 
     ServerCapabilities {
@@ -249,6 +261,7 @@ fn build_server_capabilities() -> ServerCapabilities {
     }
 }
 
+#[cfg(feature = "native")]
 fn spawn_introspection_thread(
     request_receiver: crossbeam_channel::Receiver<global_state::IntrospectionRequest>,
     result_sender: crossbeam_channel::Sender<global_state::IntrospectionResult>,
@@ -294,6 +307,7 @@ fn spawn_introspection_thread(
         .expect("spawn introspection thread");
 }
 
+#[cfg(feature = "native")]
 fn handle_initialized(state: &mut GlobalState) {
     let version = env!("CARGO_PKG_VERSION");
     let git_sha = option_env!("VERGEN_GIT_SHA").unwrap_or("unknown");
@@ -357,6 +371,7 @@ fn handle_initialized(state: &mut GlobalState) {
     register_file_watchers(state);
 }
 
+#[cfg(feature = "native")]
 fn register_file_watchers(state: &GlobalState) {
     use lsp_types::FileSystemWatcher;
 
@@ -415,6 +430,7 @@ fn register_file_watchers(state: &GlobalState) {
 }
 
 /// Run the GraphQL language server over stdio.
+#[cfg(feature = "native")]
 pub fn run_server() {
     let reload_handle = init_tracing();
     install_panic_hook();
@@ -443,8 +459,13 @@ pub fn run_server() {
     let (introspection_result_sender, introspection_result_receiver) =
         crossbeam_channel::unbounded();
 
+    let dispatcher: Box<dyn global_state::TaskDispatcher> =
+        Box::new(global_state::ThreadPoolDispatcher::new(
+            threadpool::ThreadPool::with_name("salsa-worker".into(), num_cpus()),
+        ));
     let mut state = global_state::GlobalState::new(
         connection.sender.clone(),
+        dispatcher,
         introspection_request_sender,
         introspection_result_receiver,
     );
@@ -470,9 +491,16 @@ pub fn run_server() {
 
     handle_initialized(&mut state);
 
-    main_loop::main_loop(&connection, &mut state);
+    main_loop::run(&connection, &mut state);
 
     // Drop the state before joining IO threads to close channels
     drop(state);
     io_threads.join().expect("io threads");
+}
+
+#[cfg(feature = "native")]
+fn num_cpus() -> usize {
+    std::thread::available_parallelism()
+        .map(usize::from)
+        .unwrap_or(4)
 }

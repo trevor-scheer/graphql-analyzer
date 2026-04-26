@@ -1,6 +1,7 @@
 //! GraphQL introspection query execution.
 
 use crate::{IntrospectionError, IntrospectionResponse, Result};
+#[cfg(not(target_arch = "wasm32"))]
 use std::time::Duration;
 
 /// Standard GraphQL introspection query.
@@ -144,9 +145,12 @@ fragment TypeRef on __Type {
 #[tracing::instrument]
 pub async fn execute_introspection(url: &str) -> Result<IntrospectionResponse> {
     tracing::debug!("Creating HTTP client with timeouts");
-    let client = reqwest::Client::builder()
+    let builder = reqwest::Client::builder();
+    #[cfg(not(target_arch = "wasm32"))]
+    let builder = builder
         .timeout(Duration::from_secs(30))
-        .connect_timeout(Duration::from_secs(10))
+        .connect_timeout(Duration::from_secs(10));
+    let client = builder
         .build()
         .map_err(|e| IntrospectionError::Network(format!("Failed to create HTTP client: {e}")))?;
 

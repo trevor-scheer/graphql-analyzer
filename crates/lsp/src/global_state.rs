@@ -6,6 +6,37 @@ use lsp_types::Uri;
 
 use crate::workspace::WorkspaceManager;
 
+pub trait TaskDispatcher: Send + Sync {
+    fn execute(&self, work: Box<dyn FnOnce() + Send + 'static>);
+}
+
+#[cfg(feature = "native")]
+pub struct ThreadPoolDispatcher(threadpool::ThreadPool);
+
+#[cfg(feature = "native")]
+impl TaskDispatcher for ThreadPoolDispatcher {
+    fn execute(&self, work: Box<dyn FnOnce() + Send + 'static>) {
+        self.0.execute(work);
+    }
+}
+
+#[cfg(feature = "native")]
+impl ThreadPoolDispatcher {
+    pub fn new(pool: threadpool::ThreadPool) -> Self {
+        Self(pool)
+    }
+}
+
+// Used by the wasm target (no threads) and by tests; native always uses ThreadPoolDispatcher.
+#[allow(dead_code)]
+pub struct InlineDispatcher;
+
+impl TaskDispatcher for InlineDispatcher {
+    fn execute(&self, work: Box<dyn FnOnce() + Send + 'static>) {
+        work();
+    }
+}
+
 /// Owns all mutable server state. Lives exclusively on the main thread.
 ///
 /// Since the main thread is the only writer, no locks are needed for any
@@ -13,7 +44,7 @@ use crate::workspace::WorkspaceManager;
 /// instead.
 pub struct GlobalState {
     pub sender: Sender<Message>,
-    pub threadpool: threadpool::ThreadPool,
+    pub dispatcher: Box<dyn TaskDispatcher>,
     pub workspace: WorkspaceManager,
     pub client_capabilities: Option<lsp_types::ClientCapabilities>,
     pub trace_capture: Option<crate::trace_capture::TraceCaptureManager>,
@@ -71,8 +102,10 @@ pub struct GlobalStateSnapshot {
 }
 
 impl GlobalState {
+    #[must_use]
     pub fn new(
         sender: Sender<Message>,
+        dispatcher: Box<dyn TaskDispatcher>,
         introspection_request_sender: Sender<IntrospectionRequest>,
         introspection_result_receiver: crossbeam_channel::Receiver<IntrospectionResult>,
     ) -> Self {
@@ -80,7 +113,7 @@ impl GlobalState {
 
         Self {
             sender,
-            threadpool: threadpool::ThreadPool::with_name("salsa-worker".into(), num_cpus()),
+            dispatcher,
             workspace: WorkspaceManager::new(),
             client_capabilities: None,
             trace_capture: None,
@@ -151,7 +184,7 @@ impl GlobalState {
         };
 
         let task_sender = self.task_sender.clone();
-        self.threadpool.execute(move || {
+        self.dispatcher.execute(Box::new(move || {
             let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| f(snap)));
             let response = match result {
                 Ok(value) => lsp_server::Response::new_ok(id, value),
@@ -164,7 +197,7 @@ impl GlobalState {
             let _ = task_sender.send(Task {
                 response: TaskResponse::Response(response),
             });
-        });
+        }));
     }
 
     /// Spawn a diagnostics computation for a single URI, tagged with the next
@@ -183,7 +216,7 @@ impl GlobalState {
         let captured_seq = *seq;
 
         let task_sender = self.task_sender.clone();
-        self.threadpool.execute(move || {
+        self.dispatcher.execute(Box::new(move || {
             let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(f));
             if let Ok(diagnostics) = result {
                 let _ = task_sender.send(Task {
@@ -194,7 +227,7 @@ impl GlobalState {
                     },
                 });
             }
-        });
+        }));
     }
 
     /// Spawn a multi-URI diagnostics computation (e.g. project-wide on save).
@@ -204,21 +237,15 @@ impl GlobalState {
         F: FnOnce() -> Vec<(Uri, Vec<lsp_types::Diagnostic>)> + Send + 'static,
     {
         let task_sender = self.task_sender.clone();
-        self.threadpool.execute(move || {
+        self.dispatcher.execute(Box::new(move || {
             let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(f));
             if let Ok(diagnostics) = result {
                 let _ = task_sender.send(Task {
                     response: TaskResponse::PublishDiagnosticsBatch(diagnostics),
                 });
             }
-        });
+        }));
     }
-}
-
-fn num_cpus() -> usize {
-    std::thread::available_parallelism()
-        .map(usize::from)
-        .unwrap_or(4)
 }
 
 #[cfg(test)]
@@ -233,7 +260,12 @@ mod tests {
         let (msg_sender, _msg_receiver) = unbounded();
         let (intro_req_sender, _intro_req_receiver) = unbounded();
         let (_intro_res_sender, intro_res_receiver) = unbounded();
-        GlobalState::new(msg_sender, intro_req_sender, intro_res_receiver)
+        GlobalState::new(
+            msg_sender,
+            Box::new(InlineDispatcher),
+            intro_req_sender,
+            intro_res_receiver,
+        )
     }
 
     #[test]
@@ -252,5 +284,42 @@ mod tests {
         assert_eq!(state.diagnostics_seq.get(b.as_str()).copied(), Some(1));
         // Independent counters: bumping b doesn't move a.
         assert_eq!(state.diagnostics_seq.get(a.as_str()).copied(), Some(2));
+    }
+}
+
+#[cfg(all(test, feature = "native"))]
+mod dispatcher_tests {
+    use super::*;
+    use std::sync::atomic::{AtomicUsize, Ordering};
+    use std::sync::Arc;
+
+    #[test]
+    fn inline_dispatcher_runs_work_synchronously() {
+        let counter = Arc::new(AtomicUsize::new(0));
+        let dispatcher = InlineDispatcher;
+        let c = Arc::clone(&counter);
+        dispatcher.execute(Box::new(move || {
+            c.fetch_add(1, Ordering::SeqCst);
+        }));
+        assert_eq!(counter.load(Ordering::SeqCst), 1);
+    }
+
+    #[test]
+    fn threadpool_dispatcher_runs_work_eventually() {
+        let counter = Arc::new(AtomicUsize::new(0));
+        let pool = threadpool::ThreadPool::with_name("test".into(), 2);
+        let dispatcher = ThreadPoolDispatcher::new(pool);
+        let c = Arc::clone(&counter);
+        dispatcher.execute(Box::new(move || {
+            c.fetch_add(1, Ordering::SeqCst);
+        }));
+        // Drain the pool by joining; trait doesn't expose join so we sleep+poll.
+        for _ in 0..100 {
+            if counter.load(Ordering::SeqCst) == 1 {
+                return;
+            }
+            std::thread::sleep(std::time::Duration::from_millis(10));
+        }
+        panic!("threadpool dispatcher never ran the task");
     }
 }

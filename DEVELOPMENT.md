@@ -181,6 +181,38 @@ cargo watch -p graphql-analyzer-napi -s 'npm run build:debug --workspace=@graphq
 npm run dev --workspace=@graphql-analyzer/eslint-plugin
 ```
 
+## Web Playground
+
+The `packages/web-ide` package hosts a Monaco-based browser playground wired to a wasm build of the language server. Useful for demos, prototyping, and validating cross-target behavior without spinning up VS Code.
+
+### Prerequisites
+
+```bash
+rustup target add wasm32-unknown-unknown
+cargo install wasm-pack
+```
+
+### Build and run
+
+```bash
+cargo xtask web --dev    # opens http://localhost:5173 with hot reload
+cargo xtask web          # static build under packages/web-ide/dist/
+```
+
+`xtask web` runs `wasm-pack build` for `crates/lsp-wasm` and then either `npm run dev` (when `--dev`) or `npm run build` against `packages/web-ide`. Vite serves the worker, the wasm bundle, and Monaco from a single dev server.
+
+### End-to-end tests
+
+The playground has a small Playwright suite at `packages/web-ide/tests/web-ide.spec.ts`:
+
+```bash
+cd packages/web-ide
+npx playwright install chromium
+npm run test:e2e
+```
+
+The tests run against the same Vite dev server as `xtask web --dev`.
+
 ## Benchmarking
 
 ```bash
