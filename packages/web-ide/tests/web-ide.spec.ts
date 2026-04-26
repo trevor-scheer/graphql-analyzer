@@ -1,10 +1,10 @@
-import { test, expect } from "@playwright/test";
+import { test, expect, type Page } from "@playwright/test";
 
 // The wasm bundle is large (~22MB in debug builds), so loading can take a while.
 // We poll for readiness signals rather than using fixed sleeps.
 const WASM_INIT_TIMEOUT = 60_000;
 
-async function waitForLspReady(page: Parameters<typeof test>[1]["page"]) {
+async function waitForLspReady(page: Page) {
   // Poll until window.__monaco is available and __lspReady is set.
   await expect
     .poll(
