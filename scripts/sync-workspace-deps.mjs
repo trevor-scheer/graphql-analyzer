@@ -125,7 +125,6 @@ function syncPackages(packages, { write }) {
   const changes = [];
 
   for (const { path, pkg } of packages) {
-    let mutated = false;
     for (const section of DEP_SECTIONS) {
       const deps = pkg[section];
       if (!deps) continue;
@@ -135,11 +134,16 @@ function syncPackages(packages, { write }) {
         if (!EXACT_VERSION_RE.test(current)) continue; // wildcards/ranges intentional
         if (current === target) continue;
         deps[name] = target;
-        mutated = true;
         changes.push({ path, section, name, from: current, to: target });
       }
     }
-    if (mutated && write) writeJson(path, pkg);
+    // Always re-write publishable packages (even when no dep refs changed) so
+    // the on-disk formatting is canonical. Knope's serializer omits the
+    // trailing newline that the project's formatter (oxfmt) requires; this
+    // guarantees `oxfmt --check` passes on the release PR. Private packages
+    // (test fixtures, root) aren't in knope's `versioned_files`, so they're
+    // left alone.
+    if (write && !pkg.private) writeJson(path, pkg);
   }
 
   return changes;
