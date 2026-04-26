@@ -443,6 +443,47 @@ impl ProjectConfig {
             .get_or_init(|| CompiledPatterns::compile(self))
     }
 
+    /// Check whether `file_path` belongs to this project, given the workspace
+    /// root (typically the directory containing the `.graphqlrc` file).
+    ///
+    /// Mirrors graphql-config's per-file project resolution: a file matches if
+    /// it isn't in `exclude`, IS in `include` (or `include` is unset), and
+    /// matches at least one of the project's schema or document patterns.
+    /// Used by callers (e.g. the ESLint plugin's napi binding) that route
+    /// each file to the project that owns it in multi-project configs.
+    #[must_use]
+    pub fn matches_file(&self, file_path: &Path, workspace_root: &Path) -> bool {
+        let Ok(rel_path) = file_path.strip_prefix(workspace_root) else {
+            return false;
+        };
+        let rel_path_str = rel_path.to_string_lossy();
+        let compiled = self.compiled_patterns();
+
+        if compiled.exclude.iter().any(|p| p.matches(&rel_path_str)) {
+            return false;
+        }
+        let in_include_scope = self.include.is_none()
+            || compiled.include.iter().any(|p| p.matches(&rel_path_str));
+        if !in_include_scope {
+            return false;
+        }
+        compiled.schema.iter().any(|p| p.matches(&rel_path_str))
+            || compiled.documents.iter().any(|p| p.matches(&rel_path_str))
+    }
+
+    /// Whether this project has any include/exclude/schema/document
+    /// constraints. A project with none acts as the default catch-all in
+    /// multi-project routing — used as a fallback when no other project
+    /// claims the file.
+    #[must_use]
+    pub fn has_file_constraints(&self) -> bool {
+        let compiled = self.compiled_patterns();
+        !compiled.exclude.is_empty()
+            || !compiled.include.is_empty()
+            || !compiled.schema.is_empty()
+            || !compiled.documents.is_empty()
+    }
+
     /// Get the parsed `graphql-analyzer` extensions block, if present.
     fn analyzer_extensions(&self) -> Option<AnalyzerExtensions> {
         let ext = self.extensions.as_ref()?;

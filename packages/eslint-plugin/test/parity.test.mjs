@@ -697,6 +697,7 @@ async function withProjectNoLintBlock(rule, cfg, fn) {
 // a version bump, this test fails first with the rule named.
 test("START_ONLY_RULES tracks upstream's actual start-only rule set", async () => {
   const camelOf = (kebab) => kebab.replace(/-([a-z])/g, (_, c) => c.toUpperCase());
+  const observed = new Set(); // rules where upstream produced ≥1 diagnostic
   const observedStartOnly = new Set();
   for (const [rule, cfg] of Object.entries(EXERCISED)) {
     await withProject(rule, cfg, async (root) => {
@@ -707,6 +708,7 @@ test("START_ONLY_RULES tracks upstream's actual start-only rule set", async () =
         return;
       }
       if (theirDiag.length === 0) return;
+      observed.add(camelOf(rule));
       // Upstream is start-only for this rule iff *all* its diagnostics omit
       // endLine. (A rule that mixes shapes would itself be a parity concern.)
       const allStartOnly = theirDiag.every(
@@ -715,14 +717,19 @@ test("START_ONLY_RULES tracks upstream's actual start-only rule set", async () =
       if (allStartOnly) observedStartOnly.add(camelOf(rule));
     });
   }
-  const expected = [...START_ONLY_RULES].sort();
-  const observed = [...observedStartOnly].sort();
+  // Compare only on the observable subset — rules whose fixtures intentionally
+  // produce zero diagnostics (e.g. `selection-set-depth` exercising `ignore`)
+  // can't have their loc shape verified, so we can't enforce membership for
+  // them either way. The full set still has to round-trip when at least one
+  // diagnostic surfaces.
+  const expectedObservable = [...START_ONLY_RULES].filter((r) => observed.has(r)).sort();
+  const observedSorted = [...observedStartOnly].sort();
   assert.deepEqual(
-    observed,
-    expected,
+    observedSorted,
+    expectedObservable,
     `START_ONLY_RULES drift vs upstream's actual loc shape:\n` +
-      `  ours:      ${JSON.stringify(expected)}\n` +
-      `  upstream:  ${JSON.stringify(observed)}\n` +
+      `  ours (observable subset): ${JSON.stringify(expectedObservable)}\n` +
+      `  upstream:                 ${JSON.stringify(observedSorted)}\n` +
       `Update src/rules.ts:START_ONLY_RULES to match.`,
   );
 });

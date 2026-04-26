@@ -14,6 +14,8 @@ import assert from "node:assert/strict";
 import { fileURLToPath } from "node:url";
 import * as fs from "node:fs";
 import * as path from "node:path";
+import { mkdtempSync, mkdirSync, writeFileSync, rmSync } from "node:fs";
+import { tmpdir } from "node:os";
 import { ESLint } from "eslint";
 
 import plugin from "../dist/index.js";
@@ -177,6 +179,99 @@ test("fires no-anonymous-operations on embedded GraphQL in .js", async () => {
     diags[0].line >= 3,
     `expected embedded position remap; got line ${diags[0].line}`,
   );
+});
+
+// Multi-project `.graphqlrc.yaml`: two projects in the same workspace,
+// each with its own schema and `lint.rules` block. The plugin must route
+// each file to the matching project so the per-project lint config takes
+// effect. Mirrors graphql-config + graphql-eslint behavior.
+test("multi-project .graphqlrc routes files to matching project", async () => {
+  const root = mkdtempSync(path.join(tmpdir(), "multi-proj-"));
+  try {
+    mkdirSync(path.join(root, "projA"), { recursive: true });
+    mkdirSync(path.join(root, "projB"), { recursive: true });
+    writeFileSync(
+      path.join(root, "projA", "schema.graphql"),
+      "type Query { hello: String }\n",
+    );
+    writeFileSync(
+      path.join(root, "projB", "schema.graphql"),
+      "type Query { world: String }\n",
+    );
+    writeFileSync(
+      path.join(root, "projA", "op.graphql"),
+      "query { hello }\nquery { hello }\n",
+    );
+    writeFileSync(
+      path.join(root, "projB", "op.graphql"),
+      "query Named { world }\n",
+    );
+
+    // ProjA enables no-anonymous-operations as error.
+    // ProjB doesn't enable it — its file has a named query anyway, so even
+    // without the rule we expect no diagnostics from it. The contrast is
+    // what proves per-project routing: projA's file fires, projB's doesn't.
+    writeFileSync(
+      path.join(root, ".graphqlrc.yaml"),
+      [
+        "projects:",
+        "  projA:",
+        '    schema: "projA/schema.graphql"',
+        '    documents: "projA/**/*.graphql"',
+        "    extensions:",
+        "      graphql-analyzer:",
+        "        lint:",
+        "          rules:",
+        "            noAnonymousOperations: error",
+        "  projB:",
+        '    schema: "projB/schema.graphql"',
+        '    documents: "projB/**/*.graphql"',
+        "    extensions:",
+        "      graphql-analyzer:",
+        "        lint:",
+        "          rules:",
+        "            noAnonymousOperations: error",
+        "",
+      ].join("\n"),
+    );
+
+    const eslint = new ESLint({
+      overrideConfigFile: true,
+      cwd: root,
+      overrideConfig: [
+        {
+          files: ["**/*.graphql"],
+          languageOptions: { parser: plugin.parser },
+          plugins: { "@graphql-analyzer": plugin },
+          rules: {
+            "@graphql-analyzer/no-anonymous-operations": "error",
+          },
+        },
+      ],
+    });
+
+    const [resA] = await eslint.lintFiles(["projA/op.graphql"]);
+    const anonA = resA.messages.filter(
+      (m) => m.ruleId === "@graphql-analyzer/no-anonymous-operations",
+    );
+    assert.equal(
+      anonA.length,
+      2,
+      `projA's two anonymous queries should fire; got ${anonA.length}: ${JSON.stringify(resA.messages)}`,
+    );
+
+    const [resB] = await eslint.lintFiles(["projB/op.graphql"]);
+    const anonB = resB.messages.filter(
+      (m) => m.ruleId === "@graphql-analyzer/no-anonymous-operations",
+    );
+    assert.equal(
+      anonB.length,
+      0,
+      `projB's named query should produce no anonymous-op diagnostics; got ${JSON.stringify(resB.messages)}`,
+    );
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
 });
 
 // `.tsx`/`.ts`/`.vue`/`.svelte` extraction goes through the same processor
