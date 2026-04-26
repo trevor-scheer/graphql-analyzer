@@ -58,14 +58,12 @@ name. If you were using these earlier names, update your config:
 In `.graphqlrc.yaml` lint config, the camelCase keys are now `noUnusedFields`,
 `noUnusedFragments`, `noUnusedVariables`.
 
-## Validation rules: handled, not exposed
+## Validation rules: handled, accepted, but not configurable
 
 `@graphql-eslint` exposes 30+ rules that are direct re-exports of
 `graphql-js`'s `specifiedRules` (`known-type-names`,
-`fields-on-correct-type`, `no-undefined-variables`, etc.). Those run inside
-graphql-analyzer's validation pass instead of as configurable lint rules.
-
-If your existing config enables any of these rules:
+`fields-on-correct-type`, `no-undefined-variables`, etc.). The same checks
+always run inside graphql-analyzer's validation pass, so:
 
 ```js
 "@graphql-eslint/known-type-names": "error",
@@ -73,10 +71,11 @@ If your existing config enables any of these rules:
 "@graphql-eslint/no-undefined-variables": "error",
 ```
 
-…you can safely delete those entries during migration. The same checks still
-run; they're just not separately configurable. The full list of rules in
-this category is in `packages/eslint-plugin/test/parity.test.mjs`
-(`KNOWN_MISSING`).
+…can stay in your config when you migrate. The plugin exposes each of
+those names as a no-op stub so your config loads cleanly — the
+configurable entry doesn't itself emit anything, but the underlying
+check still runs and fires diagnostics regardless. The full stub list
+lives in `packages/eslint-plugin/test/parity.test.mjs` (`STUB_RULES`).
 
 ## What graphql-analyzer adds
 

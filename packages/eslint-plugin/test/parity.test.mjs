@@ -18,11 +18,11 @@
 // force a parity decision on first sight.
 //
 // Intentional gaps (see docs/src/content/docs/linting/eslint-plugin.mdx):
-//   - Validation-category rules from graphql-js (`known-type-names`,
-//     `fields-on-correct-type`, etc.) run inside the analyzer's validation
-//     pass, not as configurable lint rules. `KNOWN_MISSING` captures these
-//     so we fail CI when graphql-eslint adds a non-validation rule we should
-//     have.
+//   - GraphQL spec validation rules (`known-type-names`, `fields-on-correct-type`,
+//     etc.) always run inside the analyzer's validation pass. We expose them
+//     as no-op stub rules (`STUB_RULES`) so users migrating upstream's preset
+//     configs don't see "rule not found" errors — but the configurable shim
+//     never fires, since the underlying check is always-on.
 //   - A handful of linter-specific rules we have that graphql-eslint doesn't
 //     (`operation-name-suffix`, `redundant-fields`, `require-id-field`, etc.).
 
@@ -46,11 +46,22 @@ const __dirname = path.dirname(fileURLToPath(import.meta.url));
 // prevents rule-N's project state from leaking into rule-(N+1)'s diagnostics.
 const THEIRS_RUNNER = path.join(__dirname, "_lint-theirs.mjs");
 
-// graphql-eslint rules we intentionally don't ship.
-const KNOWN_MISSING = new Set([
-  // GraphQL-spec validation rules (from graphql-js `specifiedRules`). They
-  // run inside the analyzer's validation pass rather than as configurable
-  // lint rules.
+// Rules we ship that graphql-eslint doesn't.
+const KNOWN_EXTRA = new Set([
+  "operation-name-suffix",
+  "redundant-fields",
+  "require-id-field",
+  "unique-names",
+]);
+
+// Rules we expose as no-op stubs purely for drop-in config compatibility
+// with `@graphql-eslint`'s preset configs that reference GraphQL spec
+// validation rules by name. The underlying check still runs as built-in
+// validation; the stub just stops ESLint from erroring with "rule not
+// found" when a user pastes upstream's `flat/schema-recommended` rules
+// list. Excluded from the shared-rule parity assertions for the same
+// reason — there's nothing to compare diagnostics-wise (they're no-ops).
+const STUB_RULES = new Set([
   "executable-definitions",
   "fields-on-correct-type",
   "fragments-on-composite-type",
@@ -83,14 +94,6 @@ const KNOWN_MISSING = new Set([
   "variables-in-allowed-position",
 ]);
 
-// Rules we ship that graphql-eslint doesn't.
-const KNOWN_EXTRA = new Set([
-  "operation-name-suffix",
-  "redundant-fields",
-  "require-id-field",
-  "unique-names",
-]);
-
 function theirRules() {
   return new Set(Object.keys(theirs.rules ?? {}));
 }
@@ -100,13 +103,15 @@ function ourRules() {
 }
 
 test("no unexpected missing rules vs graphql-eslint", () => {
-  const missing = [...theirRules()]
-    .filter((r) => !ourRules().has(r) && !KNOWN_MISSING.has(r))
-    .sort();
+  // Every upstream rule should be present in our plugin — either as an
+  // implemented rule or as a no-op stub (`STUB_RULES`) for spec validation
+  // rules that always run as built-in validation. New upstream additions
+  // need a deliberate decision: implement, or stub.
+  const missing = [...theirRules()].filter((r) => !ourRules().has(r)).sort();
   assert.deepEqual(
     missing,
     [],
-    `graphql-eslint has these rules we don't — add them or add to KNOWN_MISSING with a reason:\n  ${missing.join("\n  ")}`,
+    `graphql-eslint has these rules we don't — implement them or add to STUB_RULES (and the plugin's stub list) with a reason:\n  ${missing.join("\n  ")}`,
   );
 });
 
@@ -549,8 +554,11 @@ const EXERCISED = {
 test("every shared rule is parity-verified", () => {
   // Inverts the default: any shared rule must appear in EXERCISED with a
   // verified parity assertion. New rules added to either plugin force a
-  // decision on first sight.
-  const shared = [...ourRules()].filter((r) => theirRules().has(r));
+  // decision on first sight. Stubs are excluded — they're no-op shims for
+  // drop-in compatibility, not active rules with diagnostics to compare.
+  const shared = [...ourRules()].filter(
+    (r) => theirRules().has(r) && !STUB_RULES.has(r),
+  );
   const exercised = new Set(Object.keys(EXERCISED));
 
   const unaccounted = shared.filter((r) => !exercised.has(r)).sort();

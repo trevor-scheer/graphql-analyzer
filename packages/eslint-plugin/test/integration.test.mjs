@@ -88,16 +88,57 @@ test("produces no diagnostics on valid GraphQL", async () => {
   assert.equal(diags.length, 0, `expected 0 plugin diagnostics, got ${diags.length}`);
 });
 
+test("every preset loads without ESLint validation errors", async () => {
+  // Catches typos in rule names, options the rule schema rejects, or
+  // missing stubs. Each preset gets attached to a no-op fixture and
+  // ESLint's flat-config validator runs over the full rule set.
+  const root = mkdtempSync(path.join(tmpdir(), "preset-load-"));
+  try {
+    writeFileSync(
+      path.join(root, ".graphqlrc.yaml"),
+      'schema: "schema.graphql"\n',
+    );
+    writeFileSync(
+      path.join(root, "schema.graphql"),
+      "type Query { hello: String }\n",
+    );
+    for (const presetName of Object.keys(plugin.configs)) {
+      const eslint = new ESLint({
+        overrideConfigFile: true,
+        cwd: root,
+        overrideConfig: [
+          {
+            files: ["**/*.graphql"],
+            languageOptions: { parser: plugin.parser },
+            plugins: { "@graphql-analyzer": plugin },
+            rules: plugin.configs[presetName].rules,
+          },
+        ],
+      });
+      // Just calling lintFiles is enough — flat config validates rule
+      // metadata and option schemas during the first pass.
+      await eslint.lintFiles(["schema.graphql"]);
+    }
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
 test("plugin exposes expected shape", () => {
   assert.equal(typeof plugin.parser.parseForESLint, "function");
   assert.equal(typeof plugin.processor.preprocess, "function");
   assert.equal(typeof plugin.processor.postprocess, "function");
   assert.ok(Object.keys(plugin.rules).length > 0, "plugin must expose rules");
-  assert.ok(plugin.configs["flat/schema-recommended"], "flat/schema-recommended preset must exist");
-  assert.ok(
-    plugin.configs["flat/operations-recommended"],
-    "flat/operations-recommended preset must exist",
-  );
+  // Mirror upstream's full preset set so existing imports keep working.
+  for (const name of [
+    "flat/schema-recommended",
+    "flat/schema-all",
+    "flat/schema-relay",
+    "flat/operations-recommended",
+    "flat/operations-all",
+  ]) {
+    assert.ok(plugin.configs[name], `${name} preset must exist`);
+  }
 });
 
 test("processor extracts embedded GraphQL from JS/TS-family files", () => {

@@ -234,6 +234,65 @@ function computeLineStarts(text: string): number[] {
   return starts;
 }
 
+// Names of GraphQL spec validation rules upstream `@graphql-eslint` exposes
+// as configurable lint rules. We run the same checks inside the analyzer's
+// always-on validation pass, so configuring them is a no-op for us — but
+// users migrating from upstream's preset configs (or custom configs that
+// reference these names) shouldn't see "rule not found" errors. Each entry
+// becomes a no-op rule module so configs load cleanly. The underlying
+// validation diagnostics still fire as built-in errors regardless.
+const VALIDATION_RULE_STUBS = [
+  "executable-definitions",
+  "fields-on-correct-type",
+  "fragments-on-composite-type",
+  "known-argument-names",
+  "known-directives",
+  "known-fragment-names",
+  "known-type-names",
+  "lone-anonymous-operation",
+  "lone-schema-definition",
+  "no-fragment-cycles",
+  "no-undefined-variables",
+  "one-field-subscriptions",
+  "overlapping-fields-can-be-merged",
+  "possible-fragment-spread",
+  "possible-type-extension",
+  "provided-required-arguments",
+  "scalar-leafs",
+  "unique-argument-names",
+  "unique-directive-names",
+  "unique-directive-names-per-location",
+  "unique-field-definition-names",
+  "unique-fragment-name",
+  "unique-input-field-names",
+  "unique-operation-name",
+  "unique-operation-types",
+  "unique-type-names",
+  "unique-variable-names",
+  "value-literals-of-correct-type",
+  "variables-are-input-types",
+  "variables-in-allowed-position",
+];
+
+function makeStubRule(ruleName: string): Rule.RuleModule {
+  return {
+    meta: {
+      type: "problem",
+      docs: {
+        description:
+          `GraphQL spec validation rule (\`${ruleName}\`). Always-on inside the ` +
+          `analyzer's validation pass — this configurable shim is a no-op kept ` +
+          `for drop-in compatibility with @graphql-eslint preset configs.`,
+      },
+      schema: OPTIONS_SCHEMA,
+      messages: {},
+    },
+    create() {
+      return {};
+    },
+  };
+}
+
 export function buildRules(): Record<string, Rule.RuleModule> {
   const rules: Record<string, Rule.RuleModule> = {};
   const meta = binding.getRules();
@@ -241,6 +300,9 @@ export function buildRules(): Record<string, Rule.RuleModule> {
   for (const rule of meta) {
     const kebabName = toKebabCase(rule.name);
     rules[kebabName] = makeRule(rule.name, rule.description);
+  }
+  for (const stubName of VALIDATION_RULE_STUBS) {
+    rules[stubName] = makeStubRule(stubName);
   }
 
   return rules;
