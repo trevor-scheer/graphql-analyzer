@@ -94,6 +94,18 @@ fn project_root() -> PathBuf {
 fn cmd_web(dev: bool) -> Result<()> {
     let workspace = project_root();
     let pkg_dir = workspace.join("packages/web-ide/src/wasm");
+
+    if !workspace.join("node_modules").exists() {
+        let status = Command::new("npm")
+            .arg("install")
+            .current_dir(&workspace)
+            .status()
+            .context("running npm install")?;
+        if !status.success() {
+            bail!("npm install failed");
+        }
+    }
+
     let mut cmd = Command::new("wasm-pack");
     cmd.args(["build", "crates/lsp-wasm", "--target", "web", "--out-dir"]);
     cmd.arg(&pkg_dir);
