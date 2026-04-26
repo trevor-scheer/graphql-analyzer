@@ -126,10 +126,13 @@ The workflow uses npm [Trusted Publishing](https://docs.npmjs.com/trusted-publis
 (OIDC) exclusively — no `NPM_TOKEN` secret lives in CI. Each of the seven
 `@graphql-analyzer/*` package names must be bound on npmjs.com to:
 
-- Repository: `trevor-scheer/graphql-analyzer`
-- Workflow: `.github/workflows/release.yml`
-- Environment: _none_
-- Job: `publish-npm`
+- Organization / user: `trevor-scheer`
+- Repository: `graphql-analyzer`
+- Workflow filename: `release.yml`
+- Environment: _(leave empty)_
+
+The binding is scoped to the workflow file, not to individual jobs — so the
+same binding authorizes `publish-vscode`, `publish-openvsx`, and `publish-npm`.
 
 The `publish-npm` job sets `permissions: id-token: write` and runs
 `npm publish --provenance --access public --tag alpha` for every package. npm
