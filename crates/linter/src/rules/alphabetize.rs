@@ -269,9 +269,9 @@ fn check_selection_set_order(
 
 /// Build a graphql-eslint-style swap fix: replaces `[prev.start, curr.end]`
 /// with `<curr_text><between><prev_text>`. graphql-eslint emits two replace
-/// ops which ESLint coalesces into a single edit covering both ranges; we
+/// ops which `ESLint` coalesces into a single edit covering both ranges; we
 /// produce the equivalent collapsed edit directly so the napi shim can
-/// surface a single `fix` to ESLint.
+/// surface a single `fix` to `ESLint`.
 fn swap_fix(source: &str, prev: (usize, usize), curr: (usize, usize)) -> CodeFix {
     let prev_text = &source[prev.0..prev.1];
     let curr_text = &source[curr.0..curr.1];

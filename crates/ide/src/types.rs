@@ -274,7 +274,7 @@ pub struct Diagnostic {
     pub message: String,
     pub code: Option<String>,
     /// Optional ESLint-compatible messageId. Forwarded to `LintMessage.messageId`
-    /// by the ESLint shim so drop-in users get the same per-diagnostic-site id
+    /// by the `ESLint` shim so drop-in users get the same per-diagnostic-site id
     /// graphql-eslint emits.
     pub message_id: Option<String>,
     pub source: String,

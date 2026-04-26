@@ -90,7 +90,7 @@ pub struct LintDiagnostic {
     /// Rule identifier (e.g., `"deprecated_field"`)
     pub rule: String,
     /// Optional ESLint-compatible messageId. Stable per-diagnostic-site
-    /// identifier matching graphql-eslint's emitted messageId, so the ESLint
+    /// identifier matching graphql-eslint's emitted messageId, so the `ESLint`
     /// shim can surface it on `LintMessage.messageId` for drop-in parity.
     pub message_id: Option<String>,
     /// Optional auto-fix for this diagnostic
@@ -186,7 +186,7 @@ impl LintDiagnostic {
     }
 
     /// Add a messageId that matches graphql-eslint's per-diagnostic-site id.
-    /// The ESLint shim forwards this onto `LintMessage.messageId`.
+    /// The `ESLint` shim forwards this onto `LintMessage.messageId`.
     #[must_use]
     pub fn with_message_id(mut self, id: impl Into<String>) -> Self {
         self.message_id = Some(id.into());

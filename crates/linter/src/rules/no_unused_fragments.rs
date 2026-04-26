@@ -4,6 +4,11 @@ use graphql_apollo_ext::{DocumentExt, NameExt, RangeExt};
 use graphql_base_db::{FileId, ProjectFiles};
 use std::collections::{HashMap, HashSet};
 
+/// Length of the literal `fragment` keyword in bytes — graphql-eslint's
+/// adapter re-anchors the diagnostic onto this token, so we span the same
+/// range for parity.
+const FRAGMENT_KEYWORD_LEN: usize = 8;
+
 /// Trait implementation for `no_unused_fragments` rule
 pub struct NoUnusedFragmentsRuleImpl;
 
@@ -118,7 +123,6 @@ impl ProjectLintRule for NoUnusedFragmentsRuleImpl {
                 // Span the `fragment` keyword (8 bytes from def_start) in the
                 // document's coordinate space, then promote to file-level
                 // coordinates if the block has a declaration_range.
-                const FRAGMENT_KEYWORD_LEN: usize = 8;
                 let keyword_doc_start = frag_info.def_start;
                 let keyword_doc_end = frag_info.def_start + FRAGMENT_KEYWORD_LEN;
 

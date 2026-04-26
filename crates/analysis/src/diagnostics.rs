@@ -20,7 +20,7 @@ pub struct TextEdit {
 
 /// An autofix attached to a diagnostic — the line/column-based equivalent of
 /// `graphql_linter::CodeFix`. Carrying it on `Diagnostic` lets downstream
-/// consumers (LSP code actions, ESLint shim) surface fixes uniformly.
+/// consumers (LSP code actions, `ESLint` shim) surface fixes uniformly.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct CodeFix {
     pub label: String,
@@ -41,7 +41,7 @@ pub struct Diagnostic {
     /// Optional diagnostic code
     pub code: Option<Arc<str>>,
     /// Optional ESLint-compatible messageId. Forwarded to `LintMessage.messageId`
-    /// by the ESLint shim so drop-in users get the same per-diagnostic-site id
+    /// by the `ESLint` shim so drop-in users get the same per-diagnostic-site id
     /// graphql-eslint emits.
     pub message_id: Option<Arc<str>>,
     /// Optional autofix carried alongside the diagnostic.

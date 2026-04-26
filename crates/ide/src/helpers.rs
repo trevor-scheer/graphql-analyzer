@@ -80,7 +80,7 @@ pub const fn convert_severity(
 /// Convert analysis Diagnostic to IDE Diagnostic. Carries the autofix
 /// through unchanged — `analysis::CodeFix` is the line/column-based form we
 /// need on `ide::Diagnostic.fix`, so consumers (LSP code actions, the napi
-/// binding feeding ESLint's `LintMessage.fix`) get the fix without going
+/// binding feeding `ESLint`'s `LintMessage.fix`) get the fix without going
 /// through a separate `lint_diagnostics_with_fixes` call.
 pub fn convert_diagnostic(diag: &graphql_analysis::Diagnostic) -> crate::types::Diagnostic {
     crate::types::Diagnostic {
