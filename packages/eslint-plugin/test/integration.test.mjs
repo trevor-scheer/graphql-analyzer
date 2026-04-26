@@ -98,15 +98,91 @@ test("plugin exposes expected shape", () => {
   );
 });
 
-test("processor is an identity passthrough for JS/TS-family files", () => {
+test("processor extracts embedded GraphQL from JS/TS-family files", () => {
   const tsx = `import { gql } from "@apollo/client";\nconst Q = gql\`query { __typename }\`;\n`;
   const preprocessed = plugin.processor.preprocess(tsx, "component.tsx");
-  assert.deepEqual(
-    preprocessed,
-    [tsx],
-    "preprocess should return original source unchanged until embedded-position remap is wired",
-  );
-
-  const merged = plugin.processor.postprocess([[{ ruleId: "x", line: 1 }]], "component.tsx");
-  assert.equal(merged.length, 1);
+  // Expect [extractedBlock, originalSource]. ESLint matches the block's
+  // `.graphql` filename against the user's `**/*.graphql` config block to
+  // dispatch our parser/rules; the original source goes to whatever parser
+  // the user has wired for `.tsx`.
+  assert.equal(preprocessed.length, 2, "should return one block + the original source");
+  assert.equal(typeof preprocessed[0], "object");
+  assert.match(preprocessed[0].filename, /\.graphql$/);
+  assert.equal(preprocessed[0].text, "query { __typename }");
+  assert.equal(preprocessed[1], tsx);
 });
+
+test("processor postprocess remaps line offsets back to host coords", () => {
+  const tsx =
+    `import { gql } from "@apollo/client";\n` +
+    `\n` +
+    `const Q = gql\`\n` +
+    `  query { __typename }\n` +
+    `\`;\n`;
+  plugin.processor.preprocess(tsx, "remap.tsx");
+  const merged = plugin.processor.postprocess(
+    [
+      [{ ruleId: "@graphql-analyzer/no-anonymous-operations", line: 1, column: 3 }],
+      [],
+    ],
+    "remap.tsx",
+  );
+  assert.equal(merged.length, 1);
+  assert.ok(
+    merged[0].line >= 3,
+    `expected remap to host line ≥3 (block sits inside the gql template that opens on line 3); got ${merged[0].line}`,
+  );
+});
+
+// Verifies the doc claim ("detects embedded GraphQL in TypeScript, JavaScript,
+// Vue, Svelte, and Astro files") end-to-end through ESLint. Two-block config
+// is required and matches the documented usage: the `.graphql` block applies
+// our parser/rules to virtual blocks the processor emits; the `.tsx` block
+// wires the processor on the host file. ESLint joins the host filename and
+// the virtual block name with `/` (e.g. `component.tsx/0_document.graphql`),
+// which matches the `**/*.graphql` pattern.
+test("fires no-anonymous-operations on embedded GraphQL in .js", async () => {
+  // .js so espree parses the host without error and isolates the
+  // embedded-extraction concern from any JSX/TS parser concerns.
+  const eslint = new ESLint({
+    overrideConfigFile: true,
+    cwd: fixtureRoot,
+    overrideConfig: [
+      {
+        files: ["**/*.graphql"],
+        languageOptions: { parser: plugin.parser },
+        plugins: { "@graphql-analyzer": plugin },
+        rules: {
+          "@graphql-analyzer/no-anonymous-operations": "error",
+        },
+      },
+      {
+        files: ["**/*.js"],
+        plugins: { "@graphql-analyzer": plugin },
+        processor: "@graphql-analyzer/graphql",
+      },
+    ],
+  });
+  const results = await eslint.lintFiles(["src/embedded.js"]);
+  const diags = results[0].messages.filter(
+    (m) => m.ruleId === "@graphql-analyzer/no-anonymous-operations",
+  );
+  assert.ok(
+    diags.length >= 1,
+    `expected ≥1 no-anonymous-operations diagnostic in embedded.js; got ${diags.length}\n` +
+      `messages: ${JSON.stringify(results[0].messages, null, 2)}`,
+  );
+  // The anonymous `query {` token sits on line 4 of `src/embedded.js`.
+  assert.ok(
+    diags[0].line >= 3,
+    `expected embedded position remap; got line ${diags[0].line}`,
+  );
+});
+
+// `.tsx`/`.ts`/`.vue`/`.svelte` extraction goes through the same processor
+// path verified by the `.js` test above, but ESLint can't lint the host
+// source without a parser that understands the host's syntax (espree can't
+// parse JSX/TS). Users must wire e.g. `@typescript-eslint/parser` in a
+// matching config block; that's a host-side concern documented in
+// `docs/.../eslint-plugin.mdx`. We don't add a devDep on
+// `@typescript-eslint/parser` here just to assert that.

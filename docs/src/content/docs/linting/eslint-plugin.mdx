@@ -37,6 +37,9 @@ The native addon is distributed as platform-specific optional dependencies
 import graphql from "@graphql-analyzer/eslint-plugin";
 
 export default [
+  // 1. Lint `.graphql` files directly. This block also handles the virtual
+  //    `.graphql` blocks the processor extracts from JS/TS hosts (block
+  //    paths look like `path/to/component.tsx/0_document.graphql`).
   {
     files: ["**/*.graphql"],
     languageOptions: {
@@ -51,25 +54,50 @@ export default [
       "@graphql-analyzer/no-hashtag-description": "warn",
     },
   },
+  // 2. Wire the named processor onto JS/TS-family hosts. Embedded
+  //    `gql`-tagged templates get extracted into virtual blocks that flow
+  //    back through the `.graphql` block above.
   {
-    // For JS/TS files, let ESLint use its default parser. The plugin's
-    // `parser` is for `.graphql` files only — wiring it here would silence
-    // every other ESLint plugin that runs on your TS files.
-    files: ["**/*.{ts,tsx,js,jsx}"],
+    files: ["**/*.{js,jsx,mjs,cjs}"],
     plugins: {
       "@graphql-analyzer": graphql,
     },
-    processor: graphql.processor,
-    rules: {
-      "@graphql-analyzer/no-anonymous-operations": "error",
-    },
+    processor: "@graphql-analyzer/graphql",
   },
 ];
 ```
 
-The native addon detects embedded GraphQL in TypeScript, JavaScript, Vue,
-Svelte, and Astro files. Diagnostics are reported at their original source
-position so `gql\`\`` tagged templates don't need a separate file.
+The native addon detects embedded GraphQL in JavaScript, TypeScript, Vue,
+Svelte, and Astro files. Diagnostics are reported at their original
+source position so `gql` tagged templates don't need a separate file.
+
+### TypeScript / Vue / Svelte / Astro hosts
+
+ESLint's default parser (espree) can't parse TypeScript, JSX, Vue SFCs,
+Svelte components, or Astro components, so a fatal parse error on the host
+file would otherwise drop our embedded diagnostics. Add a parser for
+those hosts in a separate config block:
+
+```js
+import tsParser from "@typescript-eslint/parser";
+
+export default [
+  /* ...graphql + processor blocks above... */
+  {
+    files: ["**/*.{ts,tsx}"],
+    languageOptions: { parser: tsParser },
+  },
+  {
+    files: ["**/*.{ts,tsx}"],
+    plugins: { "@graphql-analyzer": graphql },
+    processor: "@graphql-analyzer/graphql",
+  },
+];
+```
+
+Same shape for `.vue`, `.svelte`, and `.astro` — pair the host's parser
+with the processor block. We intentionally don't bundle these parsers; pick
+the one that already matches the rest of your project's ESLint config.
 
 ## Configuration
 
