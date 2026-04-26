@@ -11,11 +11,13 @@ use serde::Deserialize;
 pub struct SelectionSetDepthOptions {
     /// Maximum allowed depth for selection sets.
     pub max_depth: usize,
-    /// Field names to ignore from the depth calculation (matches
-    /// `graphql-depth-limit`'s `ignore` option). Currently a recognised key —
-    /// not yet honoured (parity test does not exercise it).
+    /// Field names to ignore from the depth calculation. Matches
+    /// `graphql-depth-limit`'s `ignore` option (which graphql-eslint wraps):
+    /// when a field's name appears here, the field itself doesn't count as
+    /// a depth level and we stop recursing into its selection set. Useful
+    /// for "wrapper" fields (e.g. connection edges) that pad depth without
+    /// adding query complexity.
     #[serde(default)]
-    #[allow(dead_code)]
     pub ignore: Vec<String>,
 }
 
@@ -80,6 +82,7 @@ impl StandaloneDocumentLintRule for SelectionSetDepthRuleImpl {
                                 &selection_set,
                                 0,
                                 opts.max_depth,
+                                &opts.ignore,
                                 op_name.as_deref(),
                                 &doc,
                                 &mut diagnostics,
@@ -98,6 +101,7 @@ impl StandaloneDocumentLintRule for SelectionSetDepthRuleImpl {
                                 &selection_set,
                                 0,
                                 opts.max_depth,
+                                &opts.ignore,
                                 frag_name.as_deref(),
                                 &doc,
                                 &mut diagnostics,
@@ -137,6 +141,7 @@ fn check_depth(
     selection_set: &cst::SelectionSet,
     field_depth: usize,
     max_depth: usize,
+    ignore: &[String],
     definition_name: Option<&str>,
     doc: &graphql_syntax::DocumentRef<'_>,
     diagnostics: &mut Vec<LintDiagnostic>,
@@ -148,6 +153,15 @@ fn check_depth(
         }
         match selection {
             cst::Selection::Field(field) => {
+                let field_name = field.name().map(|n| n.text().to_string());
+                // Mirror `graphql-depth-limit`'s `ignore`: when a field's
+                // name is in the ignore list it doesn't add a depth level
+                // and we don't recurse into it. Useful for connection-
+                // wrapper fields (`edges`, `node`) that pad depth without
+                // adding query complexity.
+                if field_name.as_deref().is_some_and(|n| ignore.iter().any(|i| i == n)) {
+                    continue;
+                }
                 if field_depth > max_depth {
                     if let Some(name_node) = field.name() {
                         let start: usize = name_node.syntax().text_range().start().into();
@@ -174,6 +188,7 @@ fn check_depth(
                         &nested,
                         field_depth + 1,
                         max_depth,
+                        ignore,
                         definition_name,
                         doc,
                         diagnostics,
@@ -189,6 +204,7 @@ fn check_depth(
                         &nested,
                         field_depth,
                         max_depth,
+                        ignore,
                         definition_name,
                         doc,
                         diagnostics,
@@ -303,6 +319,46 @@ mod tests {
         assert!(diagnostics.is_empty());
 
         let diagnostics = check_with_depth("query Q { user { posts { id } } }", 1);
+        assert_eq!(diagnostics.len(), 1);
+    }
+
+    fn check_with_options(source: &str, options: serde_json::Value) -> Vec<LintDiagnostic> {
+        let db = RootDatabase::default();
+        let rule = SelectionSetDepthRuleImpl;
+        let file_id = FileId::new(0);
+        let content = FileContent::new(&db, Arc::from(source));
+        let metadata = FileMetadata::new(
+            &db,
+            file_id,
+            FileUri::new("file:///test.graphql"),
+            Language::GraphQL,
+            DocumentKind::Executable,
+        );
+        let project_files = create_test_project_files(&db);
+        rule.check(&db, file_id, content, metadata, project_files, Some(&options))
+    }
+
+    #[test]
+    fn test_ignore_skips_field_subtree() {
+        // `b` is ignored, so its subtree doesn't contribute to depth at all.
+        let opts = serde_json::json!({ "maxDepth": 1, "ignore": ["b"] });
+        let diagnostics =
+            check_with_options("query Q { a { b { c { d } } } }", opts);
+        assert!(
+            diagnostics.is_empty(),
+            "ignored field's subtree should not trip the depth check, got: {diagnostics:?}",
+        );
+    }
+
+    #[test]
+    fn test_ignore_does_not_affect_unrelated_fields() {
+        // `b` is ignored but `e` is not — `e`'s subtree still counts.
+        let opts = serde_json::json!({ "maxDepth": 1, "ignore": ["b"] });
+        let diagnostics = check_with_options(
+            "query Q { e { f { g } } a { b { c { d } } } }",
+            opts,
+        );
+        // `e` (depth 1) → recurse into `f` (depth 2) → exceeds maxDepth=1.
         assert_eq!(diagnostics.len(), 1);
     }
 }

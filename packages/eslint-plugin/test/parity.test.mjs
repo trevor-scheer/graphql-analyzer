@@ -466,7 +466,11 @@ const EXERCISED = {
   },
 
   "selection-set-depth": {
-    options: { maxDepth: 2 },
+    // Exercises both `maxDepth` and `ignore`: a query that *would* exceed
+    // depth 1 but for the field `b` being ignored. Both plugins should
+    // produce zero diagnostics — `b` is treated as a leaf and its subtree
+    // isn't counted.
+    options: { maxDepth: 1, ignore: ["b"] },
     files: {
       "schema.graphql":
         "type Query { a: A } type A { b: B } type B { c: C } type C { d: String }\n",
