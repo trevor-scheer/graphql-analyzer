@@ -36,6 +36,37 @@ impl Default for SelectionsConfig {
     }
 }
 
+/// Tri-state acceptor for graphql-eslint options that historically were
+/// booleans and now accept an array of AST kind names. We accept all three
+/// shapes so upstream's preset configs deserialize without error:
+///
+/// - `false` → disabled
+/// - `true` → enabled (legacy bool form)
+/// - `["FieldDefinition", "Field", ...]` → enabled and scoped to the listed
+///   AST kinds (full per-kind filtering is PARITY_TODO item 4c — for now we
+///   treat any non-empty list as "on" and ignore the kind filter).
+#[derive(Debug, Clone, Deserialize, PartialEq)]
+#[serde(untagged)]
+pub enum BoolOrKindList {
+    Bool(bool),
+    Kinds(Vec<String>),
+}
+
+impl Default for BoolOrKindList {
+    fn default() -> Self {
+        Self::Bool(false)
+    }
+}
+
+impl BoolOrKindList {
+    fn enabled(&self) -> bool {
+        match self {
+            Self::Bool(b) => *b,
+            Self::Kinds(list) => !list.is_empty(),
+        }
+    }
+}
+
 /// Options for the `alphabetize` rule
 #[derive(Debug, Clone, Deserialize, Default)]
 #[serde(default)]
@@ -44,10 +75,35 @@ pub struct AlphabetizeOptions {
     /// array of selection-set owner kinds (`OperationDefinition`,
     /// `FragmentDefinition`).
     pub selections: SelectionsConfig,
-    /// Check arguments for alphabetical order
-    pub arguments: bool,
+    /// Check arguments for alphabetical order. Accepts both the legacy
+    /// boolean form and the array form upstream uses in `flat/schema-all` /
+    /// `flat/operations-all` (`["FieldDefinition", "Field", ...]`); per-kind
+    /// filtering of the array form is PARITY_TODO item 4c.
+    pub arguments: BoolOrKindList,
     /// Check variable definitions for alphabetical order
     pub variables: bool,
+    /// Check top-level definitions for alphabetical order. Accepted for
+    /// drop-in compatibility with upstream's `flat/schema-all` /
+    /// `flat/operations-all`; full implementation is PARITY_TODO item 4c.
+    #[serde(default)]
+    #[allow(dead_code)]
+    pub definitions: bool,
+    /// Check field declarations in the listed type kinds. Accepted for
+    /// drop-in compatibility; full per-kind sorting is PARITY_TODO item 4c.
+    #[serde(default)]
+    #[allow(dead_code)]
+    pub fields: BoolOrKindList,
+    /// Check enum value declarations for alphabetical order. Accepted for
+    /// drop-in compatibility; full implementation is PARITY_TODO item 4c.
+    #[serde(default)]
+    #[allow(dead_code)]
+    pub values: bool,
+    /// Explicit ordering groups (e.g. `["id", "*", "createdAt"]`). Accepted
+    /// for drop-in compatibility; the alphabetical default applies until
+    /// PARITY_TODO item 4c lands.
+    #[serde(default)]
+    #[allow(dead_code)]
+    pub groups: Vec<String>,
 }
 
 impl AlphabetizeOptions {
@@ -248,7 +304,7 @@ fn check_selection_set_order(
     for selection in selection_set.selections() {
         match selection {
             cst::Selection::Field(field) => {
-                if opts.arguments {
+                if opts.arguments.enabled() {
                     if let Some(arguments) = field.arguments() {
                         check_argument_order(&arguments, doc, diagnostics);
                     }

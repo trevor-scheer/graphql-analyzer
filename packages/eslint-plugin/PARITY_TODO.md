@@ -19,6 +19,25 @@ items are silent feature gaps. P2 is doc/test cleanup.**
 
 ---
 
+## Status snapshot (as of latest commit on this branch)
+
+| # | Item | Status |
+| - | ---- | ------ |
+| 1 | ESLint rule-options forwarding | ✅ Closed (commit `a396cfc`) |
+| 2 | Embedded GraphQL extraction | ✅ Closed (commit `770d4d4`) |
+| 3 | `naming-convention` feature suite | ⚠ Partial — see below |
+| 4 | Autofix coverage | ✅ Closed (`alphabetize` is the entire upstream `fix` surface; commit `a396cfc` doc fix) |
+| 4b | ESLint suggestions (`suggest`) | ❌ Open — see below |
+| 4c | `alphabetize` schema-side options | ⚠ Partial — accepts upstream's options without rejecting them; full per-kind sorting deferred. See below |
+| 5 | `selection-set-depth.ignore` | ✅ Closed (commit `de4a329`) |
+| 6 | Preset surface | ✅ Closed (commit `f32d6b5`) — all 5 upstream presets, content matches byte-for-byte, validation rules stubbed for drop-in compat |
+| 7 | `no-hashtag-description` grouping | ✅ Closed (commit `221886d`) — was already implemented; doc/test caught up |
+| 8 | Multi-project `.graphqlrc` routing | ✅ Closed (commit `ee8a2d6`) |
+| 9 | `START_ONLY_RULES` drift guard | ✅ Closed (commit `109a604`) |
+| 10–12 | Doc reconciliation | ✅ Folded into the closing commit for each item |
+
+---
+
 ## P0 — Breaks the drop-in claim
 
 ### 1. Rule options passed via ESLint config aren't forwarded
@@ -160,31 +179,33 @@ true` with `suggest:` arrays (`no-anonymous-operations`, `no-deprecated`,
 
 ### 4c. `alphabetize` is missing the schema-side options upstream's `flat/schema-all` uses
 
-**Status:** SOLVABLE — surfaced while auditing presets for item 6.
+**Status:** PARTIAL.
 
-**Evidence:** `crates/linter/src/rules/alphabetize.rs:42-51` — our options
-struct accepts `selections`, `arguments` (bool), `variables` (bool).
-Upstream's `flat/schema-all` configures `alphabetize` with `definitions`,
-`fields: ["ObjectTypeDefinition", ...]`, `values: true`, `arguments:
-[...]` (array of contexts, not bool), and `groups: ["id", "*",
-"createdAt", "updatedAt"]`. Configuring our rule with that payload silently
-ignores the unknown keys.
+**What's done:** `AlphabetizeOptions` now accepts the full upstream options
+shape — `definitions`, `fields`, `values`, `groups`, and the array form of
+`arguments` (`["FieldDefinition", "Field", ...]`). The lenient
+`BoolOrKindList` deserializer ensures upstream's preset configs round-trip
+without serde rejecting them. The `arguments` array form is treated as
+"on" (no per-kind filtering yet); the new `definitions`/`fields`/`values`/`groups`
+options are accepted but unused.
 
-**Plan:**
+**What remains:** real per-kind sorting for the new options. Specifically:
 
-1. Extend `AlphabetizeOptions` with `definitions: bool`, `fields:
-   FieldsConfig` (bool or array of type-kind owners), `values: bool`,
-   change `arguments` to a `bool | Array<owner>` shape, add `groups:
-   Vec<String>`.
-2. Implement the new sort modes:
-   - `definitions: true` — sort top-level definitions in a document.
-   - `fields: [...]` — sort field declarations in the given type kinds.
-   - `values: true` — sort enum values.
-   - `arguments: [...]` — sort arguments in the given AST contexts (field
-     defs, field selections, directive defs, directive applications).
-   - `groups: [...]` — explicit ordering groups; `*` is the catch-all.
-3. Update the parity fixture for `alphabetize` to exercise the schema-side
-   shape from `flat/schema-all`.
+- `definitions: true` — sort top-level definitions in a document.
+- `fields: [...]` — sort field declarations in the given type kinds
+  (`ObjectTypeDefinition`, `InterfaceTypeDefinition`, etc.).
+- `values: true` — sort enum values.
+- `arguments: [...]` — narrow to args in the listed AST contexts (only
+  required if a user wants `Field`-only or `Directive`-only sorting).
+- `groups: [...]` — explicit ordering groups; `*` is the catch-all.
+- Update the `alphabetize` parity fixture to exercise the schema-side
+  shape from `flat/schema-all`.
+
+**Why partial is OK as a stop-gap:** the recommended preset that ships
+the array form (`flat/schema-all`) loads cleanly today and the rule still
+fires on the cases it does cover. Users hit "rule does what I expect" for
+the simple operations cases; advanced schema sorting just isn't enforced
+until the rest lands.
 
 ### 5. `selection-set-depth`'s `ignore` option is recognized but a no-op
 
