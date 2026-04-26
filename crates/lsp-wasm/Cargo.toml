@@ -23,5 +23,9 @@ console_error_panic_hook = "0.1"
 tracing = { workspace = true }
 tracing-wasm = "0.2"
 
+[dev-dependencies]
+wasm-bindgen-test = "0.3"
+serde_json = { workspace = true }
+
 [lints]
 workspace = true
