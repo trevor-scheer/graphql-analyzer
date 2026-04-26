@@ -78,6 +78,15 @@ command = "node scripts/sync-workspace-deps.mjs"
 type = "Command"
 command = "npm install --package-lock-only"
 
+# Verify the regenerated lockfile is consumable by `npm ci`. Without this, a
+# lockfile that fails downstream `npm ci` (e.g. produced by an off-version npm
+# in the prepare-release runner) would still be force-pushed to release/next
+# and only blow up on the auto-generated PR's CI. This makes the prepare-release
+# job itself fail before the push, with a clear, fail-fast signal.
+[[workflows.steps]]
+type = "Command"
+command = "npm ci --ignore-scripts --no-audit --no-fund"
+
 [[workflows.steps]]
 type = "Command"
 command = "git add packages/ package-lock.json"
