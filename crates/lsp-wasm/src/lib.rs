@@ -22,7 +22,10 @@ impl Server {
     pub fn new() -> Self {
         let (inbound_tx, inbound_rx) = crossbeam_channel::unbounded::<Message>();
         let (outbound_tx, outbound_rx) = crossbeam_channel::unbounded::<Message>();
-        let connection = Connection { sender: outbound_tx, receiver: inbound_rx };
+        let connection = Connection {
+            sender: outbound_tx,
+            receiver: inbound_rx,
+        };
         let dispatcher: Box<dyn graphql_lsp::TaskDispatcher> =
             Box::new(graphql_lsp::InlineDispatcher);
         let (intro_req_tx, _) = crossbeam_channel::unbounded();
@@ -33,15 +36,20 @@ impl Server {
             intro_req_tx,
             intro_res_rx,
         );
-        Server { connection, state, inbound: inbound_tx, outbound: outbound_rx }
+        Server {
+            connection,
+            state,
+            inbound: inbound_tx,
+            outbound: outbound_rx,
+        }
     }
 
     /// Feed an inbound LSP JSON-RPC message (already unframed). Returns an array
     /// of outbound JSON strings the worker should write back to the client.
     #[wasm_bindgen(js_name = handleMessage)]
     pub fn handle_message(&mut self, json: &str) -> Result<js_sys::Array, JsValue> {
-        let msg: Message = serde_json::from_str(json)
-            .map_err(|e| JsValue::from_str(&e.to_string()))?;
+        let msg: Message =
+            serde_json::from_str(json).map_err(|e| JsValue::from_str(&e.to_string()))?;
 
         // The `initialize` request is handled outside the normal dispatch loop
         // (native does it via Connection::initialize before the loop).
@@ -60,7 +68,9 @@ impl Server {
             }
         }
 
-        self.inbound.send(msg).map_err(|e| JsValue::from_str(&e.to_string()))?;
+        self.inbound
+            .send(msg)
+            .map_err(|e| JsValue::from_str(&e.to_string()))?;
         let _ = graphql_lsp::tick(&self.connection, &mut self.state);
         self.collect_outbound()
     }
@@ -68,8 +78,7 @@ impl Server {
     fn collect_outbound(&mut self) -> Result<js_sys::Array, JsValue> {
         let arr = js_sys::Array::new();
         while let Ok(out) = self.outbound.try_recv() {
-            let s = serde_json::to_string(&out)
-                .map_err(|e| JsValue::from_str(&e.to_string()))?;
+            let s = serde_json::to_string(&out).map_err(|e| JsValue::from_str(&e.to_string()))?;
             arr.push(&JsValue::from_str(&s));
         }
         Ok(arr)
@@ -107,8 +116,7 @@ impl Server {
                 version: Some(env!("CARGO_PKG_VERSION").to_string()),
             }),
         };
-        let value = serde_json::to_value(&result)
-            .map_err(|e| JsValue::from_str(&e.to_string()))?;
+        let value = serde_json::to_value(&result).map_err(|e| JsValue::from_str(&e.to_string()))?;
         let response = lsp_server::Response::new_ok(id, value);
         let out = serde_json::to_string(&Message::Response(response))
             .map_err(|e| JsValue::from_str(&e.to_string()))?;
