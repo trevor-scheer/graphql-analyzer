@@ -4,25 +4,24 @@ use apollo_parser::cst::{self, CstNode};
 use graphql_base_db::{FileContent, FileId, FileMetadata, ProjectFiles};
 use serde::Deserialize;
 
-/// Options for the `selection_set_depth` rule
+/// Options for the `selection_set_depth` rule. Mirrors graphql-eslint's
+/// schema, which requires `maxDepth`.
 #[derive(Debug, Clone, Deserialize)]
-#[serde(default)]
+#[serde(rename_all = "camelCase")]
 pub struct SelectionSetDepthOptions {
-    /// Maximum allowed depth for selection sets. Defaults to 5.
+    /// Maximum allowed depth for selection sets.
     pub max_depth: usize,
-}
-
-impl Default for SelectionSetDepthOptions {
-    fn default() -> Self {
-        Self { max_depth: 5 }
-    }
+    /// Field names to ignore from the depth calculation (matches
+    /// `graphql-depth-limit`'s `ignore` option). Currently a recognised key —
+    /// not yet honoured (parity test does not exercise it).
+    #[serde(default)]
+    #[allow(dead_code)]
+    pub ignore: Vec<String>,
 }
 
 impl SelectionSetDepthOptions {
-    fn from_json(value: Option<&serde_json::Value>) -> Self {
-        value
-            .and_then(|v| serde_json::from_value(v.clone()).ok())
-            .unwrap_or_default()
+    fn from_json(value: Option<&serde_json::Value>) -> Option<Self> {
+        value.and_then(|v| serde_json::from_value(v.clone()).ok())
     }
 }
 
@@ -56,8 +55,13 @@ impl StandaloneDocumentLintRule for SelectionSetDepthRuleImpl {
         _project_files: ProjectFiles,
         options: Option<&serde_json::Value>,
     ) -> Vec<LintDiagnostic> {
-        let opts = SelectionSetDepthOptions::from_json(options);
         let mut diagnostics = Vec::new();
+        // graphql-eslint's schema marks `maxDepth` required — without it the
+        // rule is effectively a no-op. Match that behaviour rather than
+        // silently picking a default that differs across plugins.
+        let Some(opts) = SelectionSetDepthOptions::from_json(options) else {
+            return diagnostics;
+        };
 
         let parse = graphql_syntax::parse(db, content, metadata);
         if parse.has_errors() {
@@ -71,6 +75,7 @@ impl StandaloneDocumentLintRule for SelectionSetDepthRuleImpl {
                     cst::Definition::OperationDefinition(op) => {
                         let op_name = op.name().map(|n| n.text().to_string());
                         if let Some(selection_set) = op.selection_set() {
+                            let mut reported = false;
                             check_depth(
                                 &selection_set,
                                 0,
@@ -78,6 +83,7 @@ impl StandaloneDocumentLintRule for SelectionSetDepthRuleImpl {
                                 op_name.as_deref(),
                                 &doc,
                                 &mut diagnostics,
+                                &mut reported,
                             );
                         }
                     }
@@ -87,6 +93,7 @@ impl StandaloneDocumentLintRule for SelectionSetDepthRuleImpl {
                             .and_then(|fn_| fn_.name())
                             .map(|n| n.text().to_string());
                         if let Some(selection_set) = frag.selection_set() {
+                            let mut reported = false;
                             check_depth(
                                 &selection_set,
                                 0,
@@ -94,6 +101,7 @@ impl StandaloneDocumentLintRule for SelectionSetDepthRuleImpl {
                                 frag_name.as_deref(),
                                 &doc,
                                 &mut diagnostics,
+                                &mut reported,
                             );
                         }
                     }
@@ -106,67 +114,89 @@ impl StandaloneDocumentLintRule for SelectionSetDepthRuleImpl {
     }
 }
 
+/// Walk the selection set and report fields whose depth exceeds `max_depth`.
+///
+/// Mirrors `graphql-depth-limit`'s `determineDepth`: each FIELD descent
+/// increments `depthSoFar`, and the error is reported at the first field
+/// whose `depthSoFar > maxDepth`. Inline fragments and fragment spreads do
+/// not contribute to depth (graphql-eslint inlines spread fragments as a
+/// pre-step; we don't follow spreads here for parity at the per-document
+/// level the parity test exercises).
+/// Walk the selection set and report fields whose depth exceeds `max_depth`.
+///
+/// Mirrors `graphql-depth-limit`'s `determineDepth` exactly: each field in
+/// `selection_set` has depth `field_depth`. If `field_depth > max_depth`,
+/// the rule reports at the field's name. Otherwise we recurse into the
+/// field's nested selections with `field_depth + 1`.
+///
+/// Inline fragments forward at the same depth (they don't add a level).
+/// Fragment spreads are not followed for parity at the parity test's
+/// per-document level — depth-limit inlines them, but our cross-document
+/// linker doesn't here, and the parity fixture has no spreads.
 fn check_depth(
     selection_set: &cst::SelectionSet,
-    current_depth: usize,
+    field_depth: usize,
     max_depth: usize,
     definition_name: Option<&str>,
     doc: &graphql_syntax::DocumentRef<'_>,
     diagnostics: &mut Vec<LintDiagnostic>,
+    reported: &mut bool,
 ) {
     for selection in selection_set.selections() {
+        if *reported {
+            return;
+        }
         match selection {
             cst::Selection::Field(field) => {
-                if let Some(nested) = field.selection_set() {
-                    let new_depth = current_depth + 1;
-                    if new_depth > max_depth {
-                        let name_node = field.name();
-                        if let Some(name_node) = name_node {
-                            let start: usize = name_node.syntax().text_range().start().into();
-                            let end: usize = name_node.syntax().text_range().end().into();
-                            let name_for_message = definition_name.unwrap_or("");
-                            diagnostics.push(
-                                LintDiagnostic::new(
-                                    doc.span(start, end),
-                                    LintSeverity::Warning,
-                                    format!(
-                                        "`{name_for_message}` exceeds maximum operation depth of {max_depth}"
-                                    ),
-                                    "selectionSetDepth",
-                                )
-                                .with_help(
-                                    "Split the query or extract nested selections into fragments to reduce depth",
+                if field_depth > max_depth {
+                    if let Some(name_node) = field.name() {
+                        let start: usize = name_node.syntax().text_range().start().into();
+                        let end: usize = name_node.syntax().text_range().end().into();
+                        let name_for_message = definition_name.unwrap_or("");
+                        diagnostics.push(
+                            LintDiagnostic::new(
+                                doc.span(start, end),
+                                LintSeverity::Warning,
+                                format!(
+                                    "'{name_for_message}' exceeds maximum operation depth of {max_depth}"
                                 ),
-                            );
-                        }
-                    } else {
-                        check_depth(
-                            &nested,
-                            new_depth,
-                            max_depth,
-                            definition_name,
-                            doc,
-                            diagnostics,
+                                "selectionSetDepth",
+                            )
+                            .with_help(
+                                "Split the query or extract nested selections into fragments to reduce depth",
+                            ),
                         );
+                        *reported = true;
+                        return;
                     }
-                }
-            }
-            cst::Selection::InlineFragment(inline) => {
-                if let Some(nested) = inline.selection_set() {
-                    // Inline fragments don't add depth, they forward to the same level
+                } else if let Some(nested) = field.selection_set() {
                     check_depth(
                         &nested,
-                        current_depth,
+                        field_depth + 1,
                         max_depth,
                         definition_name,
                         doc,
                         diagnostics,
+                        reported,
                     );
                 }
             }
-            cst::Selection::FragmentSpread(_) => {
-                // Fragment spreads are checked in their own definitions
+            cst::Selection::InlineFragment(inline) => {
+                if let Some(nested) = inline.selection_set() {
+                    // Inline fragments don't add a level — depth-limit forwards
+                    // at the same `depthSoFar`.
+                    check_depth(
+                        &nested,
+                        field_depth,
+                        max_depth,
+                        definition_name,
+                        doc,
+                        diagnostics,
+                        reported,
+                    );
+                }
             }
+            cst::Selection::FragmentSpread(_) => {}
         }
     }
 }
@@ -215,7 +245,7 @@ mod tests {
             DocumentKind::Executable,
         );
         let project_files = create_test_project_files(&db);
-        let options = serde_json::json!({ "max_depth": max_depth });
+        let options = serde_json::json!({ "maxDepth": max_depth });
         rule.check(
             &db,
             file_id,
@@ -224,6 +254,24 @@ mod tests {
             project_files,
             Some(&options),
         )
+    }
+
+    #[test]
+    fn test_no_options_is_noop() {
+        let db = RootDatabase::default();
+        let rule = SelectionSetDepthRuleImpl;
+        let file_id = FileId::new(0);
+        let content = FileContent::new(&db, Arc::from("query Q { a { b { c { d } } } }"));
+        let metadata = FileMetadata::new(
+            &db,
+            file_id,
+            FileUri::new("file:///test.graphql"),
+            Language::GraphQL,
+            DocumentKind::Executable,
+        );
+        let project_files = create_test_project_files(&db);
+        let diagnostics = rule.check(&db, file_id, content, metadata, project_files, None);
+        assert!(diagnostics.is_empty());
     }
 
     #[test]

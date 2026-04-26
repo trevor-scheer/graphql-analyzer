@@ -51,10 +51,10 @@ impl StandaloneSchemaLintRule for UniqueEnumValueNamesRuleImpl {
                     continue;
                 }
 
-                // Per-value ranges are not tracked on HIR `EnumValue`, so we fall back
-                // to the enum's name range (consistent with other enum-value rules).
-                let start: usize = type_def.name_range.start().into();
-                let end: usize = type_def.name_range.end().into();
+                // Mirror graphql-eslint: each diagnostic spans the duplicate
+                // value's name token (not the enum's name).
+                let start: usize = ev.name_range.start().into();
+                let end: usize = ev.name_range.end().into();
                 let span = graphql_syntax::SourceSpan {
                     start,
                     end,
@@ -176,6 +176,32 @@ mod tests {
         assert_eq!(messages.len(), 2);
         assert!(messages[0].contains("enum value \"FOO\" in enum \"E\""));
         assert!(messages[1].contains("enum value \"Foo\" in enum \"E\""));
+    }
+
+    #[test]
+    fn test_diagnostic_spans_duplicate_value_name() {
+        // Mirrors graphql-eslint: each diagnostic spans the duplicate
+        // value's name token, not the enum's name.
+        let db = RootDatabase::default();
+        let rule = UniqueEnumValueNamesRuleImpl;
+        // Offsets:    0         1         2
+        //             0123456789012345678901234567
+        let schema = "enum E { Value VALUE ValuE }";
+        let project_files = create_schema_project(&db, schema);
+        let diagnostics = rule.check(&db, project_files, None);
+        let mut all: Vec<_> = diagnostics.values().flatten().collect();
+        all.sort_by_key(|d| d.span.start);
+        assert_eq!(all.len(), 2);
+
+        // VALUE at offsets 15..20
+        assert_eq!(all[0].span.start, 15);
+        assert_eq!(all[0].span.end, 20);
+        assert!(all[0].message.contains("\"VALUE\""));
+
+        // ValuE at offsets 21..26
+        assert_eq!(all[1].span.start, 21);
+        assert_eq!(all[1].span.end, 26);
+        assert!(all[1].message.contains("\"ValuE\""));
     }
 
     #[test]

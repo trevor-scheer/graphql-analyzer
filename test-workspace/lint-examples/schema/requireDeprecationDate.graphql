@@ -1,6 +1,6 @@
 # Demonstrates: requireDeprecationDate
-# Deprecated fields and enum values should include a deletion date
-# in the deprecation reason string (e.g. "deletionDate: 01/01/2025").
+# `@deprecated` directives must declare a `deletionDate` argument in
+# `DD/MM/YYYY` format (matching graphql-eslint's rule).
 
 """
 User account
@@ -19,9 +19,9 @@ type DeprecationDateExample {
   """
   oldName: String @deprecated(reason: "Use 'name' instead")
   """
-  Legacy field - deprecated with deletion date
+  Legacy field - deprecated with a future deletion date
   """
-  legacyField: String @deprecated(reason: "Use 'name' instead, deletionDate: 01/01/2025")
+  legacyField: String @deprecated(reason: "Use 'name' instead", deletionDate: "01/01/2999")
 }
 
 """

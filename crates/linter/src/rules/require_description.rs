@@ -2,7 +2,67 @@ use crate::diagnostics::{LintDiagnostic, LintSeverity};
 use crate::traits::{LintRule, StandaloneDocumentLintRule, StandaloneSchemaLintRule};
 use graphql_base_db::{FileContent, FileId, FileMetadata, ProjectFiles};
 use graphql_hir::{TextRange, TypeDefKind};
+use serde::Deserialize;
 use std::collections::HashMap;
+
+/// Options for the `require-description` rule. Mirrors graphql-eslint's
+/// schema where each kind is opt-in by default (the schema requires
+/// `minProperties: 1`, but we accept missing options as "all kinds enabled"
+/// to preserve existing behaviour for callers that didn't specify options).
+///
+/// graphql-eslint exposes one boolean per AST kind, so several `bool` fields
+/// here is the natural shape — clippy's lint suggesting an enum doesn't fit.
+#[allow(clippy::struct_excessive_bools)]
+#[derive(Debug, Clone, Deserialize)]
+pub struct RequireDescriptionOptions {
+    /// Enable description requirement for type kinds: `ObjectTypeDefinition`,
+    /// `InterfaceTypeDefinition`, `EnumTypeDefinition`, `ScalarTypeDefinition`,
+    /// `InputObjectTypeDefinition`, `UnionTypeDefinition`.
+    #[serde(default)]
+    pub types: bool,
+    /// Description requirement for fields on root types (`Query`, `Mutation`,
+    /// `Subscription`). Accepted for parity with graphql-eslint's schema but
+    /// not yet implemented separately — folded into `field_definition`.
+    #[serde(default, rename = "rootField")]
+    #[allow(dead_code)]
+    pub root_field: bool,
+    /// Per-kind opt-ins. graphql-eslint accepts each `Kind.*` constant as a
+    /// boolean property. We keep the same camel/Pascal names users supply.
+    #[serde(default, rename = "FieldDefinition")]
+    pub field_definition: bool,
+    #[serde(default, rename = "InputValueDefinition")]
+    pub input_value_definition: bool,
+    #[serde(default, rename = "EnumValueDefinition")]
+    pub enum_value_definition: bool,
+    #[serde(default, rename = "DirectiveDefinition")]
+    pub directive_definition: bool,
+    #[serde(default, rename = "OperationDefinition")]
+    pub operation_definition: bool,
+}
+
+impl Default for RequireDescriptionOptions {
+    fn default() -> Self {
+        // Without explicit options, enable every kind — preserves the
+        // historical behaviour of this rule for callers not supplying options.
+        Self {
+            types: true,
+            root_field: true,
+            field_definition: true,
+            input_value_definition: true,
+            enum_value_definition: true,
+            directive_definition: true,
+            operation_definition: true,
+        }
+    }
+}
+
+impl RequireDescriptionOptions {
+    fn from_json(value: Option<&serde_json::Value>) -> Self {
+        value
+            .and_then(|v| serde_json::from_value(v.clone()).ok())
+            .unwrap_or_default()
+    }
+}
 
 /// Lint rule that requires descriptions on schema definitions and operations.
 ///
@@ -37,8 +97,9 @@ impl StandaloneSchemaLintRule for RequireDescriptionRuleImpl {
         &self,
         db: &dyn graphql_hir::GraphQLHirDatabase,
         project_files: ProjectFiles,
-        _options: Option<&serde_json::Value>,
+        options: Option<&serde_json::Value>,
     ) -> HashMap<FileId, Vec<LintDiagnostic>> {
+        let opts = RequireDescriptionOptions::from_json(options);
         let mut diagnostics_by_file: HashMap<FileId, Vec<LintDiagnostic>> = HashMap::new();
         let schema_types = graphql_hir::schema_types(db, project_files);
 
@@ -75,7 +136,7 @@ impl StandaloneSchemaLintRule for RequireDescriptionRuleImpl {
                 continue;
             }
 
-            if type_def.description.is_none() {
+            if opts.types && type_def.description.is_none() {
                 let kind_name = match type_def.kind {
                     TypeDefKind::Interface => "interface",
                     TypeDefKind::Union => "union",
@@ -113,7 +174,13 @@ impl StandaloneSchemaLintRule for RequireDescriptionRuleImpl {
                     continue;
                 }
 
-                if field.description.is_none() {
+                let field_kind_enabled = if type_def.kind == TypeDefKind::InputObject {
+                    opts.input_value_definition
+                } else {
+                    opts.field_definition
+                };
+
+                if field_kind_enabled && field.description.is_none() {
                     push_missing_description(
                         &mut diagnostics_by_file,
                         field.file_id,
@@ -123,7 +190,7 @@ impl StandaloneSchemaLintRule for RequireDescriptionRuleImpl {
                 }
 
                 // Arguments only apply to object/interface fields, not input values.
-                if type_def.kind != TypeDefKind::InputObject {
+                if opts.input_value_definition && type_def.kind != TypeDefKind::InputObject {
                     for arg in &field.arguments {
                         if !source_file_ids.contains(&arg.file_id) {
                             continue;
@@ -141,47 +208,53 @@ impl StandaloneSchemaLintRule for RequireDescriptionRuleImpl {
             }
 
             // Enum value definitions
-            for value in &type_def.enum_values {
-                if value.description.is_none() {
-                    push_missing_description(
-                        &mut diagnostics_by_file,
-                        type_def.file_id,
-                        value.name_range,
-                        &format!("enum value \"{}\" in {parent_label}", value.name),
-                    );
+            if opts.enum_value_definition {
+                for value in &type_def.enum_values {
+                    if value.description.is_none() {
+                        push_missing_description(
+                            &mut diagnostics_by_file,
+                            type_def.file_id,
+                            value.name_range,
+                            &format!("enum value \"{}\" in {parent_label}", value.name),
+                        );
+                    }
                 }
             }
         }
 
         // Directive definitions (and their arguments).
-        let directives = graphql_hir::schema_directives(db, project_files);
-        for dir_def in directives.values() {
-            if !source_file_ids.contains(&dir_def.file_id) {
-                continue;
-            }
-
-            let dir_label = format!("directive \"{}\"", dir_def.name);
-
-            if dir_def.description.is_none() {
-                push_missing_description(
-                    &mut diagnostics_by_file,
-                    dir_def.file_id,
-                    dir_def.name_range,
-                    &dir_label,
-                );
-            }
-
-            for arg in &dir_def.arguments {
-                if !source_file_ids.contains(&arg.file_id) {
+        if opts.directive_definition || opts.input_value_definition {
+            let directives = graphql_hir::schema_directives(db, project_files);
+            for dir_def in directives.values() {
+                if !source_file_ids.contains(&dir_def.file_id) {
                     continue;
                 }
-                if arg.description.is_none() {
+
+                let dir_label = format!("directive \"{}\"", dir_def.name);
+
+                if opts.directive_definition && dir_def.description.is_none() {
                     push_missing_description(
                         &mut diagnostics_by_file,
-                        arg.file_id,
-                        arg.name_range,
-                        &format!("input value \"{}\" in {dir_label}", arg.name),
+                        dir_def.file_id,
+                        dir_def.name_range,
+                        &dir_label,
                     );
+                }
+
+                if opts.input_value_definition {
+                    for arg in &dir_def.arguments {
+                        if !source_file_ids.contains(&arg.file_id) {
+                            continue;
+                        }
+                        if arg.description.is_none() {
+                            push_missing_description(
+                                &mut diagnostics_by_file,
+                                arg.file_id,
+                                arg.name_range,
+                                &format!("input value \"{}\" in {dir_label}", arg.name),
+                            );
+                        }
+                    }
                 }
             }
         }
@@ -198,9 +271,13 @@ impl StandaloneDocumentLintRule for RequireDescriptionRuleImpl {
         content: FileContent,
         metadata: FileMetadata,
         _project_files: ProjectFiles,
-        _options: Option<&serde_json::Value>,
+        options: Option<&serde_json::Value>,
     ) -> Vec<LintDiagnostic> {
+        let opts = RequireDescriptionOptions::from_json(options);
         let mut diagnostics = Vec::new();
+        if !opts.operation_definition {
+            return diagnostics;
+        }
         let parse = graphql_syntax::parse(db, content, metadata);
         if parse.has_errors() {
             return diagnostics;

@@ -163,23 +163,6 @@ fn check_document(
 
                 if let (Some(root_type_name), Some(selection_set)) = (root_type, op.selection_set())
                 {
-                    let op_loc = if let Some(name) = op.name() {
-                        DiagnosticLocation {
-                            start: name.syntax().text_range().start().into(),
-                            end: name.syntax().text_range().end().into(),
-                        }
-                    } else if let Some(op_type) = op.operation_type() {
-                        DiagnosticLocation {
-                            start: op_type.syntax().text_range().start().into(),
-                            end: op_type.syntax().text_range().end().into(),
-                        }
-                    } else {
-                        let start: usize = selection_set.syntax().text_range().start().into();
-                        DiagnosticLocation {
-                            start,
-                            end: start + 1,
-                        }
-                    };
                     // Operation root selection sets are skipped via `is_root_type`,
                     // so the display name here is only used by recursive children
                     // (which override it with their own field name/alias).
@@ -191,7 +174,6 @@ fn check_document(
                         &selection_set,
                         root_type_name,
                         &display_name,
-                        op_loc,
                         check_context,
                         &mut visited_fragments,
                         diagnostics,
@@ -213,29 +195,12 @@ fn check_document(
                         .fragment_name()
                         .and_then(|fn_| fn_.name())
                         .map(|n| n.text().to_string());
-                    let frag_loc = frag_name.as_ref().map_or_else(
-                        || {
-                            let start: usize = selection_set.syntax().text_range().start().into();
-                            DiagnosticLocation {
-                                start,
-                                end: start + 1,
-                            }
-                        },
-                        |_| {
-                            let name = frag.fragment_name().and_then(|fn_| fn_.name()).unwrap();
-                            DiagnosticLocation {
-                                start: name.syntax().text_range().start().into(),
-                                end: name.syntax().text_range().end().into(),
-                            }
-                        },
-                    );
                     let display_name = frag_name.unwrap_or_else(|| type_name.to_string());
                     let mut visited_fragments = HashSet::new();
                     check_selection_set(
                         &selection_set,
                         type_name,
                         &display_name,
-                        frag_loc,
                         check_context,
                         &mut visited_fragments,
                         diagnostics,
@@ -258,19 +223,11 @@ struct CheckContext<'a> {
     root_types: &'a crate::schema_utils::RootTypeNames,
 }
 
-/// Location for diagnostic placement (start and end offsets)
-#[derive(Clone, Copy)]
-struct DiagnosticLocation {
-    start: usize,
-    end: usize,
-}
-
 #[allow(clippy::only_used_in_recursion, clippy::too_many_arguments)]
 fn check_selection_set(
     selection_set: &cst::SelectionSet,
     parent_type_name: &str,
     parent_display_name: &str,
-    parent_location: DiagnosticLocation,
     context: &CheckContext,
     visited_fragments: &mut HashSet<String>,
     diagnostics: &mut Vec<LintDiagnostic>,
@@ -315,10 +272,6 @@ fn check_selection_set(
                         if let Some(field_type) =
                             get_field_type(parent_type_name, &field_name_str, context.schema_types)
                         {
-                            let field_loc = DiagnosticLocation {
-                                start: field_name.syntax().text_range().start().into(),
-                                end: field_name.syntax().text_range().end().into(),
-                            };
                             let nested_display_name =
                                 field.alias().and_then(|a| a.name()).map_or_else(
                                     || field_name_str.to_string(),
@@ -328,7 +281,6 @@ fn check_selection_set(
                                 &nested_selection_set,
                                 &field_type,
                                 &nested_display_name,
-                                field_loc,
                                 context,
                                 visited_fragments,
                                 diagnostics,
@@ -387,14 +339,6 @@ fn check_selection_set(
                                             &field_name.text(),
                                             context.schema_types,
                                         ) {
-                                            let field_loc = DiagnosticLocation {
-                                                start: field_name
-                                                    .syntax()
-                                                    .text_range()
-                                                    .start()
-                                                    .into(),
-                                                end: field_name.syntax().text_range().end().into(),
-                                            };
                                             let nested_display_name = nested_field
                                                 .alias()
                                                 .and_then(|a| a.name())
@@ -406,7 +350,6 @@ fn check_selection_set(
                                                 &field_selection_set,
                                                 &field_type,
                                                 &nested_display_name,
-                                                field_loc,
                                                 context,
                                                 visited_fragments,
                                                 diagnostics,
@@ -522,9 +465,13 @@ fn check_selection_set(
             format!(" or add to used fragment{frag_plural} {joined}")
         };
 
+        // Mirror graphql-eslint: diagnostic points at the SelectionSet's
+        // opening `{` with a start-only `loc` (no end position). Emit a
+        // degenerate range (start == end); the eslint adapter strips
+        // `endLine`/`endColumn` for rules listed in `START_ONLY_RULES`.
         diagnostics.push(
             LintDiagnostic::error(
-                doc.span(parent_location.start, parent_location.end),
+                doc.span(selection_set_start, selection_set_start),
                 format!(
                     "Field{plural_suffix} {joined_field_refs} must be selected when it's available on a type.\nInclude it in your selection set{addition}."
                 ),
@@ -1172,6 +1119,29 @@ query GetUser {
 
         // Fragment provides `id`, so no warning
         assert_eq!(diagnostics.len(), 0);
+    }
+
+    #[test]
+    fn test_diagnostic_points_at_selection_set_open_brace() {
+        // Mirrors graphql-eslint: diagnostic points at the SelectionSet's
+        // opening `{` with a degenerate (start == end) range so the eslint
+        // adapter emits a start-only `loc`.
+        let db = RootDatabase::default();
+        let rule = RequireSelectionsRuleImpl;
+
+        let schema = "type Query { user: User } type User { id: ID! name: String! }";
+        // Offsets:     0         1         2
+        //              0123456789012345678901234567
+        let source = "query Q { user { name } }";
+        let (file_id, content, metadata, project_files) = create_test_project(&db, schema, source);
+
+        let diagnostics = rule.check(&db, file_id, content, metadata, project_files, None);
+
+        assert_eq!(diagnostics.len(), 1);
+        // The `{` of the inner selection set `{ name }` is at offset 15.
+        assert_eq!(diagnostics[0].span.start, 15);
+        // Degenerate range so the JS adapter strips end positions.
+        assert_eq!(diagnostics[0].span.end, diagnostics[0].span.start);
     }
 
     #[test]

@@ -41,6 +41,18 @@ impl StandaloneSchemaLintRule for RequireDeprecationReasonRuleImpl {
         project_files: ProjectFiles,
         _options: Option<&serde_json::Value>,
     ) -> HashMap<FileId, Vec<LintDiagnostic>> {
+        // Helper: locate the @deprecated directive's name_range on a slice of
+        // directives. graphql-eslint reports diagnostics on the directive's
+        // name node; we mirror that to keep span parity.
+        fn deprecated_name_range(
+            directives: &[graphql_hir::DirectiveUsage],
+        ) -> Option<graphql_hir::TextRange> {
+            directives
+                .iter()
+                .find(|d| &*d.name == "deprecated")
+                .map(|d| d.name_range)
+        }
+
         let mut diagnostics_by_file: HashMap<FileId, Vec<LintDiagnostic>> = HashMap::new();
         let schema_types = graphql_hir::schema_types(db, project_files);
 
@@ -48,8 +60,10 @@ impl StandaloneSchemaLintRule for RequireDeprecationReasonRuleImpl {
             // Check fields
             for field in &type_def.fields {
                 if field.is_deprecated && field.deprecation_reason.is_none() {
-                    let start: usize = field.name_range.start().into();
-                    let end: usize = field.name_range.end().into();
+                    let range =
+                        deprecated_name_range(&field.directives).unwrap_or(field.name_range);
+                    let start: usize = range.start().into();
+                    let end: usize = range.end().into();
                     let span = graphql_syntax::SourceSpan {
                         start,
                         end,
@@ -82,8 +96,10 @@ impl StandaloneSchemaLintRule for RequireDeprecationReasonRuleImpl {
                 // Check arguments
                 for arg in &field.arguments {
                     if arg.is_deprecated && arg.deprecation_reason.is_none() {
-                        let start: usize = field.name_range.start().into();
-                        let end: usize = field.name_range.end().into();
+                        let range =
+                            deprecated_name_range(&arg.directives).unwrap_or(field.name_range);
+                        let start: usize = range.start().into();
+                        let end: usize = range.end().into();
                         let span = graphql_syntax::SourceSpan {
                             start,
                             end,
@@ -116,8 +132,10 @@ impl StandaloneSchemaLintRule for RequireDeprecationReasonRuleImpl {
             // Check enum values
             for ev in &type_def.enum_values {
                 if ev.is_deprecated && ev.deprecation_reason.is_none() {
-                    let start: usize = type_def.name_range.start().into();
-                    let end: usize = type_def.name_range.end().into();
+                    let range =
+                        deprecated_name_range(&ev.directives).unwrap_or(type_def.name_range);
+                    let start: usize = range.start().into();
+                    let end: usize = range.end().into();
                     let span = graphql_syntax::SourceSpan {
                         start,
                         end,
