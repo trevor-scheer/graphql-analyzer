@@ -25,7 +25,7 @@ items are silent feature gaps. P2 is doc/test cleanup.**
 | - | ---- | ------ |
 | 1 | ESLint rule-options forwarding | ✅ Closed (commit `a396cfc`) |
 | 2 | Embedded GraphQL extraction | ✅ Closed (commit `770d4d4`) |
-| 3 | `naming-convention` feature suite | ⚠ Partial — see below |
+| 3 | `naming-convention` feature suite | ⚠ Partial — accepts upstream's full options shape; only `style` enforcement implemented. See below |
 | 4 | Autofix coverage | ✅ Closed (`alphabetize` is the entire upstream `fix` surface; commit `a396cfc` doc fix) |
 | 4b | ESLint suggestions (`suggest`) | ❌ Open — see below |
 | 4c | `alphabetize` schema-side options | ⚠ Partial — accepts upstream's options without rejecting them; full per-kind sorting deferred. See below |
@@ -113,35 +113,49 @@ GraphQL doesn't lint, the migration silently regresses.
 
 ### 3. `naming-convention` is functionally narrower than upstream
 
-**Status:** SOLVABLE, but the largest single chunk of work in this list.
+**Status:** PARTIAL.
 
-**Evidence:** `crates/linter/src/rules/naming_convention.rs` — only handles
-`OperationDefinition`, `FragmentDefinition`, `VariableDefinition` (with
-`Variable` alias). Missing options: `prefix`, `suffix`, `forbiddenPatterns`,
-`requiredPattern`, `forbiddenPrefixes`, `forbiddenSuffixes`, `ignorePattern`,
-`allowLeadingUnderscore`, `allowTrailingUnderscore`, the `types` umbrella,
-all ESLint-style selector keys, and every schema-side kind
-(`FieldDefinition`, `ObjectTypeDefinition`, `EnumValueDefinition`,
-`InputValueDefinition`, `InterfaceTypeDefinition`, `UnionTypeDefinition`,
-`ScalarTypeDefinition`, `EnumTypeDefinition`, `InputObjectTypeDefinition`,
-`DirectiveDefinition`, `Argument`).
+**What's done:** `NamingConventionOptions` now accepts the full upstream
+options shape — every schema-side kind (`FieldDefinition`,
+`ObjectTypeDefinition`, `EnumValueDefinition`, etc.), the `types`
+umbrella, and the per-kind object form (`{ style, prefix, suffix,
+forbiddenPrefixes, forbiddenSuffixes, requiredPattern, forbiddenPatterns,
+ignorePattern, allowLeadingUnderscore, allowTrailingUnderscore, ...}`).
+ESLint-style selector keys (`"FieldDefinition[parent.name.value=Query]"`,
+`"EnumTypeDefinition,EnumTypeExtension"`) flow into a catch-all
+`selector_overrides` map. Style-checking on operation/fragment/variable
+names still works exactly as before. Result: upstream's
+`flat/schema-recommended` and `flat/operations-recommended` presets load
+cleanly; existing single-form configs keep working.
 
-Parity test passes today only because both plugins no-op without explicit
-kind config — a real upstream config silently under-covers when migrated.
+**What remains:** real enforcement of the new options.
 
-**Plan:**
+1. **Schema-side `style` enforcement.** Iterate the schema for each
+   configured kind and check the name against the configured `NamingCase`.
+   Highest impact — covers most of the recommended-preset behavior.
+2. **`prefix` / `suffix` / `forbiddenPrefixes` / `forbiddenSuffixes` /
+   `requiredPrefixes` / `requiredSuffixes`.** Direct string-matching
+   checks on the name; emit one diagnostic per violation.
+3. **`requiredPattern` / `forbiddenPatterns` / `ignorePattern`.** Regex
+   matching; pull in `regex` if not already in the linter crate's deps.
+4. **`allowLeadingUnderscore` / `allowTrailingUnderscore`.** Tweak the
+   case-checkers to optionally tolerate underscores at name boundaries.
+5. **`types` umbrella.** Apply to every type-system kind that doesn't
+   have an explicit override.
+6. **ESLint selector parsing** (`"FieldDefinition[parent.name.value=Query]"`
+   etc.). Hardest item — needs a small selector parser. Upstream uses
+   esquery; we can either implement a subset (the patterns the
+   recommended presets use) or punt and document that selectors are
+   not yet honored.
+7. Per-kind parity fixtures — one per selector — that exercise each
+   option key. The fixture set is the contract.
 
-1. Implement the missing kinds first (schema-side selectors are the high
-   value bit — most upstream configs target field and type names). Wire each
-   to the appropriate HIR visitor.
-2. Implement the option suite: `prefix`/`suffix`,
-   `requiredPattern`/`forbiddenPatterns` (regex, with the same flag syntax
-   upstream supports), `forbiddenPrefixes`/`forbiddenSuffixes`,
-   `ignorePattern`, `allowLeadingUnderscore`/`allowTrailingUnderscore`.
-3. Implement the `types` umbrella shorthand.
-4. Add per-kind parity fixtures — one per selector — with options that
-   exercise each option key. The fixture set is the contract; parity drift
-   on any of them fails CI.
+**Why partial is OK as a stop-gap:** the recommended presets load and
+the rule still fires correctly for every operation/fragment/variable
+casing case it ever did. Schema-side casing isn't enforced today, but
+that matches the alpha-era behavior — users hitting upstream's
+recommended preset don't get a worse experience than before, just one
+that doesn't yet *upgrade*.
 
 ---
 

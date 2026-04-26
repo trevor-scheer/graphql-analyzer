@@ -69,22 +69,141 @@ fn is_upper_case(s: &str) -> bool {
         .all(|c| c.is_uppercase() || c.is_ascii_digit() || c == '_')
 }
 
+/// Per-kind rule entry. Accepts the bare `"camelCase"` form *and*
+/// the object form upstream uses in its recommended preset
+/// (`{ style: "PascalCase", forbiddenPrefixes: ..., forbiddenSuffixes: ..., ... }`).
+///
+/// Only the `style` field is enforced today; the rest are accepted so
+/// upstream's preset configs round-trip without serde rejecting them, but
+/// the prefix/suffix/pattern checks aren't wired yet — full enforcement
+/// is PARITY_TODO item 3.
+#[derive(Debug, Clone, Deserialize, PartialEq)]
+#[serde(untagged)]
+pub enum NamingRule {
+    /// `Kind: "camelCase"`
+    Case(NamingCase),
+    /// `Kind: { style: "camelCase", forbiddenPrefixes: [...], ... }`
+    Detailed {
+        #[serde(default)]
+        style: Option<NamingCase>,
+        #[serde(default, rename = "prefix")]
+        #[allow(dead_code)]
+        prefix: Option<String>,
+        #[serde(default, rename = "suffix")]
+        #[allow(dead_code)]
+        suffix: Option<String>,
+        #[serde(default, rename = "forbiddenPrefixes")]
+        #[allow(dead_code)]
+        forbidden_prefixes: Vec<String>,
+        #[serde(default, rename = "forbiddenSuffixes")]
+        #[allow(dead_code)]
+        forbidden_suffixes: Vec<String>,
+        #[serde(default, rename = "requiredPrefixes")]
+        #[allow(dead_code)]
+        required_prefixes: Vec<String>,
+        #[serde(default, rename = "requiredSuffixes")]
+        #[allow(dead_code)]
+        required_suffixes: Vec<String>,
+        #[serde(default, rename = "requiredPattern")]
+        #[allow(dead_code)]
+        required_pattern: Option<String>,
+        #[serde(default, rename = "forbiddenPatterns")]
+        #[allow(dead_code)]
+        forbidden_patterns: Vec<String>,
+        #[serde(default, rename = "ignorePattern")]
+        #[allow(dead_code)]
+        ignore_pattern: Option<String>,
+        #[serde(default, rename = "allowLeadingUnderscore")]
+        #[allow(dead_code)]
+        allow_leading_underscore: bool,
+        #[serde(default, rename = "allowTrailingUnderscore")]
+        #[allow(dead_code)]
+        allow_trailing_underscore: bool,
+    },
+}
+
+impl NamingRule {
+    /// Extract the casing constraint from either form. `None` means the
+    /// detailed form supplied no `style` — accepted but no casing check.
+    fn case(&self) -> Option<NamingCase> {
+        match self {
+            Self::Case(c) => Some(*c),
+            Self::Detailed { style, .. } => *style,
+        }
+    }
+}
+
 /// Options for the `naming_convention` rule.
 ///
 /// Mirrors graphql-eslint: with no options the rule no-ops. Each AST kind
-/// must be opted into explicitly.
+/// must be opted into explicitly. The struct accepts every kind upstream
+/// supports for drop-in compatibility with their `flat/schema-recommended`
+/// and `flat/operations-recommended` presets; kinds beyond
+/// operation/fragment/variable are accepted but not yet enforced (see
+/// `_unused_*` fields). Full enforcement is PARITY_TODO item 3.
+///
+/// Unknown keys (including ESLint-style selectors like
+/// `"FieldDefinition[parent.name.value=Query]"`) are captured into
+/// `selector_overrides` so deserialization doesn't fail; their content is
+/// not enforced today.
 #[derive(Debug, Clone, Default, Deserialize)]
 #[serde(default)]
 pub struct NamingConventionOptions {
     /// Convention for operation names (no default; must be set to fire)
     #[serde(rename = "OperationDefinition")]
-    pub operation_definition: Option<NamingCase>,
+    pub operation_definition: Option<NamingRule>,
     /// Convention for fragment names (no default; must be set to fire)
     #[serde(rename = "FragmentDefinition")]
-    pub fragment_definition: Option<NamingCase>,
+    pub fragment_definition: Option<NamingRule>,
     /// Convention for variable names (no default; must be set to fire)
     #[serde(rename = "VariableDefinition", alias = "Variable")]
-    pub variable: Option<NamingCase>,
+    pub variable: Option<NamingRule>,
+    /// Umbrella default applied to every type-system kind that doesn't have
+    /// its own override. Accepted for drop-in compatibility; per-kind
+    /// schema-side enforcement is PARITY_TODO item 3.
+    #[serde(default, rename = "types")]
+    #[allow(dead_code)]
+    pub types: Option<NamingRule>,
+    #[serde(default, rename = "FieldDefinition")]
+    #[allow(dead_code)]
+    pub field_definition: Option<NamingRule>,
+    #[serde(default, rename = "InputValueDefinition")]
+    #[allow(dead_code)]
+    pub input_value_definition: Option<NamingRule>,
+    #[serde(default, rename = "Argument")]
+    #[allow(dead_code)]
+    pub argument: Option<NamingRule>,
+    #[serde(default, rename = "DirectiveDefinition")]
+    #[allow(dead_code)]
+    pub directive_definition: Option<NamingRule>,
+    #[serde(default, rename = "EnumValueDefinition")]
+    #[allow(dead_code)]
+    pub enum_value_definition: Option<NamingRule>,
+    #[serde(default, rename = "ObjectTypeDefinition")]
+    #[allow(dead_code)]
+    pub object_type_definition: Option<NamingRule>,
+    #[serde(default, rename = "InterfaceTypeDefinition")]
+    #[allow(dead_code)]
+    pub interface_type_definition: Option<NamingRule>,
+    #[serde(default, rename = "EnumTypeDefinition")]
+    #[allow(dead_code)]
+    pub enum_type_definition: Option<NamingRule>,
+    #[serde(default, rename = "UnionTypeDefinition")]
+    #[allow(dead_code)]
+    pub union_type_definition: Option<NamingRule>,
+    #[serde(default, rename = "ScalarTypeDefinition")]
+    #[allow(dead_code)]
+    pub scalar_type_definition: Option<NamingRule>,
+    #[serde(default, rename = "InputObjectTypeDefinition")]
+    #[allow(dead_code)]
+    pub input_object_type_definition: Option<NamingRule>,
+    /// Catches ESLint-style selector keys (`"FieldDefinition[parent.name.value=Query]"`,
+    /// `"EnumTypeDefinition,EnumTypeExtension"`) so deserialization
+    /// doesn't fail when a user pastes upstream's preset config. Not
+    /// enforced today; PARITY_TODO item 3 covers selector parsing.
+    #[serde(flatten)]
+    #[allow(dead_code)]
+    pub selector_overrides: std::collections::HashMap<String, serde_json::Value>,
 }
 
 impl NamingConventionOptions {
@@ -147,9 +266,10 @@ impl StandaloneDocumentLintRule for NamingConventionRuleImpl {
             for definition in doc_cst.definitions() {
                 match definition {
                     cst::Definition::OperationDefinition(op) => {
-                        if let (Some(convention), Some(name_node)) =
-                            (opts.operation_definition, op.name())
-                        {
+                        if let (Some(convention), Some(name_node)) = (
+                            opts.operation_definition.as_ref().and_then(NamingRule::case),
+                            op.name(),
+                        ) {
                             let name = name_node.text();
                             if !convention.check(&name) {
                                 let op_kind =
@@ -182,7 +302,9 @@ impl StandaloneDocumentLintRule for NamingConventionRuleImpl {
                         }
 
                         // Check variable definitions
-                        if let Some(convention) = opts.variable {
+                        if let Some(convention) =
+                            opts.variable.as_ref().and_then(NamingRule::case)
+                        {
                             if let Some(var_defs) = op.variable_definitions() {
                                 for var_def in var_defs.variable_definitions() {
                                     if let Some(var) = var_def.variable() {
@@ -217,7 +339,7 @@ impl StandaloneDocumentLintRule for NamingConventionRuleImpl {
                     }
                     cst::Definition::FragmentDefinition(frag) => {
                         if let (Some(convention), Some(frag_name)) = (
-                            opts.fragment_definition,
+                            opts.fragment_definition.as_ref().and_then(NamingRule::case),
                             frag.fragment_name().and_then(|fn_| fn_.name()),
                         ) {
                             let name = frag_name.text();
@@ -363,5 +485,42 @@ mod tests {
         );
         assert_eq!(diagnostics.len(), 1);
         assert!(diagnostics[0].message.contains("camelCase"));
+    }
+
+    // Drop-in compat with upstream's `flat/operations-recommended` preset:
+    // each per-kind entry is allowed to be an object with `style` (and the
+    // suite of prefix/suffix/pattern options the rule doesn't yet enforce).
+    #[test]
+    fn test_object_form_with_style() {
+        let opts = serde_json::json!({
+            "OperationDefinition": {
+                "style": "PascalCase",
+                "forbiddenPrefixes": ["Query"],
+                "forbiddenSuffixes": ["Query"]
+            }
+        });
+        // Style is enforced even though forbiddenPrefixes/Suffixes aren't.
+        let diagnostics = check_with_options("query lowercaseOp { user { id } }", Some(&opts));
+        assert_eq!(diagnostics.len(), 1, "expected one casing diagnostic");
+        assert!(diagnostics[0].message.contains("PascalCase"));
+    }
+
+    // Drop-in compat: ESLint-style selector keys (used in upstream's
+    // `flat/schema-recommended`) parse cleanly without erroring. Selectors
+    // are captured into `selector_overrides` and currently no-op.
+    #[test]
+    fn test_selector_keys_dont_break_deserialization() {
+        let opts = serde_json::json!({
+            "FieldDefinition[parent.name.value=Query]": {
+                "forbiddenPrefixes": ["query"]
+            },
+            "EnumTypeDefinition,EnumTypeExtension": {
+                "forbiddenPrefixes": ["Enum"]
+            }
+        });
+        // No diagnostics expected — these kinds aren't enforced for
+        // documents and selector keys are accepted-but-not-implemented.
+        let diagnostics = check_with_options("query GetUser { user { id } }", Some(&opts));
+        assert!(diagnostics.is_empty());
     }
 }
