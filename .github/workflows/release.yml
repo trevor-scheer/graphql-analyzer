@@ -470,7 +470,7 @@ jobs:
               continue
             fi
             echo "::group::Publishing ${name}@${version}"
-            (cd "$dir" && npm publish --tag alpha --provenance --access public)
+            (cd "$dir" && npm publish --provenance --access public)
             echo "::endgroup::"
           done
 
@@ -484,7 +484,7 @@ jobs:
             echo "${name}@${version} already published — skipping"
             exit 0
           fi
-          npm publish --tag alpha --provenance --access public
+          npm publish --provenance --access public
 
       - name: Publish @graphql-analyzer/eslint-plugin
         working-directory: packages/eslint-plugin
@@ -496,7 +496,7 @@ jobs:
             echo "${name}@${version} already published — skipping"
             exit 0
           fi
-          npm publish --tag alpha --provenance --access public
+          npm publish --provenance --access public
 
   # Update the Homebrew tap formula with the new CLI version
   update-homebrew-formula:
