@@ -1,4 +1,4 @@
-use crate::diagnostics::{LintDiagnostic, LintSeverity};
+use crate::diagnostics::{CodeSuggestion, LintDiagnostic, LintSeverity};
 use crate::traits::{LintRule, StandaloneSchemaLintRule};
 use graphql_base_db::{FileId, ProjectFiles};
 use graphql_hir::TypeDef;
@@ -106,6 +106,14 @@ impl StandaloneSchemaLintRule for InputNameRuleImpl {
                 for arg in &field.arguments {
                     if arg.name.as_ref() != "input" {
                         let span = make_span(arg.name_range);
+                        let name_start: usize = arg.name_range.start().into();
+                        let name_end: usize = arg.name_range.end().into();
+                        let suggestion = CodeSuggestion::replace(
+                            "Rename to `input`".to_string(),
+                            name_start,
+                            name_end,
+                            "input".to_string(),
+                        );
                         diagnostics_by_file.entry(arg.file_id).or_default().push(
                             LintDiagnostic::new(
                                 span,
@@ -116,6 +124,7 @@ impl StandaloneSchemaLintRule for InputNameRuleImpl {
                                 ),
                                 "inputName",
                             )
+                            .with_suggestion(suggestion)
                             .with_help("Rename to `input`"),
                         );
                     }
@@ -130,21 +139,38 @@ impl StandaloneSchemaLintRule for InputNameRuleImpl {
                         };
 
                         if mismatch {
-                            // The HIR doesn't expose a separate range for the
-                            // argument's type reference, so fall back to the
-                            // argument's name range. This is consistent with
-                            // how other schema rules surface argument-level
-                            // diagnostics.
-                            let span = make_span(arg.name_range);
-                            diagnostics_by_file.entry(arg.file_id).or_default().push(
-                                LintDiagnostic::new(
-                                    span,
-                                    LintSeverity::Warning,
-                                    format!("Input type `{actual}` name should be `{expected}`."),
-                                    "inputName",
-                                )
-                                .with_help(format!("Rename to `{expected}`")),
-                            );
+                            // Upstream's diagnostic points at `node.name` (the
+                            // type's Name token) and the suggestion replaces
+                            // that same token. We use `type_ref.name_range` for
+                            // both so the byte ranges line up with upstream
+                            // for parity.
+                            let type_range = arg.type_ref.name_range;
+                            let span = if type_range.start() == type_range.end() {
+                                make_span(arg.name_range)
+                            } else {
+                                make_span(type_range)
+                            };
+                            let mut diag = LintDiagnostic::new(
+                                span,
+                                LintSeverity::Warning,
+                                format!("Input type `{actual}` name should be `{expected}`."),
+                                "inputName",
+                            )
+                            .with_help(format!("Rename to `{expected}`"));
+                            if type_range.start() != type_range.end() {
+                                let start: usize = type_range.start().into();
+                                let end: usize = type_range.end().into();
+                                diag = diag.with_suggestion(CodeSuggestion::replace(
+                                    format!("Rename to `{expected}`"),
+                                    start,
+                                    end,
+                                    expected.clone(),
+                                ));
+                            }
+                            diagnostics_by_file
+                                .entry(arg.file_id)
+                                .or_default()
+                                .push(diag);
                         }
                     }
                 }

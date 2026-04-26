@@ -162,6 +162,9 @@ const EXERCISED = {
     target: "src/op.graphql",
     severity: 2,
     span: "line",
+    // Suggestion: `Rename to \`hello\`` inserts the operation name after
+    // the `query` keyword (or `query <name> ` for shorthand `{`).
+    compareSuggest: true,
   },
 
   "no-duplicate-fields": {
@@ -172,6 +175,8 @@ const EXERCISED = {
     target: "src/op.graphql",
     severity: 2,
     span: "line",
+    // Suggestion: `Remove \`id\` field` deletes the duplicate selection.
+    compareSuggest: true,
   },
 
   "no-hashtag-description": {
@@ -203,6 +208,9 @@ const EXERCISED = {
     target: "schema.graphql",
     severity: 1,
     span: "full",
+    // Suggestion: `Change to block style description` rewraps `"A type"`
+    // → `"""A type"""` (or vice versa), matching upstream byte-for-byte.
+    compareSuggest: true,
   },
 
   "require-field-of-type-query-in-mutation-result": {
@@ -225,6 +233,9 @@ const EXERCISED = {
     target: "schema.graphql",
     severity: 1,
     span: "full",
+    // Suggestion: `Make String nullable` strips the `!` from the gqlType,
+    // mirroring upstream's `text.replace("!", "")` on the full type ref.
+    compareSuggest: true,
   },
 
   // ----- newly verified rules (this PR) -----
@@ -260,6 +271,8 @@ const EXERCISED = {
     target: "schema.graphql",
     severity: 1,
     span: "full",
+    // Suggestion: `Rename to \`input\`` replaces the argument's Name token.
+    compareSuggest: true,
   },
 
   "lone-executable-definition": {
@@ -325,6 +338,9 @@ const EXERCISED = {
     target: "src/op.graphql",
     severity: 1,
     span: "full",
+    // Suggestion: `Remove Field` deletes the entire deprecated Field
+    // selection (matches upstream's `fixer.remove(node)`).
+    compareSuggest: true,
   },
 
   "no-one-place-fragments": {
@@ -358,6 +374,9 @@ const EXERCISED = {
     target: "schema.graphql",
     severity: 1,
     span: "full",
+    // Suggestion: `Remove \`Boolean\`` deletes the named-type token (matches
+    // upstream's `fixer.remove(node)` on the NamedType node).
+    compareSuggest: true,
   },
 
   "no-typename-prefix": {
@@ -565,6 +584,9 @@ const EXERCISED = {
     target: "schema.graphql",
     severity: 1,
     span: "full",
+    // Suggestion: `Remove \`unusedField\` field` deletes the field's
+    // entire definition range, matching upstream byte-for-byte.
+    compareSuggest: true,
   },
 
   "no-unused-fragments": {

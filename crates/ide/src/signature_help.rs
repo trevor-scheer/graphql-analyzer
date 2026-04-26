@@ -359,6 +359,7 @@ mod tests {
                     deprecation_reason: None,
                     directives: vec![],
                     name_range: graphql_hir::TextRange::new(0.into(), 0.into()),
+                    definition_range: graphql_hir::TextRange::new(0.into(), 0.into()),
                     file_id: graphql_base_db::FileId::new(0),
                 }
             })

@@ -1,4 +1,4 @@
-use crate::diagnostics::{LintDiagnostic, LintSeverity};
+use crate::diagnostics::{CodeSuggestion, LintDiagnostic, LintSeverity};
 use crate::traits::{DocumentSchemaLintRule, LintRule};
 use apollo_parser::cst::{self, CstNode};
 use graphql_base_db::{FileContent, FileId, FileMetadata, ProjectFiles};
@@ -158,6 +158,19 @@ fn check_selection_set(
                                 reason
                             );
 
+                            // Mirror upstream's `fixer.remove(node)`: remove the
+                            // entire Field selection (including args/sub-selections).
+                            // Use block-local offsets — the convert_fix layer
+                            // handles block→file translation for embedded blocks.
+                            let field_range = field.syntax().text_range();
+                            let field_start: usize = field_range.start().into();
+                            let field_end: usize = field_range.end().into();
+                            let suggestion = CodeSuggestion::delete(
+                                format!("Remove field \"{}\"", field_name.as_ref()),
+                                field_start,
+                                field_end,
+                            );
+
                             diagnostics.push(
                                 LintDiagnostic::new(
                                     doc.span(offset, offset + field_name.as_ref().len()),
@@ -169,6 +182,7 @@ fn check_selection_set(
                                 .with_help(
                                     "Use the replacement field if one is specified in the deprecation reason",
                                 )
+                                .with_suggestion(suggestion)
                                 .with_tag(crate::diagnostics::DiagnosticTag::Deprecated),
                             );
                         }
@@ -195,6 +209,20 @@ fn check_selection_set(
                                                 reason
                                             );
 
+                                            // Mirror upstream's `fixer.remove(node)`:
+                                            // remove the entire Argument node.
+                                            let arg_range = arg.syntax().text_range();
+                                            let arg_start: usize = arg_range.start().into();
+                                            let arg_end: usize = arg_range.end().into();
+                                            let suggestion = CodeSuggestion::delete(
+                                                format!(
+                                                    "Remove argument \"{}\"",
+                                                    arg_name.as_ref()
+                                                ),
+                                                arg_start,
+                                                arg_end,
+                                            );
+
                                             diagnostics.push(
                                                 LintDiagnostic::new(
                                                     doc.span(offset, offset + arg_name.as_ref().len()),
@@ -206,6 +234,7 @@ fn check_selection_set(
                                                 .with_help(
                                                     "Use the replacement field if one is specified in the deprecation reason",
                                                 )
+                                                .with_suggestion(suggestion)
                                                 .with_tag(crate::diagnostics::DiagnosticTag::Deprecated),
                                             );
                                         }
@@ -298,6 +327,17 @@ fn check_value_for_deprecated_enum(
                                     reason
                                 );
 
+                                // Mirror upstream's `fixer.remove(node)`: remove
+                                // the EnumValue node (the bare identifier).
+                                let ev_range = enum_value.syntax().text_range();
+                                let ev_start: usize = ev_range.start().into();
+                                let ev_end: usize = ev_range.end().into();
+                                let suggestion = CodeSuggestion::delete(
+                                    format!("Remove enum \"{}\"", enum_name.as_ref()),
+                                    ev_start,
+                                    ev_end,
+                                );
+
                                 diagnostics.push(
                                     LintDiagnostic::new(
                                         doc.span(offset, offset + enum_name.as_ref().len()),
@@ -309,6 +349,7 @@ fn check_value_for_deprecated_enum(
                                     .with_help(
                                         "Use the replacement field if one is specified in the deprecation reason",
                                     )
+                                    .with_suggestion(suggestion)
                                     .with_tag(crate::diagnostics::DiagnosticTag::Deprecated),
                                 );
                                 // Found the enum, no need to check other types

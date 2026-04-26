@@ -27,7 +27,7 @@ items are silent feature gaps. P2 is doc/test cleanup.**
 | 2     | Embedded GraphQL extraction        | ✅ Closed (commit `770d4d4`)                                                                                                                                                                                                                                                               |
 | 3     | `naming-convention` feature suite  | ✅ Closed — schema-side casing, prefix/suffix, patterns, ESLint selectors (`Kind1,Kind2` and `Kind[parent.name.value=X]`) all enforced and parity-verified. Two narrow gaps remain (see below): `forbiddenPatterns` JS-RegExp shape, `requiredPattern` named-group convention enforcement. |
 | 4     | Autofix coverage                   | ✅ Closed (`alphabetize` is the entire upstream `fix` surface; commit `a396cfc` doc fix)                                                                                                                                                                                                   |
-| 4b    | ESLint suggestions (`suggest`)     | ⚠ Infrastructure + first 4 rules done — `no-unreachable-types`, `no-root-type`, `no-typename-prefix`, `unique-enum-value-names` ship suggestions byte-for-byte against upstream (parity test compares `suggestions[].fix.range` and `text`). 14 rules remaining (see below).                |
+| 4b    | ESLint suggestions (`suggest`)     | ⚠ Infrastructure + 14 rules done — `no-unreachable-types`, `no-root-type`, `no-typename-prefix`, `unique-enum-value-names`, `input-name`, `require-nullable-result-in-root`, `no-scalar-result-type-on-mutation`, `no-deprecated`, `no-duplicate-fields`, `no-anonymous-operations`, `description-style`, `no-hashtag-description`, `require-deprecation-date`, `no-unused-fields` ship suggestions byte-for-byte against upstream (parity test compares `suggestions[].fix.range` and `text`). 4 complex rules remain (see below).                |
 | 4c    | `alphabetize` schema-side options  | ✅ Closed — `definitions` / `fields` (per-kind) / `values` / `groups` / per-context `arguments` (FieldDefinition + DirectiveDefinition) all parity-verified for messages, positions, AND fix payloads.                                                                                     |
 | 5     | `selection-set-depth.ignore`       | ✅ Closed (commit `de4a329`)                                                                                                                                                                                                                                                               |
 | 6     | Preset surface                     | ✅ Closed (commit `f32d6b5`) — all 5 upstream presets, content matches byte-for-byte, validation rules stubbed for drop-in compat                                                                                                                                                          |
@@ -190,36 +190,47 @@ true` with `suggest:` arrays (`no-anonymous-operations`, `no-deprecated`,
   instances in options to the analyzer's regex-source string form, so
   upstream's `forbiddenPatterns: [/foo/i]` JS configs reach Rust intact.
 
-**What remains: per-rule suggestion fix payloads.** The 18 upstream rules
-that ship `suggest:` arrays (audited in `node_modules/@graphql-eslint/eslint-plugin/cjs/rules/*/index.js`)
-each call `fixer.remove(node.parent)` or `fixer.replaceText(...)` against
-some specific AST node. To match upstream byte-for-byte we need:
+**What's done in this PR (per-rule suggestions):** 14 of the 18 upstream
+rules now ship byte-for-byte matching `suggest:` arrays. HIR additions:
+`FieldSignature.definition_range`, `ArgumentDef.definition_range` (mirroring
+the existing `EnumValue.definition_range` and `TypeDef.definition_range`).
+Each rule writes its own `with_suggestion(...)` call; the parity test's
+`compareSuggest: true` knob is enabled per fixture so drift surfaces in CI.
 
-1. **HIR access to full AST node byte ranges** (not just `name_range`).
-   The HIR's `TypeDef`, `FieldDefinition`, `EnumValueDefinition`, etc.
-   currently carry only the _name_ token's range, mirroring graphql-js's
-   AST shape. Upstream's `fixer.remove(node.parent)` removes the _full_
-   declaration. We'd add a `def_range` to each HIR shape (or re-parse
-   the schema CST per rule, the way `no_hashtag_description` already does).
-2. **Per-rule suggestion implementations.** Each rule writes its own
-   `with_suggestion(CodeSuggestion::delete(desc, start, end))` or
-   `::replace(...)` call inside its `check()` body. Estimate ~20-40
-   lines per rule + a parity fixture update. Audit list:
-   `no-anonymous-operations`, `no-deprecated`, `description-style`,
-   `no-duplicate-fields`, `no-hashtag-description`, `no-typename-prefix`,
-   `no-unreachable-types`, `no-root-type`, `require-deprecation-date`,
-   `require-import-fragment`, `selection-set-depth`,
-   `unique-enum-value-names`, `naming-convention`, `no-unused-fields`,
-   `require-selections`, `input-name`,
-   `require-nullable-result-in-root`, `no-scalar-result-type-on-mutation`.
-3. **Parity test suggestion comparison.** `canonical()` already drops
-   `suggestions` from the diff today (we don't ship them yet). Once
-   per-rule implementations land, extend the canonical shape to include
-   `suggestions: [{desc, fix.range, fix.text}]` and add a `compareSuggestions`
-   knob on fixtures so the existing 33 fixtures don't regress.
+| Rule | Approach |
+| ---- | -------- |
+| `no-unreachable-types`, `no-root-type`, `unique-enum-value-names` | `delete(definition_range)` |
+| `no-typename-prefix` | `replace(field_name_range, stripped_name)` |
+| `input-name` | `replace(arg.name_range, "input")` + `replace(type_ref.name_range, expected)` |
+| `require-nullable-result-in-root` | `replace(gql_type_range, text_minus_bang)` (uses file content lookup) |
+| `no-scalar-result-type-on-mutation` | `delete(type_ref.name_range)` |
+| `no-deprecated` (field/arg/enum) | `delete(node_range)` with `displayNodeName`-shaped desc |
+| `no-duplicate-fields` (selection-set case) | `delete(field_range)` |
+| `no-anonymous-operations` | `replace(insertion_point, " <name>")` |
+| `description-style` | `replace(string_value_range, converted_text)` |
+| `no-hashtag-description` | `replace(block_range, """<text>""")` and `<"<text>">` (two suggestions per diagnostic) |
+| `require-deprecation-date` (CAN_BE_REMOVED) | `delete(parent_def_range)` |
+| `no-unused-fields` | `delete(field.def_range)` |
 
-The infrastructure in place means each per-rule suggestion is now a
-pure-additive change — no plumbing left to do.
+**What remains (4 complex rules — left as follow-up):**
+
+1. `naming-convention` — needs full case-conversion logic (camelCase ↔
+   PascalCase ↔ snake_case ↔ UPPER_CASE ↔ kebab-case) to compute upstream's
+   `suggestedNames`. Equivalent to importing or rewriting the `change-case`
+   utility surface upstream uses.
+2. `require-selections` — single suggestion ("add `id`") but the precise
+   insertion point and existing-id-vs-not branching mirrors a specific
+   upstream walk; ~50 lines.
+3. `selection-set-depth` — upstream walks `error.token` from the
+   `graphql-depth-limit` library and removes a parent selection set; our
+   depth check is structurally different and would need to track the
+   exceeding token explicitly.
+4. `require-import-fragment` — needs project-wide fragment-file scanning
+   to compute `suggestedFilePaths`, which the rule doesn't currently do.
+
+These four are pure-additive: per-rule changes against the suggestion
+infrastructure already in place. The 14 rules that did land cover the
+recommended preset's full suggestion surface.
 
 ---
 

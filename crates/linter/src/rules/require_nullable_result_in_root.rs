@@ -1,4 +1,4 @@
-use crate::diagnostics::{rule_doc_url, LintDiagnostic, LintSeverity};
+use crate::diagnostics::{rule_doc_url, CodeSuggestion, LintDiagnostic, LintSeverity};
 use crate::traits::{LintRule, StandaloneSchemaLintRule};
 use graphql_base_db::{FileId, ProjectFiles};
 use std::collections::HashMap;
@@ -63,27 +63,54 @@ impl StandaloneSchemaLintRule for RequireNullableResultInRootRuleImpl {
                 // an empty list is a valid empty-but-non-null payload, so the
                 // null-bubbling concern doesn't apply at the list level.
                 if field.type_ref.is_non_null && !field.type_ref.is_list {
+                    let name_start: usize = field.type_ref.name_range.start().into();
+                    let name_end: usize = field.type_ref.name_range.end().into();
                     let span = graphql_syntax::SourceSpan {
-                        start: field.type_ref.name_range.start().into(),
-                        end: field.type_ref.name_range.end().into(),
+                        start: name_start,
+                        end: name_end,
                         line_offset: 0,
                         byte_offset: 0,
                         source: None,
                     };
 
-                    diagnostics_by_file.entry(field.file_id).or_default().push(
-                        LintDiagnostic::new(
-                            span,
-                            LintSeverity::Warning,
-                            format!(
-                                "Unexpected non-null result {} in type \"{}\"",
-                                field.type_ref.name, type_name
-                            ),
-                            "requireNullableResultInRoot",
-                        )
-                        .with_message_id("require-nullable-result-in-root")
-                        .with_url(rule_doc_url("requireNullableResultInRoot")),
-                    );
+                    let mut diag = LintDiagnostic::new(
+                        span,
+                        LintSeverity::Warning,
+                        format!(
+                            "Unexpected non-null result {} in type \"{}\"",
+                            field.type_ref.name, type_name
+                        ),
+                        "requireNullableResultInRoot",
+                    )
+                    .with_message_id("require-nullable-result-in-root")
+                    .with_url(rule_doc_url("requireNullableResultInRoot"));
+
+                    // Match upstream `fixer.replaceText(field.gqlType, text.replace("!", ""))`:
+                    // replace the full type ref with the same text minus the `!`.
+                    // For a non-null named type (`User!`), the source between
+                    // `name_range.start()` and the `!` immediately following is
+                    // the entire gqlType node.
+                    if let Some((file_content, _)) =
+                        graphql_base_db::file_lookup(db, project_files, field.file_id)
+                    {
+                        let text = file_content.text(db);
+                        if let Some(bang_off) = text[name_end..].find('!') {
+                            let gql_type_end = name_end + bang_off + 1;
+                            let original = &text[name_start..gql_type_end];
+                            let new_text = original.replace('!', "");
+                            diag = diag.with_suggestion(CodeSuggestion::replace(
+                                format!("Make {} nullable", field.type_ref.name),
+                                name_start,
+                                gql_type_end,
+                                new_text,
+                            ));
+                        }
+                    }
+
+                    diagnostics_by_file
+                        .entry(field.file_id)
+                        .or_default()
+                        .push(diag);
                 }
             }
         }
