@@ -18,7 +18,16 @@ export const operationsRecommended: Record<string, string> = {
   "@graphql-analyzer/no-unused-fragments": "warn",
 };
 
+// Mirrors @graphql-eslint/eslint-plugin's `flat/schema-relay`.
+export const schemaRelay: Record<string, string> = {
+  "@graphql-analyzer/relay-arguments": "error",
+  "@graphql-analyzer/relay-connection-types": "error",
+  "@graphql-analyzer/relay-edge-types": "error",
+  "@graphql-analyzer/relay-page-info": "error",
+};
+
 export const configs: Record<string, { rules: Record<string, string> }> = {
   "flat/schema-recommended": { rules: schemaRecommended },
   "flat/operations-recommended": { rules: operationsRecommended },
+  "flat/schema-relay": { rules: schemaRelay },
 };
