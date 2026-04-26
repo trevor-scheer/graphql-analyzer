@@ -23,6 +23,7 @@ apollo-compiler = { workspace = true }
 # Core utilities
 serde = { workspace = true }
 serde_json = { workspace = true }
+regex = "1"
 
 # Logging
 tracing = "0.1"

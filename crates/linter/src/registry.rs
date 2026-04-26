@@ -70,8 +70,10 @@ static PROJECT_RULES: LazyLock<Vec<Arc<dyn ProjectLintRule>>> = LazyLock::new(||
 static STANDALONE_SCHEMA_RULES: LazyLock<Vec<Arc<dyn StandaloneSchemaLintRule>>> =
     LazyLock::new(|| {
         vec![
+            Arc::new(AlphabetizeRuleImpl),
             Arc::new(DescriptionStyleRuleImpl),
             Arc::new(InputNameRuleImpl),
+            Arc::new(NamingConventionRuleImpl),
             Arc::new(NoHashtagDescriptionRuleImpl),
             Arc::new(NoRootTypeRuleImpl),
             Arc::new(NoScalarResultTypeOnMutationRuleImpl),

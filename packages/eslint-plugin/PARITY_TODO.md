@@ -25,10 +25,10 @@ items are silent feature gaps. P2 is doc/test cleanup.**
 | - | ---- | ------ |
 | 1 | ESLint rule-options forwarding | ✅ Closed (commit `a396cfc`) |
 | 2 | Embedded GraphQL extraction | ✅ Closed (commit `770d4d4`) |
-| 3 | `naming-convention` feature suite | ⚠ Partial — accepts upstream's full options shape; only `style` enforcement implemented. See below |
+| 3 | `naming-convention` feature suite | ⚠ Mostly closed — schema-side casing, prefix/suffix, pattern enforcement all wired. See "what remains" below for selector parsing |
 | 4 | Autofix coverage | ✅ Closed (`alphabetize` is the entire upstream `fix` surface; commit `a396cfc` doc fix) |
 | 4b | ESLint suggestions (`suggest`) | ❌ Open — see below |
-| 4c | `alphabetize` schema-side options | ⚠ Partial — accepts upstream's options without rejecting them; full per-kind sorting deferred. See below |
+| 4c | `alphabetize` schema-side options | ⚠ Mostly closed — `definitions`, `fields` (per-kind), `values` all sort correctly and parity-verified for messages/positions. See "what remains" below for fix-payload emission and `groups` |
 | 5 | `selection-set-depth.ignore` | ✅ Closed (commit `de4a329`) |
 | 6 | Preset surface | ✅ Closed (commit `f32d6b5`) — all 5 upstream presets, content matches byte-for-byte, validation rules stubbed for drop-in compat |
 | 7 | `no-hashtag-description` grouping | ✅ Closed (commit `221886d`) — was already implemented; doc/test caught up |
@@ -113,49 +113,44 @@ GraphQL doesn't lint, the migration silently regresses.
 
 ### 3. `naming-convention` is functionally narrower than upstream
 
-**Status:** PARTIAL.
+**Status:** MOSTLY CLOSED.
 
-**What's done:** `NamingConventionOptions` now accepts the full upstream
-options shape — every schema-side kind (`FieldDefinition`,
-`ObjectTypeDefinition`, `EnumValueDefinition`, etc.), the `types`
-umbrella, and the per-kind object form (`{ style, prefix, suffix,
-forbiddenPrefixes, forbiddenSuffixes, requiredPattern, forbiddenPatterns,
-ignorePattern, allowLeadingUnderscore, allowTrailingUnderscore, ...}`).
-ESLint-style selector keys (`"FieldDefinition[parent.name.value=Query]"`,
-`"EnumTypeDefinition,EnumTypeExtension"`) flow into a catch-all
-`selector_overrides` map. Style-checking on operation/fragment/variable
-names still works exactly as before. Result: upstream's
-`flat/schema-recommended` and `flat/operations-recommended` presets load
-cleanly; existing single-form configs keep working.
+**What's done:**
 
-**What remains:** real enforcement of the new options.
+- Schema-side `StandaloneSchemaLintRule` impl that walks every
+  registered kind (`FieldDefinition`, `InputValueDefinition`, `Argument`,
+  `EnumValueDefinition`, `DirectiveDefinition`, `ObjectTypeDefinition`,
+  `InterfaceTypeDefinition`, `EnumTypeDefinition`, `UnionTypeDefinition`,
+  `ScalarTypeDefinition`, `InputObjectTypeDefinition`) and enforces
+  per-kind `style`. Registered in `STANDALONE_SCHEMA_RULES`.
+- `types` umbrella resolved with explicit-override-wins precedence.
+- Document- and schema-side: `prefix`, `suffix`, `forbiddenPrefixes`,
+  `forbiddenSuffixes`, `requiredPrefixes`, `requiredSuffixes`,
+  `requiredPattern` (regex), `forbiddenPatterns` (regex array — see
+  caveat), `ignorePattern`, `allowLeadingUnderscore`,
+  `allowTrailingUnderscore`. Shared `check_name` pipeline mirrors
+  upstream's `checkNode`. Diagnostic message format matches
+  upstream byte-for-byte (verified by parity test).
 
-1. **Schema-side `style` enforcement.** Iterate the schema for each
-   configured kind and check the name against the configured `NamingCase`.
-   Highest impact — covers most of the recommended-preset behavior.
-2. **`prefix` / `suffix` / `forbiddenPrefixes` / `forbiddenSuffixes` /
-   `requiredPrefixes` / `requiredSuffixes`.** Direct string-matching
-   checks on the name; emit one diagnostic per violation.
-3. **`requiredPattern` / `forbiddenPatterns` / `ignorePattern`.** Regex
-   matching; pull in `regex` if not already in the linter crate's deps.
-4. **`allowLeadingUnderscore` / `allowTrailingUnderscore`.** Tweak the
-   case-checkers to optionally tolerate underscores at name boundaries.
-5. **`types` umbrella.** Apply to every type-system kind that doesn't
-   have an explicit override.
-6. **ESLint selector parsing** (`"FieldDefinition[parent.name.value=Query]"`
-   etc.). Hardest item — needs a small selector parser. Upstream uses
-   esquery; we can either implement a subset (the patterns the
-   recommended presets use) or punt and document that selectors are
-   not yet honored.
-7. Per-kind parity fixtures — one per selector — that exercise each
-   option key. The fixture set is the contract.
+**What remains:**
 
-**Why partial is OK as a stop-gap:** the recommended presets load and
-the rule still fires correctly for every operation/fragment/variable
-casing case it ever did. Schema-side casing isn't enforced today, but
-that matches the alpha-era behavior — users hitting upstream's
-recommended preset don't get a worse experience than before, just one
-that doesn't yet *upgrade*.
+1. **`forbiddenPatterns` shape.** Upstream's schema requires each
+   pattern to be an object (`{ value, ... }`). Our deserializer takes
+   a `Vec<String>` (regex patterns directly). The Rust enforcement
+   works on string regexes; but a config copy-pasted from upstream's
+   schema-recommended preset (where `forbiddenPatterns` is a string
+   array of regexes) parses identically. The object-form schema
+   reconciliation is a serde shape change; behavior is the same.
+2. **`requiredPattern` named-capture-group enforcement.** Upstream
+   verifies that each named group's match obeys the case style. We
+   only do simple `.is_match` testing today.
+3. **ESLint selector parsing**
+   (`"FieldDefinition[parent.name.value=Query]"`,
+   `"EnumTypeDefinition,EnumTypeExtension"`). The catch-all
+   `selector_overrides` accepts these so configs don't reject; they're
+   not enforced yet. Implementing them needs a small esquery-style
+   parser. Realistic scope: support the comma-list form (cheap) and
+   the `[parent.name.value=...]` predicate (medium); skip the rest.
 
 ---
 
@@ -193,33 +188,34 @@ true` with `suggest:` arrays (`no-anonymous-operations`, `no-deprecated`,
 
 ### 4c. `alphabetize` is missing the schema-side options upstream's `flat/schema-all` uses
 
-**Status:** PARTIAL.
+**Status:** MOSTLY CLOSED.
 
-**What's done:** `AlphabetizeOptions` now accepts the full upstream options
-shape — `definitions`, `fields`, `values`, `groups`, and the array form of
-`arguments` (`["FieldDefinition", "Field", ...]`). The lenient
-`BoolOrKindList` deserializer ensures upstream's preset configs round-trip
-without serde rejecting them. The `arguments` array form is treated as
-"on" (no per-kind filtering yet); the new `definitions`/`fields`/`values`/`groups`
-options are accepted but unused.
+**What's done:**
 
-**What remains:** real per-kind sorting for the new options. Specifically:
+- `StandaloneSchemaLintRule` impl walking all top-level definitions plus
+  fields inside object/interface/input types and values inside enums.
+- `definitions: true` sorts top-level type/operation/fragment names.
+- `fields: BoolOrKindList` sorts fields in the listed type kinds
+  (`ObjectTypeDefinition`, `InterfaceTypeDefinition`,
+  `InputObjectTypeDefinition`, plus their `*Extension` siblings).
+- `values: true` sorts enum value declarations.
+- Diagnostic message format and positions match upstream byte-for-byte.
+  Parity test exercises all three modes.
 
-- `definitions: true` — sort top-level definitions in a document.
-- `fields: [...]` — sort field declarations in the given type kinds
-  (`ObjectTypeDefinition`, `InterfaceTypeDefinition`, etc.).
-- `values: true` — sort enum values.
-- `arguments: [...]` — narrow to args in the listed AST contexts (only
-  required if a user wants `Field`-only or `Directive`-only sorting).
-- `groups: [...]` — explicit ordering groups; `*` is the catch-all.
-- Update the `alphabetize` parity fixture to exercise the schema-side
-  shape from `flat/schema-all`.
+**What remains:**
 
-**Why partial is OK as a stop-gap:** the recommended preset that ships
-the array form (`flat/schema-all`) loads cleanly today and the rule still
-fires on the cases it does cover. Users hit "rule does what I expect" for
-the simple operations cases; advanced schema sorting just isn't enforced
-until the rest lands.
+1. **Schema-side fix-payload emission.** Operations-side `alphabetize`
+   already emits the swap-fix that upstream emits; the schema-side impl
+   reports diagnostics but no `fix`. The parity test sets
+   `skipFix: true` for this fixture so the diff still passes. Adding
+   the schema-side fix is a follow-up — same shape as the existing
+   selection-set swap fix.
+2. **`groups: ["id", "*", "createdAt"]`** explicit ordering — accepted
+   by serde but not enforced. Replaces alphabetical sort with a custom
+   group order; needs a small comparator. Realistic scope: 30-50 lines.
+3. **`arguments: ["Field", "Directive", ...]`** per-context narrowing
+   on the schema side — currently treated as "on for all contexts".
+   Easy to add once the basic argument sort exists schema-side.
 
 ### 5. `selection-set-depth`'s `ignore` option is recognized but a no-op
 

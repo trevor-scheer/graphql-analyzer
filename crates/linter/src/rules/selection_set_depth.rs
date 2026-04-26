@@ -159,7 +159,10 @@ fn check_depth(
                 // and we don't recurse into it. Useful for connection-
                 // wrapper fields (`edges`, `node`) that pad depth without
                 // adding query complexity.
-                if field_name.as_deref().is_some_and(|n| ignore.iter().any(|i| i == n)) {
+                if field_name
+                    .as_deref()
+                    .is_some_and(|n| ignore.iter().any(|i| i == n))
+                {
                     continue;
                 }
                 if field_depth > max_depth {
@@ -335,15 +338,21 @@ mod tests {
             DocumentKind::Executable,
         );
         let project_files = create_test_project_files(&db);
-        rule.check(&db, file_id, content, metadata, project_files, Some(&options))
+        rule.check(
+            &db,
+            file_id,
+            content,
+            metadata,
+            project_files,
+            Some(&options),
+        )
     }
 
     #[test]
     fn test_ignore_skips_field_subtree() {
         // `b` is ignored, so its subtree doesn't contribute to depth at all.
         let opts = serde_json::json!({ "maxDepth": 1, "ignore": ["b"] });
-        let diagnostics =
-            check_with_options("query Q { a { b { c { d } } } }", opts);
+        let diagnostics = check_with_options("query Q { a { b { c { d } } } }", opts);
         assert!(
             diagnostics.is_empty(),
             "ignored field's subtree should not trip the depth check, got: {diagnostics:?}",
@@ -354,10 +363,7 @@ mod tests {
     fn test_ignore_does_not_affect_unrelated_fields() {
         // `b` is ignored but `e` is not — `e`'s subtree still counts.
         let opts = serde_json::json!({ "maxDepth": 1, "ignore": ["b"] });
-        let diagnostics = check_with_options(
-            "query Q { e { f { g } } a { b { c { d } } } }",
-            opts,
-        );
+        let diagnostics = check_with_options("query Q { e { f { g } } a { b { c { d } } } }", opts);
         // `e` (depth 1) → recurse into `f` (depth 2) → exceeds maxDepth=1.
         assert_eq!(diagnostics.len(), 1);
     }

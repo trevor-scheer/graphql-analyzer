@@ -1,8 +1,9 @@
 use crate::diagnostics::{CodeFix, LintDiagnostic, LintSeverity, TextEdit};
-use crate::traits::{LintRule, StandaloneDocumentLintRule};
+use crate::traits::{LintRule, StandaloneDocumentLintRule, StandaloneSchemaLintRule};
 use apollo_parser::cst::{self, CstNode};
 use graphql_base_db::{FileContent, FileId, FileMetadata, ProjectFiles};
 use serde::Deserialize;
+use std::collections::HashMap;
 
 /// Selection-set owners that `alphabetize.selections` may restrict to. Mirrors
 /// graphql-eslint's `selectionsEnum` (`OperationDefinition`, `FragmentDefinition`).
@@ -65,6 +66,15 @@ impl BoolOrKindList {
             Self::Kinds(list) => !list.is_empty(),
         }
     }
+
+    /// True when the option is enabled and the given AST kind name is included.
+    /// `Bool(true)` matches every kind; `Kinds([...])` matches only listed kinds.
+    fn includes_kind(&self, kind: &str) -> bool {
+        match self {
+            Self::Bool(b) => *b,
+            Self::Kinds(list) => list.iter().any(|k| k == kind),
+        }
+    }
 }
 
 /// Options for the `alphabetize` rule
@@ -82,25 +92,25 @@ pub struct AlphabetizeOptions {
     pub arguments: BoolOrKindList,
     /// Check variable definitions for alphabetical order
     pub variables: bool,
-    /// Check top-level definitions for alphabetical order. Accepted for
-    /// drop-in compatibility with upstream's `flat/schema-all` /
-    /// `flat/operations-all`; full implementation is PARITY_TODO item 4c.
+    /// Check top-level definitions for alphabetical order across the whole
+    /// document (matches graphql-eslint's `definitions` listener on
+    /// `Document.definitions`). Schema-side only.
     #[serde(default)]
-    #[allow(dead_code)]
     pub definitions: bool,
-    /// Check field declarations in the listed type kinds. Accepted for
-    /// drop-in compatibility; full per-kind sorting is PARITY_TODO item 4c.
+    /// Check field declarations in the listed type kinds. `Bool(true)`
+    /// enables all of `ObjectTypeDefinition`, `InterfaceTypeDefinition`,
+    /// `InputObjectTypeDefinition`; the array form narrows to the listed
+    /// kinds (and their corresponding `*Extension` kinds, mirroring
+    /// graphql-eslint).
     #[serde(default)]
-    #[allow(dead_code)]
     pub fields: BoolOrKindList,
-    /// Check enum value declarations for alphabetical order. Accepted for
-    /// drop-in compatibility; full implementation is PARITY_TODO item 4c.
+    /// Check enum value declarations for alphabetical order. Fires on
+    /// `EnumTypeDefinition` and `EnumTypeExtension`.
     #[serde(default)]
-    #[allow(dead_code)]
     pub values: bool,
     /// Explicit ordering groups (e.g. `["id", "*", "createdAt"]`). Accepted
     /// for drop-in compatibility; the alphabetical default applies until
-    /// PARITY_TODO item 4c lands.
+    /// the explicit-ordering feature lands.
     #[serde(default)]
     #[allow(dead_code)]
     pub groups: Vec<String>,
@@ -193,6 +203,294 @@ impl StandaloneDocumentLintRule for AlphabetizeRuleImpl {
 
         diagnostics
     }
+}
+
+impl StandaloneSchemaLintRule for AlphabetizeRuleImpl {
+    fn check(
+        &self,
+        db: &dyn graphql_hir::GraphQLHirDatabase,
+        project_files: ProjectFiles,
+        options: Option<&serde_json::Value>,
+    ) -> HashMap<FileId, Vec<LintDiagnostic>> {
+        let opts = AlphabetizeOptions::from_json(options);
+        let mut diagnostics_by_file: HashMap<FileId, Vec<LintDiagnostic>> = HashMap::new();
+
+        if !opts.definitions && !opts.fields.enabled() && !opts.values {
+            return diagnostics_by_file;
+        }
+
+        let schema_ids = project_files.schema_file_ids(db).ids(db);
+        for file_id in schema_ids.iter() {
+            let Some((content, metadata)) =
+                graphql_base_db::file_lookup(db, project_files, *file_id)
+            else {
+                continue;
+            };
+
+            let parse = graphql_syntax::parse(db, content, metadata);
+            if parse.has_errors() {
+                continue;
+            }
+
+            for doc in parse.documents() {
+                let mut local_diagnostics: Vec<LintDiagnostic> = Vec::new();
+                check_schema_document(&doc, &opts, &mut local_diagnostics);
+                if !local_diagnostics.is_empty() {
+                    diagnostics_by_file
+                        .entry(*file_id)
+                        .or_default()
+                        .extend(local_diagnostics);
+                }
+            }
+        }
+
+        diagnostics_by_file
+    }
+}
+
+/// Returns `(kind_label, name_node)` for each top-level definition that has
+/// a name. `Some` means it's orderable; `None` (e.g. anonymous schema
+/// definition) is skipped for ordering purposes.
+fn definition_label_and_name(definition: &cst::Definition) -> Option<(&'static str, cst::Name)> {
+    match definition {
+        cst::Definition::ObjectTypeDefinition(d) => Some(("type", d.name()?)),
+        cst::Definition::ObjectTypeExtension(d) => Some(("type", d.name()?)),
+        cst::Definition::InterfaceTypeDefinition(d) => Some(("interface", d.name()?)),
+        cst::Definition::InterfaceTypeExtension(d) => Some(("interface", d.name()?)),
+        cst::Definition::UnionTypeDefinition(d) => Some(("union", d.name()?)),
+        cst::Definition::UnionTypeExtension(d) => Some(("union", d.name()?)),
+        cst::Definition::EnumTypeDefinition(d) => Some(("enum", d.name()?)),
+        cst::Definition::EnumTypeExtension(d) => Some(("enum", d.name()?)),
+        cst::Definition::ScalarTypeDefinition(d) => Some(("scalar", d.name()?)),
+        cst::Definition::ScalarTypeExtension(d) => Some(("scalar", d.name()?)),
+        cst::Definition::InputObjectTypeDefinition(d) => Some(("input", d.name()?)),
+        cst::Definition::InputObjectTypeExtension(d) => Some(("input", d.name()?)),
+        cst::Definition::DirectiveDefinition(d) => Some(("directive", d.name()?)),
+        cst::Definition::OperationDefinition(d) => {
+            // OperationDefinitions can appear in mixed schemas; an anonymous
+            // operation has no name to order by.
+            Some(("operation", d.name()?))
+        }
+        cst::Definition::FragmentDefinition(d) => Some(("fragment", d.fragment_name()?.name()?)),
+        cst::Definition::SchemaDefinition(_) | cst::Definition::SchemaExtension(_) => None,
+    }
+}
+
+fn check_schema_document(
+    doc: &graphql_syntax::DocumentRef<'_>,
+    opts: &AlphabetizeOptions,
+    diagnostics: &mut Vec<LintDiagnostic>,
+) {
+    let doc_cst = doc.tree.document();
+
+    // 1. Top-level definition ordering.
+    if opts.definitions {
+        let mut prev: Option<(String, &'static str)> = None;
+        for definition in doc_cst.definitions() {
+            let Some((kind_label, name_node)) = definition_label_and_name(&definition) else {
+                continue;
+            };
+            let curr_name = name_node.text().to_string();
+            if let Some((ref prev_name, prev_kind)) = prev {
+                if curr_name.to_lowercase() < prev_name.to_lowercase() {
+                    push_alphabetize_diagnostic(
+                        doc,
+                        diagnostics,
+                        &name_node,
+                        kind_label,
+                        &curr_name,
+                        prev_kind,
+                        prev_name,
+                    );
+                }
+            }
+            prev = Some((curr_name, kind_label));
+        }
+    }
+
+    // 2. Per-kind field / enum-value ordering inside each definition.
+    for definition in doc_cst.definitions() {
+        match definition {
+            cst::Definition::ObjectTypeDefinition(d) => {
+                if opts.fields.includes_kind("ObjectTypeDefinition") {
+                    if let Some(fd) = d.fields_definition() {
+                        check_field_definition_order(&fd, doc, diagnostics);
+                    }
+                }
+            }
+            cst::Definition::ObjectTypeExtension(d) => {
+                if opts.fields.includes_kind("ObjectTypeDefinition") {
+                    if let Some(fd) = d.fields_definition() {
+                        check_field_definition_order(&fd, doc, diagnostics);
+                    }
+                }
+            }
+            cst::Definition::InterfaceTypeDefinition(d) => {
+                if opts.fields.includes_kind("InterfaceTypeDefinition") {
+                    if let Some(fd) = d.fields_definition() {
+                        check_field_definition_order(&fd, doc, diagnostics);
+                    }
+                }
+            }
+            cst::Definition::InterfaceTypeExtension(d) => {
+                if opts.fields.includes_kind("InterfaceTypeDefinition") {
+                    if let Some(fd) = d.fields_definition() {
+                        check_field_definition_order(&fd, doc, diagnostics);
+                    }
+                }
+            }
+            cst::Definition::InputObjectTypeDefinition(d) => {
+                if opts.fields.includes_kind("InputObjectTypeDefinition") {
+                    if let Some(fd) = d.input_fields_definition() {
+                        check_input_value_definition_order(
+                            fd.input_value_definitions(),
+                            "input value",
+                            doc,
+                            diagnostics,
+                        );
+                    }
+                }
+            }
+            cst::Definition::InputObjectTypeExtension(d) => {
+                if opts.fields.includes_kind("InputObjectTypeDefinition") {
+                    if let Some(fd) = d.input_fields_definition() {
+                        check_input_value_definition_order(
+                            fd.input_value_definitions(),
+                            "input value",
+                            doc,
+                            diagnostics,
+                        );
+                    }
+                }
+            }
+            cst::Definition::EnumTypeDefinition(d) => {
+                if opts.values {
+                    if let Some(values) = d.enum_values_definition() {
+                        check_enum_value_order(&values, doc, diagnostics);
+                    }
+                }
+            }
+            cst::Definition::EnumTypeExtension(d) => {
+                if opts.values {
+                    if let Some(values) = d.enum_values_definition() {
+                        check_enum_value_order(&values, doc, diagnostics);
+                    }
+                }
+            }
+            _ => {}
+        }
+    }
+}
+
+fn check_field_definition_order(
+    fields: &cst::FieldsDefinition,
+    doc: &graphql_syntax::DocumentRef<'_>,
+    diagnostics: &mut Vec<LintDiagnostic>,
+) {
+    let mut prev: Option<String> = None;
+    for field in fields.field_definitions() {
+        let Some(name_node) = field.name() else {
+            continue;
+        };
+        let name = name_node.text().to_string();
+        if let Some(ref prev_name) = prev {
+            if name.to_lowercase() < prev_name.to_lowercase() {
+                push_alphabetize_diagnostic(
+                    doc,
+                    diagnostics,
+                    &name_node,
+                    "field",
+                    &name,
+                    "field",
+                    prev_name,
+                );
+            }
+        }
+        prev = Some(name);
+    }
+}
+
+fn check_input_value_definition_order(
+    values: cst::CstChildren<cst::InputValueDefinition>,
+    label: &'static str,
+    doc: &graphql_syntax::DocumentRef<'_>,
+    diagnostics: &mut Vec<LintDiagnostic>,
+) {
+    let mut prev: Option<String> = None;
+    for value in values {
+        let Some(name_node) = value.name() else {
+            continue;
+        };
+        let name = name_node.text().to_string();
+        if let Some(ref prev_name) = prev {
+            if name.to_lowercase() < prev_name.to_lowercase() {
+                push_alphabetize_diagnostic(
+                    doc,
+                    diagnostics,
+                    &name_node,
+                    label,
+                    &name,
+                    label,
+                    prev_name,
+                );
+            }
+        }
+        prev = Some(name);
+    }
+}
+
+fn check_enum_value_order(
+    values: &cst::EnumValuesDefinition,
+    doc: &graphql_syntax::DocumentRef<'_>,
+    diagnostics: &mut Vec<LintDiagnostic>,
+) {
+    let mut prev: Option<String> = None;
+    for value in values.enum_value_definitions() {
+        let Some(enum_value) = value.enum_value() else {
+            continue;
+        };
+        let Some(name_node) = enum_value.name() else {
+            continue;
+        };
+        let name = name_node.text().to_string();
+        if let Some(ref prev_name) = prev {
+            if name.to_lowercase() < prev_name.to_lowercase() {
+                push_alphabetize_diagnostic(
+                    doc,
+                    diagnostics,
+                    &name_node,
+                    "enum value",
+                    &name,
+                    "enum value",
+                    prev_name,
+                );
+            }
+        }
+        prev = Some(name);
+    }
+}
+
+fn push_alphabetize_diagnostic(
+    doc: &graphql_syntax::DocumentRef<'_>,
+    diagnostics: &mut Vec<LintDiagnostic>,
+    name_node: &cst::Name,
+    curr_kind: &str,
+    curr_name: &str,
+    prev_kind: &str,
+    prev_name: &str,
+) {
+    let start: usize = name_node.syntax().text_range().start().into();
+    let end: usize = name_node.syntax().text_range().end().into();
+    diagnostics.push(
+        LintDiagnostic::new(
+            doc.span(start, end),
+            LintSeverity::Warning,
+            format!("{curr_kind} \"{curr_name}\" should be before {prev_kind} \"{prev_name}\""),
+            "alphabetize",
+        )
+        .with_message_id("alphabetize")
+        .with_help("Reorder alphabetically by name"),
+    );
 }
 
 #[derive(Debug, Clone, Copy)]
@@ -443,7 +741,15 @@ mod tests {
             DocumentKind::Executable,
         );
         let project_files = create_test_project_files(&db);
-        rule.check(&db, file_id, content, metadata, project_files, None)
+        StandaloneDocumentLintRule::check(
+            &rule,
+            &db,
+            file_id,
+            content,
+            metadata,
+            project_files,
+            None,
+        )
     }
 
     #[test]
@@ -505,7 +811,8 @@ mod tests {
             DocumentKind::Executable,
         );
         let project_files = create_test_project_files(&db);
-        rule.check(
+        StandaloneDocumentLintRule::check(
+            &rule,
             &db,
             file_id,
             content,
@@ -551,5 +858,176 @@ mod tests {
         let opts = serde_json::json!({ "selections": false });
         let diagnostics = check_with_options("query Q { user { name age } }", &opts);
         assert!(diagnostics.is_empty());
+    }
+
+    // ----- Schema-side tests -----
+
+    fn create_schema_project(db: &RootDatabase, schema: &str) -> ProjectFiles {
+        let file_id = FileId::new(0);
+        let content = FileContent::new(db, Arc::from(schema));
+        let metadata = FileMetadata::new(
+            db,
+            file_id,
+            FileUri::new("file:///schema.graphql"),
+            Language::GraphQL,
+            DocumentKind::Schema,
+        );
+        let entry = graphql_base_db::FileEntry::new(db, content, metadata);
+        let mut entries = std::collections::HashMap::new();
+        entries.insert(file_id, entry);
+        let schema_file_ids = graphql_base_db::SchemaFileIds::new(db, Arc::new(vec![file_id]));
+        let document_file_ids = graphql_base_db::DocumentFileIds::new(db, Arc::new(vec![]));
+        let file_entry_map = graphql_base_db::FileEntryMap::new(db, Arc::new(entries));
+        ProjectFiles::new(
+            db,
+            schema_file_ids,
+            document_file_ids,
+            graphql_base_db::ResolvedSchemaFileIds::new(db, std::sync::Arc::new(vec![])),
+            file_entry_map,
+            graphql_base_db::FilePathMap::new(
+                db,
+                Arc::new(std::collections::HashMap::new()),
+                Arc::new(std::collections::HashMap::new()),
+            ),
+        )
+    }
+
+    fn check_schema(schema: &str, options: &serde_json::Value) -> Vec<LintDiagnostic> {
+        let db = RootDatabase::default();
+        let rule = AlphabetizeRuleImpl;
+        let project_files = create_schema_project(&db, schema);
+        StandaloneSchemaLintRule::check(&rule, &db, project_files, Some(options))
+            .into_values()
+            .flatten()
+            .collect()
+    }
+
+    #[test]
+    fn test_definitions_unordered_fires() {
+        let opts = serde_json::json!({ "definitions": true });
+        let schema = "type Zebra { id: ID! }\ntype Apple { id: ID! }\n";
+        let diagnostics = check_schema(schema, &opts);
+        assert_eq!(
+            diagnostics.len(),
+            1,
+            "expected one definition-order diagnostic"
+        );
+        assert_eq!(
+            diagnostics[0].message,
+            "type \"Apple\" should be before type \"Zebra\""
+        );
+    }
+
+    #[test]
+    fn test_definitions_ordered_clean() {
+        let opts = serde_json::json!({ "definitions": true });
+        let schema = "type Apple { id: ID! }\ntype Zebra { id: ID! }\n";
+        let diagnostics = check_schema(schema, &opts);
+        assert!(
+            diagnostics.is_empty(),
+            "expected no diagnostics, got {diagnostics:?}"
+        );
+    }
+
+    #[test]
+    fn test_definitions_off_does_not_fire() {
+        let opts = serde_json::json!({ "values": true });
+        let schema = "type Zebra { id: ID! }\ntype Apple { id: ID! }\n";
+        let diagnostics = check_schema(schema, &opts);
+        // No `definitions` flag, so out-of-order types are fine.
+        assert!(diagnostics.is_empty());
+    }
+
+    #[test]
+    fn test_fields_in_object_type_unordered_fires() {
+        let opts = serde_json::json!({ "fields": ["ObjectTypeDefinition"] });
+        // `name age id`: only the (name, age) pair is misordered (id > age, so
+        // no diagnostic on the second pair). Mirrors graphql-eslint's
+        // consecutive-pair scan.
+        let schema = "type User { name: String age: Int id: ID! }\n";
+        let diagnostics = check_schema(schema, &opts);
+        assert_eq!(diagnostics.len(), 1, "got: {diagnostics:?}");
+        assert_eq!(
+            diagnostics[0].message,
+            "field \"age\" should be before field \"name\""
+        );
+    }
+
+    #[test]
+    fn test_fields_in_input_object_unordered_fires() {
+        let opts = serde_json::json!({ "fields": ["InputObjectTypeDefinition"] });
+        let schema = "input UserFilter { name: String age: Int }\n";
+        let diagnostics = check_schema(schema, &opts);
+        assert_eq!(diagnostics.len(), 1);
+        assert_eq!(
+            diagnostics[0].message,
+            "input value \"age\" should be before input value \"name\""
+        );
+    }
+
+    #[test]
+    fn test_values_in_enum_unordered_fires() {
+        let opts = serde_json::json!({ "values": true });
+        let schema = "enum Role { SUPER_ADMIN ADMIN USER GOD }\n";
+        let diagnostics = check_schema(schema, &opts);
+        assert_eq!(diagnostics.len(), 2, "got: {diagnostics:?}");
+        assert_eq!(
+            diagnostics[0].message,
+            "enum value \"ADMIN\" should be before enum value \"SUPER_ADMIN\""
+        );
+        assert_eq!(
+            diagnostics[1].message,
+            "enum value \"GOD\" should be before enum value \"USER\""
+        );
+    }
+
+    #[test]
+    fn test_values_off_does_not_fire() {
+        let opts = serde_json::json!({ "definitions": true });
+        let schema = "enum Role { Z A }\n";
+        let diagnostics = check_schema(schema, &opts);
+        assert!(diagnostics.is_empty());
+    }
+
+    #[test]
+    fn test_fields_only_for_interface_when_object_excluded() {
+        // `fields` array form narrows to InterfaceTypeDefinition only — the
+        // object type's misordered fields must NOT be flagged.
+        let opts = serde_json::json!({ "fields": ["InterfaceTypeDefinition"] });
+        let schema =
+            "type User { name: String age: Int }\ninterface Node { name: String age: Int }\n";
+        let diagnostics = check_schema(schema, &opts);
+        assert_eq!(diagnostics.len(), 1, "got: {diagnostics:?}");
+        assert_eq!(
+            diagnostics[0].message,
+            "field \"age\" should be before field \"name\""
+        );
+        // The diagnostic must point at the interface's `age`, not the object's.
+        // The interface appears second in the source, so its `age` byte-position
+        // is > the object's `age`.
+        let object_age = schema.find("type User { name: String age").unwrap()
+            + "type User { name: String ".len();
+        assert!(
+            diagnostics[0].span.start > object_age,
+            "diagnostic should point at the interface's `age`, not the object's"
+        );
+    }
+
+    #[test]
+    fn test_fields_bool_true_covers_all_kinds() {
+        let opts = serde_json::json!({ "fields": true });
+        let schema =
+            "type User { name: String age: Int }\ninput Filter { name: String age: Int }\n";
+        let diagnostics = check_schema(schema, &opts);
+        assert_eq!(diagnostics.len(), 2, "got: {diagnostics:?}");
+    }
+
+    #[test]
+    fn test_schema_message_id_is_alphabetize() {
+        let opts = serde_json::json!({ "values": true });
+        let schema = "enum Role { B A }\n";
+        let diagnostics = check_schema(schema, &opts);
+        assert_eq!(diagnostics.len(), 1);
+        assert_eq!(diagnostics[0].message_id.as_deref(), Some("alphabetize"));
     }
 }

@@ -1369,6 +1369,7 @@ dependencies = [
  "graphql-ide-db",
  "graphql-syntax",
  "insta",
+ "regex",
  "serde",
  "serde-saphyr",
  "serde_json",
