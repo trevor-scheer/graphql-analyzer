@@ -244,12 +244,65 @@ jobs:
       - name: Simulate knope's release-prep
         run: node scripts/check-release-prep.mjs
 
+  web:
+    name: Web Playground
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
+
+      - name: Install Rust
+        run: |
+          rustup show
+          rustup target add wasm32-unknown-unknown
+
+      - name: Rust cache
+        uses: Swatinem/rust-cache@e18b497796c12c097a38f9edb9d0641fb99eee32 # v2
+        with:
+          shared-key: "ci-web"
+
+      - name: Install wasm-pack
+        uses: taiki-e/install-action@1222bc9d54bca5582f30a2aac6829eeb5fccf68b # v2
+        with:
+          tool: wasm-pack
+
+      - name: Check wasm-feature build of graphql-lsp
+        run: cargo check -p graphql-lsp --no-default-features --features wasm
+
+      - name: Check graphql-lsp-wasm for wasm32-unknown-unknown
+        run: cargo check -p graphql-lsp-wasm --target wasm32-unknown-unknown
+
+      - name: Setup Node.js
+        uses: actions/setup-node@53b83947a5a98c8d113130e565377fae1a50d02f # v6
+        with:
+          node-version: "24"
+          cache: "npm"
+
+      - name: Install workspace deps
+        run: npm ci
+
+      - name: Build wasm bundle (release)
+        run: wasm-pack build crates/lsp-wasm --target web --out-dir packages/web-ide/src/wasm --release
+
+      - name: TypeScript check
+        working-directory: packages/web-ide
+        run: npx tsc --noEmit
+
+      - name: Build playground (Vite)
+        run: npm --workspace=packages/web-ide run build
+
+      - name: Install Playwright browsers
+        working-directory: packages/web-ide
+        run: npx playwright install --with-deps chromium
+
+      - name: Run e2e tests
+        run: npm --workspace=packages/web-ide run test:e2e
+
   ci-success:
     name: CI Success
     runs-on: ubuntu-latest
     if: always()
     needs:
-      [test, lint, build, check, dogfood, vscode-extension, eslint-plugin, format, release-prep]
+      [test, lint, build, check, dogfood, vscode-extension, eslint-plugin, format, release-prep, web]
     steps:
       - name: Check all jobs
         run: |
