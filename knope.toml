@@ -23,15 +23,17 @@ assets = "artifacts/graphql-cli-*"
 # LSP + VS Code extension ship as one user-facing unit (the extension bundles
 # the LSP binary) — version bumps apply to both. The `vscode` package name is
 # retired; target `graphql-analyzer-lsp` in changesets for either side.
+#
+# Knope's `assets` field accepts EITHER a single glob string OR a list of
+# literal paths (`[[packages.X.assets]] path = ...` does NOT glob-expand). The
+# string form takes one pattern, and the underlying `glob` crate has no brace
+# expansion, so we can't combine `graphql-lsp-*` and `*.vsix` directly. The
+# `release` workflow below moves both groups into `artifacts/lsp/` first so a
+# single glob can attach them.
 [packages.graphql-analyzer-lsp]
 versioned_files = ["crates/lsp/Cargo.toml", "editors/vscode/package.json"]
 changelog = "crates/lsp/CHANGELOG.md"
-
-[[packages.graphql-analyzer-lsp.assets]]
-path = "artifacts/graphql-lsp-*"
-
-[[packages.graphql-analyzer-lsp.assets]]
-path = "artifacts/*.vsix"
+assets = "artifacts/lsp/*"
 
 [packages.graphql-analyzer-mcp]
 versioned_files = ["crates/mcp/Cargo.toml"]
@@ -151,6 +153,14 @@ When merged, this will trigger the release workflow to:
 # Execute the release - creates GitHub releases with changelogs and uploads assets
 [[workflows]]
 name = "release"
+
+# Consolidate the LSP package's two asset groups (`graphql-lsp-*` archives +
+# `*.vsix` extensions) into a single directory so one glob can attach both.
+# See the `graphql-analyzer-lsp` package above for the rationale.
+[[workflows.steps]]
+type = "Command"
+shell = true
+command = "mkdir -p artifacts/lsp && mv artifacts/graphql-lsp-*.tar.xz artifacts/graphql-lsp-*.zip artifacts/*.vsix artifacts/lsp/"
 
 [[workflows.steps]]
 type = "Release"
