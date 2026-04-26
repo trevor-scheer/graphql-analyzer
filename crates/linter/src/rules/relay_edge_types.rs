@@ -134,7 +134,8 @@ impl StandaloneSchemaLintRule for RelayEdgeTypesRuleImpl {
                                         start,
                                         end,
                                         "A list type should only wrap an edge type.".to_string(),
-                                    ),
+                                    )
+                                    .with_message_id("MESSAGE_LIST_TYPE_ONLY_EDGE_TYPE"),
                                 );
                             }
                         }
@@ -160,11 +161,14 @@ impl StandaloneSchemaLintRule for RelayEdgeTypesRuleImpl {
                 diagnostics_by_file
                     .entry(edge_def.file_id)
                     .or_default()
-                    .push(make_diagnostic(
-                        start,
-                        end,
-                        "Edge type must have \"Edge\" suffix.".to_string(),
-                    ));
+                    .push(
+                        make_diagnostic(
+                            start,
+                            end,
+                            "Edge type must have \"Edge\" suffix.".to_string(),
+                        )
+                        .with_message_id("MESSAGE_MISSING_EDGE_SUFFIX"),
+                    );
             }
 
             // Check for required `node` field
@@ -231,6 +235,7 @@ impl StandaloneSchemaLintRule for RelayEdgeTypesRuleImpl {
                                          interface."
                                             .to_string(),
                                     )
+                                    .with_message_id("MESSAGE_SHOULD_IMPLEMENTS_NODE")
                                     .with_help(format!(
                                         "Add 'implements Node' to the '{node_type_name}' type definition",
                                     )),

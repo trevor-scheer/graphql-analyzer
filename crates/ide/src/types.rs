@@ -273,6 +273,10 @@ pub struct Diagnostic {
     pub severity: DiagnosticSeverity,
     pub message: String,
     pub code: Option<String>,
+    /// Optional ESLint-compatible messageId. Forwarded to `LintMessage.messageId`
+    /// by the ESLint shim so drop-in users get the same per-diagnostic-site id
+    /// graphql-eslint emits.
+    pub message_id: Option<String>,
     pub source: String,
     /// Optional auto-fix for this diagnostic
     pub fix: Option<CodeFix>,
@@ -296,6 +300,7 @@ impl Diagnostic {
             severity,
             message: message.into(),
             code: None,
+            message_id: None,
             source: source.into(),
             fix: None,
             help: None,
@@ -307,6 +312,12 @@ impl Diagnostic {
     #[must_use]
     pub fn with_code(mut self, code: impl Into<String>) -> Self {
         self.code = Some(code.into());
+        self
+    }
+
+    #[must_use]
+    pub fn with_message_id(mut self, id: impl Into<String>) -> Self {
+        self.message_id = Some(id.into());
         self
     }
 

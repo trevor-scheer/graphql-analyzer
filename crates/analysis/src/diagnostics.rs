@@ -11,6 +11,22 @@ pub enum DiagnosticTag {
     Deprecated,
 }
 
+/// A text edit (line/column based) for an autofix.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct TextEdit {
+    pub range: DiagnosticRange,
+    pub new_text: String,
+}
+
+/// An autofix attached to a diagnostic — the line/column-based equivalent of
+/// `graphql_linter::CodeFix`. Carrying it on `Diagnostic` lets downstream
+/// consumers (LSP code actions, ESLint shim) surface fixes uniformly.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct CodeFix {
+    pub label: String,
+    pub edits: Vec<TextEdit>,
+}
+
 /// A diagnostic message (error, warning, or info)
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Diagnostic {
@@ -24,6 +40,12 @@ pub struct Diagnostic {
     pub source: Arc<str>,
     /// Optional diagnostic code
     pub code: Option<Arc<str>>,
+    /// Optional ESLint-compatible messageId. Forwarded to `LintMessage.messageId`
+    /// by the ESLint shim so drop-in users get the same per-diagnostic-site id
+    /// graphql-eslint emits.
+    pub message_id: Option<Arc<str>>,
+    /// Optional autofix carried alongside the diagnostic.
+    pub fix: Option<CodeFix>,
     /// Optional help text explaining how to resolve the issue
     pub help: Option<Arc<str>>,
     /// Optional documentation URL for the rule
@@ -42,6 +64,8 @@ impl Diagnostic {
             range,
             source: "graphql-analysis".into(),
             code: None,
+            message_id: None,
+            fix: None,
             help: None,
             url: None,
             tags: Vec::new(),
@@ -57,6 +81,8 @@ impl Diagnostic {
             range,
             source: "graphql-analysis".into(),
             code: None,
+            message_id: None,
+            fix: None,
             help: None,
             url: None,
             tags: Vec::new(),
@@ -72,6 +98,8 @@ impl Diagnostic {
             range,
             source: "graphql-analysis".into(),
             code: None,
+            message_id: None,
+            fix: None,
             help: None,
             url: None,
             tags: Vec::new(),
@@ -93,6 +121,8 @@ impl Diagnostic {
             range,
             source: source.into(),
             code: Some(code.into()),
+            message_id: None,
+            fix: None,
             help: None,
             url: None,
             tags: Vec::new(),

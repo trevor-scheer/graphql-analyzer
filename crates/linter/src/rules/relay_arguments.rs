@@ -158,12 +158,15 @@ impl StandaloneSchemaLintRule for RelayArgumentsRuleImpl {
                     diagnostics_by_file
                         .entry(field.file_id)
                         .or_default()
-                        .push(LintDiagnostic::new(
-                            field_span,
-                            LintSeverity::Warning,
-                            "A field that returns a Connection type must include forward pagination arguments (`first` and `after`), backward pagination arguments (`last` and `before`), or both.".to_string(),
-                            "relayArguments",
-                        ));
+                        .push(
+                            LintDiagnostic::new(
+                                field_span,
+                                LintSeverity::Warning,
+                                "A field that returns a Connection type must include forward pagination arguments (`first` and `after`), backward pagination arguments (`last` and `before`), or both.".to_string(),
+                                "relayArguments",
+                            )
+                            .with_message_id("MISSING_ARGUMENTS"),
+                        );
                     continue;
                 }
 

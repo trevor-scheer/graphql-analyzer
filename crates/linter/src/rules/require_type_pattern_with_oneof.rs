@@ -68,15 +68,18 @@ impl StandaloneSchemaLintRule for RequireTypePatternWithOneofRuleImpl {
                 diagnostics_by_file
                     .entry(type_def.file_id)
                     .or_default()
-                    .push(LintDiagnostic::new(
-                        span,
-                        LintSeverity::Warning,
-                        format!(
-                            "type \"{}\" is defined as output with \"@oneOf\" and must be defined with \"{}\" field",
-                            type_def.name, field_name
-                        ),
-                        "requireTypePatternWithOneof",
-                    ));
+                    .push(
+                        LintDiagnostic::new(
+                            span,
+                            LintSeverity::Warning,
+                            format!(
+                                "type \"{}\" is defined as output with \"@oneOf\" and must be defined with \"{}\" field",
+                                type_def.name, field_name
+                            ),
+                            "requireTypePatternWithOneof",
+                        )
+                        .with_message_id("require-type-pattern-with-oneof"),
+                    );
             }
         }
 

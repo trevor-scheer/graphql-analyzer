@@ -149,9 +149,6 @@ Current intentional gaps:
 - **Validation rules** (from `graphql-js`'s `specifiedRules`: `known-type-names`,
   `fields-on-correct-type`, `no-undefined-variables`, etc.) aren't exposed as
   lint rules. They run as part of the analyzer's validation pass instead.
-- **Three rules carry pre-`no-` names:** `unused-fields`, `unused-fragments`,
-  and `unused-variables` — these will be renamed to `no-unused-*` for true
-  drop-in parity before the first stable release.
 
 See `packages/eslint-plugin/test/parity.test.mjs` for the full allowlist.
 

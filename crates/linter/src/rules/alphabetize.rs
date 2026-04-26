@@ -1,4 +1,4 @@
-use crate::diagnostics::{LintDiagnostic, LintSeverity};
+use crate::diagnostics::{CodeFix, LintDiagnostic, LintSeverity, TextEdit};
 use crate::traits::{LintRule, StandaloneDocumentLintRule};
 use apollo_parser::cst::{self, CstNode};
 use graphql_base_db::{FileContent, FileId, FileMetadata, ProjectFiles};
@@ -162,7 +162,9 @@ fn check_selection_set_order(
     diagnostics: &mut Vec<LintDiagnostic>,
 ) {
     if scan_selections {
-        let mut last: Option<(String, SelectionKind)> = None;
+        // Track the previous selection's full byte range too so we can emit a
+        // graphql-eslint-compatible swap fix.
+        let mut last: Option<(String, SelectionKind, (usize, usize))> = None;
 
         for selection in selection_set.selections() {
             let current = match &selection {
@@ -178,8 +180,18 @@ fn check_selection_set_order(
                 cst::Selection::InlineFragment(_) => None, // Inline fragments don't have a name to order by
             };
 
+            // Full byte range of the entire current selection — used both as
+            // the diagnostic anchor's containing range and as half of the
+            // swap fix.
+            let curr_full_range = {
+                let r = selection.syntax().text_range();
+                let s: usize = r.start().into();
+                let e: usize = r.end().into();
+                (s, e)
+            };
+
             if let Some((name, curr_kind)) = current {
-                if let Some((prev_name, prev_kind)) = &last {
+                if let Some((prev_name, prev_kind, prev_full_range)) = &last {
                     if name.to_lowercase() < prev_name.to_lowercase() {
                         let start_offset = match &selection {
                             cst::Selection::Field(f) => f
@@ -202,6 +214,11 @@ fn check_selection_set_order(
                         };
 
                         if let Some((start, end)) = start_offset {
+                            // Build the swap fix matching graphql-eslint:
+                            // replace [prev.start, curr.end] with
+                            // <curr_text><whitespace_between><prev_text>.
+                            let fix = swap_fix(doc.source, *prev_full_range, curr_full_range);
+
                             diagnostics.push(
                                 LintDiagnostic::new(
                                     doc.span(start, end),
@@ -213,6 +230,8 @@ fn check_selection_set_order(
                                     ),
                                     "alphabetize",
                                 )
+                                .with_message_id("alphabetize")
+                                .with_fix(fix)
                                 .with_help(
                                     "Reorder selections alphabetically by their response name",
                                 ),
@@ -220,7 +239,7 @@ fn check_selection_set_order(
                         }
                     }
                 }
-                last = Some((name, curr_kind));
+                last = Some((name, curr_kind, curr_full_range));
             }
         }
     }
@@ -248,6 +267,23 @@ fn check_selection_set_order(
     }
 }
 
+/// Build a graphql-eslint-style swap fix: replaces `[prev.start, curr.end]`
+/// with `<curr_text><between><prev_text>`. graphql-eslint emits two replace
+/// ops which ESLint coalesces into a single edit covering both ranges; we
+/// produce the equivalent collapsed edit directly so the napi shim can
+/// surface a single `fix` to ESLint.
+fn swap_fix(
+    source: &str,
+    prev: (usize, usize),
+    curr: (usize, usize),
+) -> CodeFix {
+    let prev_text = &source[prev.0..prev.1];
+    let curr_text = &source[curr.0..curr.1];
+    let between = &source[prev.1..curr.0];
+    let new_text = format!("{curr_text}{between}{prev_text}");
+    CodeFix::new("Reorder alphabetically", vec![TextEdit::new(prev.0, curr.1, new_text)])
+}
+
 fn check_argument_order(
     arguments: &cst::Arguments,
     doc: &graphql_syntax::DocumentRef<'_>,
@@ -269,6 +305,7 @@ fn check_argument_order(
                             format!("argument \"{name}\" should be before argument \"{prev}\""),
                             "alphabetize",
                         )
+                        .with_message_id("alphabetize")
                         .with_help("Reorder arguments alphabetically by name"),
                     );
                 }
@@ -300,6 +337,7 @@ fn check_variable_order(
                                 format!("variable \"{name}\" should be before variable \"{prev}\""),
                                 "alphabetize",
                             )
+                            .with_message_id("alphabetize")
                             .with_help("Reorder variable definitions alphabetically by name"),
                         );
                     }

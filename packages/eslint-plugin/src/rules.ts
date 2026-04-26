@@ -51,13 +51,53 @@ const OPTIONS_SCHEMA: Rule.RuleMetaData["schema"] = [
   { type: "object", additionalProperties: true },
 ];
 
+// graphql-eslint emits ESLint-style autofixes (`fix`) for some rules and
+// suggestion-only entries (`suggest`) for others; rules that wrap graphql-js
+// validators (e.g. `no-unused-*`) carry neither. Listing the analyzer rule
+// names that graphql-eslint surfaces a `fix` on lets us suppress our internal
+// autofix payload for the rest, keeping ESLint output 1:1 with graphql-eslint.
+// LSP/CLI consumers still see every fix via the diagnostic chain — only the
+// ESLint `LintMessage.fix` view is filtered.
+const ESLINT_FIXABLE_RULES = new Set(["alphabetize"]);
+
+// graphql-eslint emits a stable `messageId` per diagnostic site so consumers
+// can branch on `messageId` rather than parsing the human-readable message
+// string. Our Rust rules carry the same id on `JsDiagnostic.messageId`; to
+// surface it on ESLint's `LintMessage.messageId` we need ESLint to recognise
+// the id, which means it must be a key in `meta.messages`. We don't know the
+// id catalog until diagnostics are produced, so the strategy is:
+//   1. Cache observed messageIds per analyzer rule across files.
+//   2. Mutate `meta.messages` with a `{{ message }}` passthrough when a new id
+//      shows up, then fall back to dynamic registration on the next visit.
+// This is hacky but lets us preserve graphql-eslint's per-site ids without a
+// separate catalog API at the napi boundary.
+const seenMessageIds = new Map<string, Set<string>>();
+
+function ensureMessageId(rule: Rule.RuleModule, analyzerRuleName: string, id: string): boolean {
+  const messages = (rule.meta!.messages ??= {});
+  if (id in messages) return true;
+  let observed = seenMessageIds.get(analyzerRuleName);
+  if (!observed) {
+    observed = new Set();
+    seenMessageIds.set(analyzerRuleName, observed);
+  }
+  observed.add(id);
+  messages[id] = "{{ message }}";
+  return true;
+}
+
 function makeRule(analyzerRuleName: string, description: string): Rule.RuleModule {
   const startOnly = START_ONLY_RULES.has(analyzerRuleName);
-  return {
+  const rule: Rule.RuleModule = {
     meta: {
       type: "problem",
+      // ESLint refuses to apply a fix unless `meta.fixable` is set; declare
+      // `"code"` for every rule so any underlying rule's autofix flows
+      // through. Rules without fixes simply never produce a fix payload.
+      fixable: "code",
       docs: { description },
       schema: OPTIONS_SCHEMA,
+      messages: {},
     },
     create(context) {
       return {
@@ -71,12 +111,54 @@ function makeRule(analyzerRuleName: string, description: string): Rule.RuleModul
                   start: { line: d.line, column: d.column - 1 },
                   end: { line: d.endLine, column: d.endColumn - 1 },
                 };
-            context.report({ message: d.message, loc });
+            const fix = d.fix && ESLINT_FIXABLE_RULES.has(analyzerRuleName)
+              ? (fixer: Rule.RuleFixer) => {
+                  // Our autofixes carry source positions; ESLint's fixer wants
+                  // absolute byte ranges. Compute those from the source text.
+                  const text = context.sourceCode.text;
+                  const lineStarts = computeLineStarts(text);
+                  const edits = d.fix!.edits.map((e) => ({
+                    range: [
+                      lineStarts[e.rangeStartLine - 1] + (e.rangeStartColumn - 1),
+                      lineStarts[e.rangeEndLine - 1] + (e.rangeEndColumn - 1),
+                    ] as [number, number],
+                    text: e.newText,
+                  }));
+                  if (edits.length === 1) {
+                    return fixer.replaceTextRange(edits[0].range, edits[0].text);
+                  }
+                  // Multi-edit: chain via the array form.
+                  return edits.map((e) => fixer.replaceTextRange(e.range, e.text));
+                }
+              : undefined;
+            if (d.messageId) {
+              ensureMessageId(rule, analyzerRuleName, d.messageId);
+              context.report({
+                messageId: d.messageId,
+                data: { message: d.message },
+                loc,
+                ...(fix ? { fix } : {}),
+              });
+            } else {
+              context.report({ message: d.message, loc, ...(fix ? { fix } : {}) });
+            }
           }
         },
       };
     },
   };
+  return rule;
+}
+
+// Cache line-start byte offsets so fix edits can map (line, column) → byte
+// range. Computed lazily per `Program()` visit since context.sourceCode.text
+// is stable within a single lint pass.
+function computeLineStarts(text: string): number[] {
+  const starts = [0];
+  for (let i = 0; i < text.length; i++) {
+    if (text[i] === "\n") starts.push(i + 1);
+  }
+  return starts;
 }
 
 export function buildRules(): Record<string, Rule.RuleModule> {

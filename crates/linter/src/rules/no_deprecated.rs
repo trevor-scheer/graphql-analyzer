@@ -165,6 +165,7 @@ fn check_selection_set(
                                     message,
                                     "noDeprecated",
                                 )
+                                .with_message_id("no-deprecated")
                                 .with_help(
                                     "Use the replacement field if one is specified in the deprecation reason",
                                 )
@@ -201,6 +202,7 @@ fn check_selection_set(
                                                     message,
                                                     "noDeprecated",
                                                 )
+                                                .with_message_id("no-deprecated")
                                                 .with_help(
                                                     "Use the replacement field if one is specified in the deprecation reason",
                                                 )
@@ -303,6 +305,7 @@ fn check_value_for_deprecated_enum(
                                         message,
                                         "noDeprecated",
                                     )
+                                    .with_message_id("no-deprecated")
                                     .with_help(
                                         "Use the replacement field if one is specified in the deprecation reason",
                                     )

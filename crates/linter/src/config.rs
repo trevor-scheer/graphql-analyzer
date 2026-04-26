@@ -403,8 +403,8 @@ impl LintConfig {
             "noAnonymousOperations" => Some(LintSeverity::Error),
             "noDeprecated"
             | "redundantFields"
-            | "unusedFragments"
-            | "unusedFields"
+            | "noUnusedFragments"
+            | "noUnusedFields"
             | "noDuplicateFields"
             | "noUnreachableTypes"
             | "requireDeprecationReason"
@@ -436,7 +436,7 @@ mod tests {
         // uniqueNames is not in recommended (it's opinionated - only needed for PQs)
         assert!(!config.is_enabled("uniqueNames"));
         assert!(config.is_enabled("noDeprecated"));
-        assert!(config.is_enabled("unusedFields"));
+        assert!(config.is_enabled("noUnusedFields"));
         assert!(config.is_enabled("noDuplicateFields"));
         assert!(config.is_enabled("noUnreachableTypes"));
         assert!(config.is_enabled("requireDeprecationReason"));
@@ -495,12 +495,12 @@ rules:
         let yaml = r"
 extends: [recommended]
 rules:
-  unusedFields: warn
+  noUnusedFields: warn
 ";
         let config: LintConfig = serde_saphyr::from_str(yaml).unwrap();
         // uniqueNames is not in recommended (opinionated)
         assert!(!config.is_enabled("uniqueNames"));
-        assert!(config.is_enabled("unusedFields"));
+        assert!(config.is_enabled("noUnusedFields"));
     }
 
     #[test]

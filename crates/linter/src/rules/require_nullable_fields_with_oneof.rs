@@ -74,6 +74,7 @@ impl StandaloneSchemaLintRule for RequireNullableFieldsWithOneofRuleImpl {
                                 ),
                                 "requireNullableFieldsWithOneof",
                             )
+                            .with_message_id("require-nullable-fields-with-oneof")
                             .with_help(format!(
                                 "Remove the `!` from the type of field `{}` to make it nullable",
                                 field.name

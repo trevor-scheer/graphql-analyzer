@@ -86,6 +86,10 @@ export default defineConfig({
             { label: "Overview", slug: "linting/overview" },
             { label: "Configuration", slug: "linting/configuration" },
             { label: "ESLint Plugin", slug: "linting/eslint-plugin" },
+            {
+              label: "Migrating from graphql-eslint",
+              slug: "linting/migrating-from-graphql-eslint",
+            },
           ],
         },
         {
@@ -117,6 +121,9 @@ export default defineConfig({
             },
             { label: "noTypenamePrefix", slug: "rules/noTypenamePrefix" },
             { label: "noUnreachableTypes", slug: "rules/noUnreachableTypes" },
+            { label: "noUnusedFields", slug: "rules/noUnusedFields" },
+            { label: "noUnusedFragments", slug: "rules/noUnusedFragments" },
+            { label: "noUnusedVariables", slug: "rules/noUnusedVariables" },
             { label: "operationNameSuffix", slug: "rules/operationNameSuffix" },
             { label: "redundantFields", slug: "rules/redundantFields" },
             {
@@ -137,9 +144,6 @@ export default defineConfig({
               slug: "rules/uniqueEnumValueNames",
             },
             { label: "uniqueNames", slug: "rules/uniqueNames" },
-            { label: "unusedFields", slug: "rules/unusedFields" },
-            { label: "unusedFragments", slug: "rules/unusedFragments" },
-            { label: "unusedVariables", slug: "rules/unusedVariables" },
           ],
         },
         {

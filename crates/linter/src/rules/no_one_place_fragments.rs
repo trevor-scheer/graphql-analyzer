@@ -138,6 +138,7 @@ impl ProjectLintRule for NoOnePlaceFragmentsRuleImpl {
                                     message,
                                     "noOnePlaceFragments",
                                 )
+                                .with_message_id("no-one-place-fragments")
                                 .with_help("Inline the fragment at its single usage site")
                                 .with_tag(crate::diagnostics::DiagnosticTag::Unnecessary),
                             );

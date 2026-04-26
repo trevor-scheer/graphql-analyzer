@@ -819,7 +819,7 @@ pub fn project_operation_name_index(
 
 /// Per-file query for fragment names used (spread) in a file.
 /// Returns all fragment spread names found in operations and fragments.
-/// This enables incremental computation for the `unused_fragments` lint rule.
+/// This enables incremental computation for the `no_unused_fragments` lint rule.
 #[salsa::tracked]
 #[allow(clippy::items_after_statements)]
 pub fn file_used_fragment_names(
@@ -916,7 +916,7 @@ pub fn file_operation_fragment_spreads(
 
 /// Per-file query for defined fragment names in a file.
 /// Returns `fragment_name` for all fragments defined in the file.
-/// This enables incremental computation for the `unused_fragments` lint rule.
+/// This enables incremental computation for the `no_unused_fragments` lint rule.
 #[salsa::tracked]
 pub fn file_defined_fragment_names(
     db: &dyn GraphQLHirDatabase,
@@ -1027,7 +1027,7 @@ pub struct SchemaCoordinate {
 
 /// Per-file query for schema coordinates used in a file.
 /// Returns all `Type.field` coordinates referenced in operations and fragments.
-/// This enables incremental computation for the `unused_fields` lint rule.
+/// This enables incremental computation for the `no_unused_fields` lint rule.
 ///
 /// Note: This query requires schema types to resolve field return types.
 /// If schema is not available, it uses heuristics based on selection patterns.

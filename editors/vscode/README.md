@@ -93,13 +93,13 @@ extensions:
       noDeprecated: warn
       requireIdField: error
       redundantFields: error
-      unusedFields: off
+      noUnusedFields: off
 
   # LSP-specific overrides
   lsp:
     lint:
       rules:
-        unusedFields: off
+        noUnusedFields: off
 ```
 
 See [Configuration Documentation](../../README.md#configuration) for more details.

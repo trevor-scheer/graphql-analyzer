@@ -195,12 +195,15 @@ fn diagnose(
         .iter()
         .find(|a| a.name.as_ref() == argument_name)
     else {
-        return Some(LintDiagnostic::new(
-            directive_span,
-            LintSeverity::Warning,
-            format!("Directive \"@deprecated\" must have a deletion date for {node_name}"),
-            "requireDeprecationDate",
-        ));
+        return Some(
+            LintDiagnostic::new(
+                directive_span,
+                LintSeverity::Warning,
+                format!("Directive \"@deprecated\" must have a deletion date for {node_name}"),
+                "requireDeprecationDate",
+            )
+            .with_message_id("MESSAGE_REQUIRE_DATE"),
+        );
     };
 
     // 2) deletionDate exists but isn't a string in DD/MM/YYYY form —
@@ -210,33 +213,42 @@ fn diagnose(
     let date_str = match value_str {
         Some(s) if is_valid_date_format(s) => s,
         _ => {
-            return Some(LintDiagnostic::new(
-                value_span,
-                LintSeverity::Warning,
-                format!("Deletion date must be in format \"DD/MM/YYYY\" for {node_name}"),
-                "requireDeprecationDate",
-            ));
+            return Some(
+                LintDiagnostic::new(
+                    value_span,
+                    LintSeverity::Warning,
+                    format!("Deletion date must be in format \"DD/MM/YYYY\" for {node_name}"),
+                    "requireDeprecationDate",
+                )
+                .with_message_id("MESSAGE_INVALID_FORMAT"),
+            );
         }
     };
 
     // 3) Format ok but not a real calendar date — MESSAGE_INVALID_DATE.
     let Some(deletion_ms) = parse_dd_mm_yyyy(date_str) else {
-        return Some(LintDiagnostic::new(
-            value_span,
-            LintSeverity::Warning,
-            format!("Invalid \"{date_str}\" deletion date for {node_name}"),
-            "requireDeprecationDate",
-        ));
+        return Some(
+            LintDiagnostic::new(
+                value_span,
+                LintSeverity::Warning,
+                format!("Invalid \"{date_str}\" deletion date for {node_name}"),
+                "requireDeprecationDate",
+            )
+            .with_message_id("MESSAGE_INVALID_DATE"),
+        );
     };
 
     // 4) Date is in the past — MESSAGE_CAN_BE_REMOVED.
     if now_ms() > deletion_ms {
-        return Some(LintDiagnostic::new(
-            directive_span,
-            LintSeverity::Warning,
-            format!("{node_name} \u{0441}an be removed"),
-            "requireDeprecationDate",
-        ));
+        return Some(
+            LintDiagnostic::new(
+                directive_span,
+                LintSeverity::Warning,
+                format!("{node_name} \u{0441}an be removed"),
+                "requireDeprecationDate",
+            )
+            .with_message_id("MESSAGE_CAN_BE_REMOVED"),
+        );
     }
 
     None

@@ -134,7 +134,7 @@ extensions:
   lsp:
     lint:
       rules:
-        unusedFields: off
+        noUnusedFields: off
 ```
 
 See [graphql-linter](../graphql-linter/README.md) for available rules.

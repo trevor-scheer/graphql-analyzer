@@ -77,15 +77,20 @@ pub const fn convert_severity(
     }
 }
 
-/// Convert analysis Diagnostic to IDE Diagnostic
+/// Convert analysis Diagnostic to IDE Diagnostic. Carries the autofix
+/// through unchanged — `analysis::CodeFix` is the line/column-based form we
+/// need on `ide::Diagnostic.fix`, so consumers (LSP code actions, the napi
+/// binding feeding ESLint's `LintMessage.fix`) get the fix without going
+/// through a separate `lint_diagnostics_with_fixes` call.
 pub fn convert_diagnostic(diag: &graphql_analysis::Diagnostic) -> crate::types::Diagnostic {
     crate::types::Diagnostic {
         range: convert_range(diag.range),
         severity: convert_severity(diag.severity),
         message: diag.message.to_string(),
         code: diag.code.as_ref().map(ToString::to_string),
+        message_id: diag.message_id.as_ref().map(ToString::to_string),
         source: diag.source.to_string(),
-        fix: None, // Fixes are handled separately via lint_diagnostics_with_fixes
+        fix: diag.fix.as_ref().map(convert_code_fix),
         help: diag.help.as_ref().map(ToString::to_string),
         url: diag.url.as_ref().map(ToString::to_string),
         tags: diag
@@ -98,6 +103,20 @@ pub fn convert_diagnostic(diag: &graphql_analysis::Diagnostic) -> crate::types::
                 graphql_analysis::DiagnosticTag::Deprecated => {
                     crate::types::DiagnosticTag::Deprecated
                 }
+            })
+            .collect(),
+    }
+}
+
+fn convert_code_fix(fix: &graphql_analysis::CodeFix) -> crate::types::CodeFix {
+    crate::types::CodeFix {
+        label: fix.label.clone(),
+        edits: fix
+            .edits
+            .iter()
+            .map(|e| crate::types::TextEdit {
+                range: convert_range(e.range),
+                new_text: e.new_text.clone(),
             })
             .collect(),
     }

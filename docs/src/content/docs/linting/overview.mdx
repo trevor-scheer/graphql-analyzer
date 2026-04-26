@@ -29,8 +29,8 @@ The `recommended` preset enables rules that are objectively beneficial without b
 | `redundantFields`          | warn     | Detect fields duplicated by fragment spreads  |
 | `requireDeprecationReason` | warn     | Require reason in @deprecated directives      |
 | `uniqueEnumValueNames`     | warn     | Detect duplicate enum values across enums     |
-| `unusedFragments`          | warn     | Detect unused fragment definitions            |
-| `unusedFields`             | warn     | Detect unused schema fields                   |
+| `noUnusedFragments`          | warn     | Detect unused fragment definitions            |
+| `noUnusedFields`             | warn     | Detect unused schema fields                   |
 
 ## Additional rules
 
@@ -53,7 +53,7 @@ These rules are available but not in the `recommended` preset — enable them ba
 | `selectionSetDepth`                       | Limit selection set nesting depth            |
 | `strictIdInTypes`                         | Require ID field in object types             |
 | `uniqueNames`                             | Ensure operation/fragment names are unique   |
-| `unusedVariables`                         | Detect unused query variables                |
+| `noUnusedVariables`                         | Detect unused query variables                |
 
 See the [Rules Catalog](/graphql-analyzer/rules/catalog/) for details on each rule.
 
@@ -75,4 +75,4 @@ Rules run in different contexts depending on how much information they need:
 | Document-Schema     | Single document + schema   | Fast  | LSP + CLI        |
 | Project-Wide        | All documents + schema     | Slow  | CLI (by default) |
 
-Project-wide rules can be slow on large projects. If you experience latency in the editor, disable them in config and enable them in CI via `graphql check --rule unusedFields=error`.
+Project-wide rules can be slow on large projects. If you experience latency in the editor, disable them in config and enable them in CI via `graphql check --rule noUnusedFields=error`.

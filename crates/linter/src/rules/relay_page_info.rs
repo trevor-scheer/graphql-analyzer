@@ -86,6 +86,7 @@ impl StandaloneSchemaLintRule for RelayPageInfoRuleImpl {
                         "The server must provide a `PageInfo` object.",
                         "relayPageInfo",
                     )
+                    .with_message_id("MESSAGE_MUST_EXIST")
                     .with_url("https://relay.dev/graphql/connections.htm#sec-undefined.PageInfo"),
                 );
             }
@@ -112,6 +113,7 @@ impl StandaloneSchemaLintRule for RelayPageInfoRuleImpl {
                         "`PageInfo` must be an Object type.",
                         "relayPageInfo",
                     )
+                    .with_message_id("MESSAGE_MUST_BE_OBJECT_TYPE")
                     .with_url("https://relay.dev/graphql/connections.htm#sec-undefined.PageInfo"),
                 );
             return diagnostics_by_file;

@@ -535,6 +535,8 @@ fn unused_ignore_diagnostics(
                     },
                     source: "graphql-linter".into(),
                     code: Some("unused_ignore".into()),
+                    message_id: None,
+                    fix: None,
                     help: None,
                     url: None,
                     tags: vec![crate::DiagnosticTag::Unnecessary],
@@ -564,6 +566,8 @@ fn unused_ignore_diagnostics(
                         },
                         source: "graphql-linter".into(),
                         code: Some("unused_ignore".into()),
+                        message_id: None,
+                        fix: None,
                         help: None,
                         url: None,
                         tags: vec![crate::DiagnosticTag::Unnecessary],
@@ -672,6 +676,47 @@ fn convert_lint_diagnostics(
                 LintSev::Info => Severity::Info,
             };
 
+            // Convert the linter's byte-offset fix (if any) into the
+            // line/column form `Diagnostic` carries. Embedded blocks share
+            // the same line index used for the diagnostic range, so fix
+            // positions land in the same coordinate space (block-relative
+            // when there's a `block_source`, file-relative otherwise).
+            let fix = ld.fix.as_ref().map(|f| {
+                let mut edits = Vec::with_capacity(f.edits.len());
+                for edit in &f.edits {
+                    let (es_line, es_col, ee_line, ee_col) =
+                        if let Some(ref block_source) = ld.span.source {
+                            let block_line_index = graphql_syntax::LineIndex::new(block_source);
+                            let (sl, sc) =
+                                block_line_index.line_col(edit.offset_range.start);
+                            let (el, ec) =
+                                block_line_index.line_col(edit.offset_range.end);
+                            (sl, sc, el, ec)
+                        } else {
+                            let (sl, sc) = file_line_index.line_col(edit.offset_range.start);
+                            let (el, ec) = file_line_index.line_col(edit.offset_range.end);
+                            (sl, sc, el, ec)
+                        };
+                    edits.push(crate::TextEdit {
+                        range: DiagnosticRange {
+                            start: Position {
+                                line: es_line as u32 + ld.span.line_offset,
+                                character: es_col as u32,
+                            },
+                            end: Position {
+                                line: ee_line as u32 + ld.span.line_offset,
+                                character: ee_col as u32,
+                            },
+                        },
+                        new_text: edit.new_text.clone(),
+                    });
+                }
+                crate::CodeFix {
+                    label: f.label.clone(),
+                    edits,
+                }
+            });
+
             Some(Diagnostic {
                 severity,
                 message: ld.message.into(),
@@ -687,6 +732,8 @@ fn convert_lint_diagnostics(
                 },
                 source: "graphql-linter".into(),
                 code: Some(rule_name.to_string().into()),
+                message_id: ld.message_id.map(Into::into),
+                fix,
                 help: ld.help.map(Into::into),
                 url: Some(resolve_rule_url(ld.url, rule_name).into()),
                 tags: ld
@@ -719,8 +766,8 @@ mod url_resolution_tests {
     #[test]
     fn falls_back_to_canonical_url_when_not_set() {
         assert_eq!(
-            resolve_rule_url(None, "unusedFields"),
-            "https://trevor-scheer.github.io/graphql-analyzer/rules/unusedFields/"
+            resolve_rule_url(None, "noUnusedFields"),
+            "https://trevor-scheer.github.io/graphql-analyzer/rules/noUnusedFields/"
         );
     }
 
@@ -728,7 +775,7 @@ mod url_resolution_tests {
     fn respects_rule_provided_url() {
         let custom = "https://docs.example.com/custom-rule".to_string();
         assert_eq!(
-            resolve_rule_url(Some(custom.clone()), "unusedFields"),
+            resolve_rule_url(Some(custom.clone()), "noUnusedFields"),
             custom
         );
     }

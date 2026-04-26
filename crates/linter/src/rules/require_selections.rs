@@ -477,6 +477,7 @@ fn check_selection_set(
                 ),
                 "requireSelections",
             )
+            .with_message_id("require-selections")
             .with_fix(fix),
         );
     }

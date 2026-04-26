@@ -1,12 +1,12 @@
 ---
-slug: rules/unusedVariables
-title: unusedVariables
+slug: rules/noUnusedVariables
+title: noUnusedVariables
 description: Detect unused query variables.
 ---
 
 | Property         | Value             |
 | ---------------- | ----------------- |
-| Config name      | `unusedVariables` |
+| Config name      | `noUnusedVariables` |
 | Default severity | —                 |
 | Context          | Document          |
 | In recommended   | No                |
@@ -42,5 +42,5 @@ extensions:
   graphql-analyzer:
     lint:
       rules:
-        unusedVariables: warn # or error, off
+        noUnusedVariables: warn # or error, off
 ```

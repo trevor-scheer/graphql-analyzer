@@ -130,6 +130,7 @@ impl StandaloneSchemaLintRule for NoUnreachableTypesRuleImpl {
                             format!("{kind_name} `{}` is unreachable.", type_def.name),
                             "noUnreachableTypes",
                         )
+                        .with_message_id("no-unreachable-types")
                         .with_help(
                             "Remove the unreachable type, or reference it from a reachable type",
                         )

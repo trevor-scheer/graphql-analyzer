@@ -80,18 +80,6 @@ const KNOWN_MISSING = new Set([
   "value-literals-of-correct-type",
   "variables-are-input-types",
   "variables-in-allowed-position",
-  // Naming mismatch tracked separately (see KNOWN_NAMING_MISMATCH below).
-  "no-unused-fields",
-  "no-unused-fragments",
-  "no-unused-variables",
-]);
-
-// Our rule name -> graphql-eslint rule name. Pre-publish follow-up: rename
-// these on the Rust side so migration truly is a find-and-replace.
-const KNOWN_NAMING_MISMATCH = new Map([
-  ["unused-fields", "no-unused-fields"],
-  ["unused-fragments", "no-unused-fragments"],
-  ["unused-variables", "no-unused-variables"],
 ]);
 
 // Rules we ship that graphql-eslint doesn't.
@@ -100,7 +88,6 @@ const KNOWN_EXTRA = new Set([
   "redundant-fields",
   "require-id-field",
   "unique-names",
-  ...KNOWN_NAMING_MISMATCH.keys(),
 ]);
 
 function theirRules() {
@@ -507,6 +494,38 @@ const EXERCISED = {
     severity: 1,
     span: "full",
   },
+
+  "no-unused-fields": {
+    files: {
+      "schema.graphql":
+        "type Query { user: User }\n" +
+        "type User {\n  id: ID!\n  name: String\n  unusedField: String\n}\n",
+      "src/op.graphql": "query Q { user { id name } }\n",
+    },
+    target: "schema.graphql",
+    severity: 1,
+    span: "full",
+  },
+
+  "no-unused-fragments": {
+    files: {
+      "schema.graphql": "type Query { hello: String }\n",
+      "src/op.graphql": "fragment Unused on Query { hello }\nquery Q { hello }\n",
+    },
+    target: "src/op.graphql",
+    severity: 1,
+    span: "full",
+  },
+
+  "no-unused-variables": {
+    files: {
+      "schema.graphql": "type Query { hello: String }\n",
+      "src/op.graphql": "query Q($name: String) { hello }\n",
+    },
+    target: "src/op.graphql",
+    severity: 1,
+    span: "full",
+  },
 };
 
 test("every shared rule is parity-verified", () => {
@@ -581,27 +600,44 @@ function parityDiff(ours, theirs, span) {
   if (ours.length !== theirs.length) {
     return `count drift: ours=${ours.length} theirs=${theirs.length}`;
   }
-  const oursMsgs = ours.map((d) => d.message).sort();
-  const theirsMsgs = theirs.map((d) => d.message).sort();
-  if (JSON.stringify(oursMsgs) !== JSON.stringify(theirsMsgs)) {
-    return `message drift\n    ours:   ${JSON.stringify(oursMsgs)}\n    theirs: ${JSON.stringify(theirsMsgs)}`;
-  }
-  const oursPos = sortedPositions(ours, span);
-  const theirsPos = sortedPositions(theirs, span);
-  if (JSON.stringify(oursPos) !== JSON.stringify(theirsPos)) {
-    return `position drift (span=${span})\n    ours:   ${JSON.stringify(oursPos)}\n    theirs: ${JSON.stringify(theirsPos)}`;
+  const oursCanon = canonical(ours, span);
+  const theirsCanon = canonical(theirs, span);
+  if (JSON.stringify(oursCanon) !== JSON.stringify(theirsCanon)) {
+    return (
+      `diff (span=${span})\n` +
+      `    ours:   ${JSON.stringify(oursCanon)}\n` +
+      `    theirs: ${JSON.stringify(theirsCanon)}`
+    );
   }
   return null;
 }
 
-function sortedPositions(diagnostics, span) {
-  const project =
-    span === "full"
-      ? (d) => ({ line: d.line, column: d.column, endLine: d.endLine, endColumn: d.endColumn })
-      : (d) => ({ line: d.line });
+// Build a canonical, sorted representation of the diagnostics so that two
+// diagnostics are paired by position (not independently sorted by message).
+// Compares position, message, messageId, and fix together — drift in any one
+// surfaces as a difference. Source positions narrow to `line` only when
+// `span === "line"` (graphql-eslint reports start-only loc for some rules).
+function canonical(diagnostics, span) {
   return diagnostics
-    .map(project)
-    .sort((a, b) => a.line - b.line || (a.column ?? 0) - (b.column ?? 0));
+    .map((d) => {
+      const pos =
+        span === "full"
+          ? { line: d.line, column: d.column, endLine: d.endLine, endColumn: d.endColumn }
+          : { line: d.line };
+      return {
+        ...pos,
+        message: d.message,
+        messageId: d.messageId ?? null,
+        fix: d.fix ? { range: d.fix.range, text: d.fix.text } : null,
+      };
+    })
+    .sort((a, b) => {
+      if (a.line !== b.line) return a.line - b.line;
+      const ac = a.column ?? 0;
+      const bc = b.column ?? 0;
+      if (ac !== bc) return ac - bc;
+      return a.message.localeCompare(b.message);
+    });
 }
 
 async function withProject(rule, cfg, fn) {

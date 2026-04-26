@@ -147,7 +147,7 @@ let diagnostics_by_file = linter.lint_project(&ctx);
 
 **Use case**: CI/CD, comprehensive project analysis
 **Performance**: Potentially expensive on large projects
-**Current rules**: `unique_names`, `unused_fields`
+**Current rules**: `unique_names`, `no_unused_fields`
 
 ## Configuration
 
@@ -198,7 +198,7 @@ extensions:
   lint:
     extends: [recommended]
     rules:
-      unusedFields: warn
+      noUnusedFields: warn
 ```
 
 ### Severity Levels
@@ -250,8 +250,8 @@ The `recommended` preset includes rules that are objectively beneficial without 
 | `no_anonymous_operations` | error    | Named operations improve debugging and tooling |
 | `no_deprecated`           | warn     | Alerts to deprecated API usage                 |
 | `redundant_fields`        | warn     | Removes unnecessary duplication                |
-| `unused_fragments`        | warn     | Dead code removal                              |
-| `unused_fields`           | warn     | Identifies unused schema surface area          |
+| `no_unused_fragments`        | warn     | Dead code removal                              |
+| `no_unused_fields`           | warn     | Identifies unused schema surface area          |
 
 Other rules like `unique_names` and `require_id_field` are available but not included by default since they're tied to specific tooling choices (persisted queries, normalized caching, etc.).
 
@@ -596,7 +596,7 @@ query GetUser {
 } # ❌ Error: Duplicate operation name 'GetUser'
 ```
 
-### unused_fields
+### no_unused_fields
 
 **Type**: ProjectRule
 
@@ -897,7 +897,7 @@ Test individual rules:
 ```bash
 cargo test -p graphql-linter deprecated
 cargo test -p graphql-linter unique_names
-cargo test -p graphql-linter unused_fields
+cargo test -p graphql-linter no_unused_fields
 ```
 
 ## License

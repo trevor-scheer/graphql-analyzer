@@ -5093,7 +5093,7 @@ query GetUsers {
     #[test]
     fn test_unused_fields_lint_with_typescript_file() {
         // Test that fields used in TypeScript embedded GraphQL are correctly tracked
-        // and NOT flagged as unused by the unusedFields lint
+        // and NOT flagged as unused by the noUnusedFields lint
         let mut host = AnalysisHost::new();
         host.set_lint_config(graphql_linter::LintConfig::recommended());
 
@@ -5140,11 +5140,11 @@ export const RATE_LIMIT_QUERY = gql`
         let snapshot = host.snapshot();
         let project_diagnostics = snapshot.project_lint_diagnostics();
 
-        // Check for unusedFields warnings
+        // Check for noUnusedFields warnings
         let unused_fields_errors: Vec<_> = project_diagnostics
             .values()
             .flatten()
-            .filter(|d| d.code.as_deref() == Some("unusedFields"))
+            .filter(|d| d.code.as_deref() == Some("noUnusedFields"))
             .collect();
 
         // nodeCount should NOT be flagged as unused since it's used in the TS file
@@ -5162,7 +5162,7 @@ export const RATE_LIMIT_QUERY = gql`
                 .collect::<Vec<_>>()
         );
 
-        // All fields (cost, limit, nodeCount) are used, so there should be no unusedFields warnings
+        // All fields (cost, limit, nodeCount) are used, so there should be no noUnusedFields warnings
         // for RateLimit type fields
         let ratelimit_errors: Vec<_> = unused_fields_errors
             .iter()
@@ -5243,11 +5243,11 @@ export const RATE_LIMIT_QUERY = gql`
         let snapshot = host.snapshot();
         let project_diagnostics = snapshot.project_lint_diagnostics();
 
-        // Check for unusedFields warnings
+        // Check for noUnusedFields warnings
         let unused_fields_errors: Vec<_> = project_diagnostics
             .values()
             .flatten()
-            .filter(|d| d.code.as_deref() == Some("unusedFields"))
+            .filter(|d| d.code.as_deref() == Some("noUnusedFields"))
             .collect();
 
         // nodeCount should NOT be flagged as unused
@@ -5374,11 +5374,11 @@ export const RATE_LIMIT_QUERY = gql`
             }
         }
 
-        // Check for unusedFields warnings
+        // Check for noUnusedFields warnings
         let unused_fields_errors: Vec<_> = project_diagnostics
             .values()
             .flatten()
-            .filter(|d| d.code.as_deref() == Some("unusedFields"))
+            .filter(|d| d.code.as_deref() == Some("noUnusedFields"))
             .collect();
 
         // nodeCount should NOT be flagged as unused
@@ -5427,7 +5427,7 @@ export const RATE_LIMIT_QUERY = gql`
         // all_diagnostics_for_file should include project-wide diagnostics
         let schema_diags = snapshot.all_diagnostics_for_file(&schema_file);
         let has_unused_field = schema_diags.iter().any(|d| {
-            d.code.as_deref() == Some("unusedFields") && d.message.contains("unusedField")
+            d.code.as_deref() == Some("noUnusedFields") && d.message.contains("unusedField")
         });
 
         assert!(

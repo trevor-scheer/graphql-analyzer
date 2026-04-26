@@ -81,6 +81,7 @@ impl StandaloneSchemaLintRule for RequireNullableResultInRootRuleImpl {
                             ),
                             "requireNullableResultInRoot",
                         )
+                        .with_message_id("require-nullable-result-in-root")
                         .with_url(rule_doc_url("requireNullableResultInRoot")),
                     );
                 }

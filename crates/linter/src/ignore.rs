@@ -6,7 +6,7 @@
 //! # graphql-analyzer-ignore
 //! query { ... }
 //!
-//! # graphql-analyzer-ignore: noDeprecated, unusedVariables
+//! # graphql-analyzer-ignore: noDeprecated, noUnusedVariables
 //! query { ... }
 //! ```
 //!
@@ -221,27 +221,27 @@ mod tests {
 
     #[test]
     fn parse_ignore_with_rules() {
-        let source = "# graphql-analyzer-ignore: noDeprecated, unusedVariables\nquery { hello }";
+        let source = "# graphql-analyzer-ignore: noDeprecated, noUnusedVariables\nquery { hello }";
         let directives = parse_ignore_directives(source);
         assert_eq!(directives.len(), 1);
         assert_eq!(
             directives[0].rule_names(),
-            vec!["noDeprecated", "unusedVariables"]
+            vec!["noDeprecated", "noUnusedVariables"]
         );
         assert!(directives[0].suppresses("noDeprecated"));
-        assert!(directives[0].suppresses("unusedVariables"));
+        assert!(directives[0].suppresses("noUnusedVariables"));
         assert!(!directives[0].suppresses("other_rule"));
     }
 
     #[test]
     fn parse_ignore_with_extra_whitespace() {
         let source =
-            "  #  graphql-analyzer-ignore :  noDeprecated ,  unusedVariables  \nquery { hello }";
+            "  #  graphql-analyzer-ignore :  noDeprecated ,  noUnusedVariables  \nquery { hello }";
         let directives = parse_ignore_directives(source);
         assert_eq!(directives.len(), 1);
         assert_eq!(
             directives[0].rule_names(),
-            vec!["noDeprecated", "unusedVariables"]
+            vec!["noDeprecated", "noUnusedVariables"]
         );
         assert_eq!(
             &source[directives[0].rules[0].byte_offset..directives[0].rules[0].byte_end],
@@ -249,7 +249,7 @@ mod tests {
         );
         assert_eq!(
             &source[directives[0].rules[1].byte_offset..directives[0].rules[1].byte_end],
-            "unusedVariables"
+            "noUnusedVariables"
         );
     }
 

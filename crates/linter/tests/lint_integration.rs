@@ -113,8 +113,8 @@ fn test_rule_registry_returns_rules() {
         "Registry should include noAnonymousOperations"
     );
     assert!(
-        rule_names.contains(&"unusedVariables"),
-        "Registry should include unusedVariables"
+        rule_names.contains(&"noUnusedVariables"),
+        "Registry should include noUnusedVariables"
     );
 }
 
