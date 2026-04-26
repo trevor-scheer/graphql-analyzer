@@ -142,6 +142,25 @@ impl GraphQLConfig {
         Self::get_file_type_for_project(doc_path, workspace_root, config)
     }
 
+    /// Determine the file type for a file given its workspace-relative path string.
+    ///
+    /// Useful for non-`file://` URIs (wasm/in-memory documents) where filesystem
+    /// path conversion isn't available; the caller supplies a path string derived
+    /// from the URI directly.
+    #[must_use]
+    pub fn get_file_type_by_rel_path(
+        &self,
+        rel_path: &str,
+        project_name: &str,
+    ) -> Option<crate::FileType> {
+        let config = match self {
+            Self::Single(config) if project_name == "default" => config,
+            Self::Single(_) => return None,
+            Self::Multi { projects } => projects.get(project_name)?,
+        };
+        Self::match_file_type(rel_path, config)
+    }
+
     /// Internal helper to determine file type for a specific project config.
     fn get_file_type_for_project(
         doc_path: &Path,
@@ -150,28 +169,28 @@ impl GraphQLConfig {
     ) -> Option<crate::FileType> {
         let rel_path = doc_path.strip_prefix(workspace_root).ok()?;
         let rel_path_str = rel_path.to_string_lossy();
+        Self::match_file_type(&rel_path_str, config)
+    }
+
+    /// Pattern-match a relative path string against a project's compiled globs.
+    fn match_file_type(rel_path: &str, config: &ProjectConfig) -> Option<crate::FileType> {
         let compiled = config.compiled_patterns();
 
-        // Check explicit excludes first
-        if compiled.exclude.iter().any(|p| p.matches(&rel_path_str)) {
+        if compiled.exclude.iter().any(|p| p.matches(rel_path)) {
             return None;
         }
 
-        // Check if file is in include scope
         let in_include_scope =
-            config.include.is_none() || compiled.include.iter().any(|p| p.matches(&rel_path_str));
-
+            config.include.is_none() || compiled.include.iter().any(|p| p.matches(rel_path));
         if !in_include_scope {
             return None;
         }
 
-        // Check schema patterns first
-        if compiled.schema.iter().any(|p| p.matches(&rel_path_str)) {
+        if compiled.schema.iter().any(|p| p.matches(rel_path)) {
             return Some(crate::FileType::Schema);
         }
 
-        // Check document patterns
-        if compiled.documents.iter().any(|p| p.matches(&rel_path_str)) {
+        if compiled.documents.iter().any(|p| p.matches(rel_path)) {
             return Some(crate::FileType::Document);
         }
 

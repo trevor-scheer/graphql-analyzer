@@ -21,6 +21,19 @@ use lsp_types::Uri;
 #[cfg(feature = "native")]
 use crate::conversions::uri_to_file_path;
 
+/// Strip the scheme/authority prefix from a URI, returning the path component
+/// for glob-pattern matching against project `schema`/`documents` patterns.
+///
+/// Used on wasm where `uri_to_file_path` is unavailable; the caller has already
+/// determined the URI belongs to a known workspace, so what remains is matching
+/// the URI's path against the project's globs as if it were a relative path.
+#[cfg(not(feature = "native"))]
+fn uri_relative_path(uri: &Uri) -> String {
+    let s = uri.as_str();
+    let after_scheme = s.split_once("://").map_or(s, |(_, rest)| rest);
+    after_scheme.trim_start_matches('/').to_string()
+}
+
 /// Manages workspace state for the GraphQL Language Server.
 pub struct WorkspaceManager {
     /// Workspace folders from initialization (drained during initialized handler)
@@ -188,8 +201,9 @@ impl WorkspaceManager {
     ) -> Option<graphql_config::FileType> {
         #[cfg(not(feature = "native"))]
         {
-            let _ = (uri, workspace_uri, project_name);
-            return None;
+            let config = self.configs.get(workspace_uri)?;
+            let rel_path = uri_relative_path(uri);
+            return config.get_file_type_by_rel_path(&rel_path, project_name);
         }
 
         #[cfg(feature = "native")]
