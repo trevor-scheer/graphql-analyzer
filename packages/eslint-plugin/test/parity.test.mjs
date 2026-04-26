@@ -36,6 +36,7 @@ import { fileURLToPath } from "node:url";
 import * as path from "node:path";
 
 import ours from "../dist/index.js";
+import { START_ONLY_RULES } from "../dist/rules.js";
 import theirsNs from "@graphql-eslint/eslint-plugin";
 
 const theirs = theirsNs.default ?? theirsNs;
@@ -594,6 +595,50 @@ test("messages, counts, and source positions match graphql-eslint exactly", asyn
     });
   }
   assert.deepEqual(errors, [], `parity drift:\n  ${errors.join("\n  ")}`);
+});
+
+// Drift guard: graphql-eslint reports start-only `loc` (no endLine/endColumn)
+// for a few rules, and our shim manually strips end positions for the same
+// list (`START_ONLY_RULES` in `src/rules.ts`). When upstream changes a rule's
+// loc shape, that hand-curated list goes stale silently — until enough time
+// passes that someone notices the parity test using `span: "full"` is now
+// catching unrelated diffs.
+//
+// This test runs upstream against every EXERCISED fixture, observes which
+// diagnostics arrive with `endLine === undefined`, and asserts the inferred
+// set of "upstream is start-only" rules matches our hardcoded
+// `START_ONLY_RULES`. If upstream tightens or loosens a rule's loc shape on
+// a version bump, this test fails first with the rule named.
+test("START_ONLY_RULES tracks upstream's actual start-only rule set", async () => {
+  const camelOf = (kebab) => kebab.replace(/-([a-z])/g, (_, c) => c.toUpperCase());
+  const observedStartOnly = new Set();
+  for (const [rule, cfg] of Object.entries(EXERCISED)) {
+    await withProject(rule, cfg, async (root) => {
+      let theirDiag;
+      try {
+        theirDiag = lintTheirsInChild(root, rule, cfg);
+      } catch {
+        return;
+      }
+      if (theirDiag.length === 0) return;
+      // Upstream is start-only for this rule iff *all* its diagnostics omit
+      // endLine. (A rule that mixes shapes would itself be a parity concern.)
+      const allStartOnly = theirDiag.every(
+        (d) => d.endLine === undefined || d.endLine === null,
+      );
+      if (allStartOnly) observedStartOnly.add(camelOf(rule));
+    });
+  }
+  const expected = [...START_ONLY_RULES].sort();
+  const observed = [...observedStartOnly].sort();
+  assert.deepEqual(
+    observed,
+    expected,
+    `START_ONLY_RULES drift vs upstream's actual loc shape:\n` +
+      `  ours:      ${JSON.stringify(expected)}\n` +
+      `  upstream:  ${JSON.stringify(observed)}\n` +
+      `Update src/rules.ts:START_ONLY_RULES to match.`,
+  );
 });
 
 function parityDiff(ours, theirs, span) {

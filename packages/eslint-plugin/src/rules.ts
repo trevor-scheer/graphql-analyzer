@@ -34,7 +34,11 @@ function diagnosticsFor(filePath: string, source: string): binding.JsDiagnostic[
 // matches graphql-eslint exactly. Add a rule here only when graphql-eslint's
 // own implementation is intentionally start-only (e.g. `no-hashtag-description`
 // passes `loc: { line, column }` rather than `{ start, end }`).
-const START_ONLY_RULES = new Set([
+//
+// Exported so the parity test can derive upstream's actual behavior at
+// runtime and assert this set still matches — drift on a graphql-eslint
+// version bump becomes a CI failure rather than a silent regression.
+export const START_ONLY_RULES = new Set([
   "noHashtagDescription",
   "requireSelections",
   "matchDocumentFilename",
