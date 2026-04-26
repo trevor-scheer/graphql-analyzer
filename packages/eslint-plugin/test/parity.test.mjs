@@ -597,6 +597,75 @@ test("messages, counts, and source positions match graphql-eslint exactly", asyn
   assert.deepEqual(errors, [], `parity drift:\n  ${errors.join("\n  ")}`);
 });
 
+// Verifies rule options forwarded *only* through ESLint's `rules:` config
+// reach the analyzer (i.e. ESLint config alone is enough; .graphqlrc.yaml
+// doesn't need a duplicate `lint.rules` entry). The default `withProject`
+// helper writes options to *both* channels, so this test isolates the
+// ESLint channel by writing a `.graphqlrc.yaml` with no `lint.rules` block.
+//
+// Picks rules whose EXERCISED fixture sets `options` — without options we
+// have no way to distinguish "options forwarded" from "rule defaulted". The
+// rule must (a) fire at all (proving our analyzer enables it from the
+// ESLint config) and (b) fire identically to upstream (proving the options
+// payload arrived intact).
+test("ESLint-config rule options reach the analyzer (no .graphqlrc.yaml lint block)", async () => {
+  const errors = [];
+  for (const [rule, cfg] of Object.entries(EXERCISED)) {
+    if (cfg.options === undefined) continue;
+    await withProjectNoLintBlock(rule, cfg, async (root) => {
+      let ourDiag, theirDiag;
+      try {
+        ourDiag = await lintInProject(root, ours, "@graphql-analyzer", rule, cfg);
+      } catch (err) {
+        errors.push(`${rule}: ours threw: ${err.message.split("\n")[0]}`);
+        return;
+      }
+      try {
+        theirDiag = lintTheirsInChild(root, rule, cfg);
+      } catch (err) {
+        errors.push(`${rule}: theirs threw: ${err.message.split("\n")[0]}`);
+        return;
+      }
+      if (ourDiag.length === 0 && theirDiag.length > 0) {
+        errors.push(
+          `${rule}: theirs fired (${theirDiag.length}) but ours didn't — ` +
+            `options not reaching analyzer through ESLint config alone`,
+        );
+        return;
+      }
+      const drift = parityDiff(ourDiag, theirDiag, cfg.span);
+      if (drift) errors.push(`${rule}: ${drift}`);
+    });
+  }
+  assert.deepEqual(
+    errors,
+    [],
+    `ESLint-options-only parity drift:\n  ${errors.join("\n  ")}`,
+  );
+});
+
+// Sibling of `withProject` that writes a `.graphqlrc.yaml` carrying *only*
+// the schema/documents wiring, with no `lint.rules` block. The rule must
+// reach the analyzer through the ESLint config payload alone.
+async function withProjectNoLintBlock(rule, cfg, fn) {
+  const root = mkdtempSync(path.join(tmpdir(), `parity-eslint-${rule}-`));
+  try {
+    for (const [relpath, content] of Object.entries(cfg.files)) {
+      const abs = path.join(root, relpath);
+      mkdirSync(path.dirname(abs), { recursive: true });
+      writeFileSync(abs, content);
+    }
+    const lines = [];
+    if (cfg.files["schema.graphql"]) lines.push(`schema: "schema.graphql"`);
+    const docs = Object.keys(cfg.files).filter((p) => p.startsWith("src/"));
+    if (docs.length > 0) lines.push(`documents: "src/**/*"`);
+    writeFileSync(path.join(root, ".graphqlrc.yaml"), lines.join("\n") + "\n");
+    return await fn(root);
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+}
+
 // Drift guard: graphql-eslint reports start-only `loc` (no endLine/endColumn)
 // for a few rules, and our shim manually strips end positions for the same
 // list (`START_ONLY_RULES` in `src/rules.ts`). When upstream changes a rule's

@@ -78,11 +78,24 @@ function ensureInitialized(filePath: string): void {
   }
 }
 
-export function lintFile(filePath: string, source: string): JsDiagnostic[] {
+export function lintFile(
+  filePath: string,
+  source: string,
+  /// Per-rule overrides keyed by analyzer rule name (camelCase). Each value
+  /// is a `LintRuleConfig`-shaped object that fully replaces the persistent
+  /// `.graphqlrc.yaml` config for that rule for this call. Use to forward
+  /// ESLint's `rules: { rule: [severity, options] }` entries to the
+  /// analyzer; entries from `.graphqlrc.yaml` still apply for any rule not
+  /// in this map.
+  overrides?: Record<string, unknown>,
+): JsDiagnostic[] {
   ensureInitialized(filePath);
   // No TS-side cache: the Rust analyzer is Salsa-memoized, and any cache here
   // would need a content hash (not just length) to avoid stale results.
-  return coreBinding.lintFile(filePath, source);
+  // JSON-string transport at the napi boundary keeps the addon signature
+  // simple — the Rust side parses with serde.
+  const overridesJson = overrides ? JSON.stringify(overrides) : undefined;
+  return coreBinding.lintFile(filePath, source, overridesJson);
 }
 
 export function extractGraphql(source: string, language: string): JsExtractedBlock[] {

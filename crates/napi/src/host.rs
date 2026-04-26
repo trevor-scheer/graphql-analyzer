@@ -99,7 +99,12 @@ impl NapiAnalysisHost {
         self.host.get_extract_config()
     }
 
-    pub fn lint_file(&mut self, path: &str, source: &str) -> Vec<graphql_ide::Diagnostic> {
+    pub fn lint_file(
+        &mut self,
+        path: &str,
+        source: &str,
+        overrides: Option<std::collections::HashMap<String, graphql_linter::LintRuleConfig>>,
+    ) -> Vec<graphql_ide::Diagnostic> {
         let file_path = FilePath::from_path(Path::new(path));
         let canonical = canonicalize_or(Path::new(path));
 
@@ -112,8 +117,31 @@ impl NapiAnalysisHost {
         // content, which matches. Live-editor updates would need a separate
         // path here.
 
-        let snapshot = self.host.snapshot();
-        snapshot.all_diagnostics_for_file(&file_path)
+        // Apply per-call rule overrides on top of the persistent config for
+        // the duration of this lint call, then restore. ESLint passes per-
+        // rule options through `rules: { rule: [severity, options] }` and
+        // the shim forwards them here so they take precedence over whatever
+        // `.graphqlrc.yaml` provided. Restoration keeps subsequent calls
+        // (and other consumers of the same host) on the persistent config.
+        let restore = if let Some(overrides) = overrides.filter(|m| !m.is_empty()) {
+            let original = self.host.lint_config();
+            let merged = (*original).clone().with_overrides(overrides);
+            self.host.set_lint_config(merged);
+            Some(original)
+        } else {
+            None
+        };
+
+        let diagnostics = {
+            let snapshot = self.host.snapshot();
+            snapshot.all_diagnostics_for_file(&file_path)
+        };
+
+        if let Some(original) = restore {
+            self.host.set_lint_config((*original).clone());
+        }
+
+        diagnostics
     }
 }
 

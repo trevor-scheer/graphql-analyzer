@@ -31,9 +31,12 @@ change.
   upstream. Migration to a new prefix is mechanical.
 - **Recommended preset names.** `flat/schema-recommended` and
   `flat/operations-recommended` are exposed under the `configs` export.
-- **Rule options shape.** Options pass through unchanged — anything the
-  upstream rule accepted, this plugin accepts (and ignores unknown keys
-  rather than rejecting them, for forward compatibility).
+- **Rule options.** Options pass through unchanged — anything the upstream
+  rule accepted, this plugin accepts (and ignores unknown keys rather than
+  rejecting them, for forward compatibility). Options can come from either
+  ESLint's `rules: { rule: [severity, options] }` config or the
+  `extensions.graphql-analyzer.lint.rules` block in `.graphqlrc.yaml`;
+  ESLint takes precedence per-rule when both are present.
 - **`.graphqlrc.yaml` resolution.** Both plugins read schema/documents from
   the same graphql-config file.
 - **Diagnostic shape.** `LintMessage.message`, `messageId`, `line`, `column`,
@@ -93,15 +96,13 @@ configs:
 
 - **ESLint legacy config (`.eslintrc.*`) is not supported.** Flat config
   only.
-- **Rule options passed through ESLint's `rules: { ... }` config object are
-  not yet forwarded** to the Rust analyzer. Configure options in
-  `.graphqlrc.yaml` for now.
 - **Multi-project `.graphqlrc.yaml` configs aren't supported yet** — the
-  plugin will load whichever project is at the resolved config path.
-- **Autofix coverage is partial.** Fix parity for `alphabetize` matches
-  upstream; other graphql-eslint rules that ship autofixes have not yet
-  been wired into the ESLint shim. Open a PR or issue if a specific rule's
-  autofix is blocking your migration.
+  plugin will error on a config with more than one project.
+- **Autofix coverage matches upstream.** Both plugins ship `fix` only on
+  `alphabetize`. Upstream additionally ships `suggest` (ESLint suggestions)
+  on a number of rules; those have not yet been wired through our shim and
+  surface as plain diagnostics here. Open an issue if a specific rule's
+  suggestion is blocking your migration.
 
 ## Verifying migration
 

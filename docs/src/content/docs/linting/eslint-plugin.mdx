@@ -183,14 +183,11 @@ See `packages/eslint-plugin/test/parity.test.mjs` for the full allowlist.
 ## Known limitations (alpha)
 
 - ESLint legacy config (`.eslintrc`) is not supported — flat config only.
-- Autofixes are not yet wired through the ESLint rule shim.
-- Rule options passed through ESLint's `rules: { ... }` object are not yet
-  forwarded; configure options via `.graphqlrc.yaml` for now.
+- Autofix coverage matches upstream: `alphabetize` only. Other shared rules
+  ship `suggest` (suggestions) upstream and are not yet wired through our
+  ESLint shim.
 - Multi-project `.graphqlrc` configs aren't supported yet — the plugin will
   error on a config with more than one project.
-- `no-hashtag-description` fires per `#` comment line, where
-  `@graphql-eslint/eslint-plugin` groups consecutive lines into one diagnostic.
-  Same issue flagged; different granularity.
 
 See the [rules catalog](/graphql-analyzer/rules/catalog/) for the full list of
 rules available.

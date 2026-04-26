@@ -563,6 +563,19 @@ impl AnalysisHost {
         }
     }
 
+    /// Read the currently-installed lint configuration.
+    ///
+    /// Used by callers (e.g. the napi binding) that swap in a per-call
+    /// override on top of the persistent config and need to restore the
+    /// original afterwards.
+    #[must_use]
+    pub fn lint_config(&self) -> Arc<graphql_linter::LintConfig> {
+        self.db.lint_config_input.map_or_else(
+            || Arc::new(graphql_linter::LintConfig::default()),
+            |input| input.config(&self.db).clone(),
+        )
+    }
+
     /// Set the extract configuration for the project
     ///
     /// This properly invalidates all queries that depend on extract config via Salsa's

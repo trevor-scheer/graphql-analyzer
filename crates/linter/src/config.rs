@@ -282,6 +282,31 @@ impl Default for LintConfig {
 }
 
 impl LintConfig {
+    /// Apply per-rule overrides on top of this config and return the merged
+    /// result. Each override entry fully replaces the corresponding rule's
+    /// config (severity + options) — matches ESLint convention where the
+    /// per-rule entry replaces rather than deep-merges.
+    ///
+    /// Used by callers that layer runtime configuration (e.g. ESLint's
+    /// `rules: { rule: [severity, options] }`) on top of the persistent
+    /// `.graphqlrc.yaml` config without mutating the persistent state.
+    /// Promotes a `Preset` config to `Full` so overrides have somewhere to
+    /// live.
+    #[must_use]
+    pub fn with_overrides(self, overrides: HashMap<String, LintRuleConfig>) -> Self {
+        if overrides.is_empty() {
+            return self;
+        }
+        let (extends, mut rules) = match self {
+            Self::Preset(presets) => (Some(presets), HashMap::new()),
+            Self::Full(FullLintConfig { extends, rules }) => (extends, rules),
+        };
+        for (name, override_cfg) in overrides {
+            rules.insert(name, override_cfg);
+        }
+        Self::Full(FullLintConfig { extends, rules })
+    }
+
     /// Validate the lint configuration against available rules
     ///
     /// Returns an error if any configured rule names are invalid.

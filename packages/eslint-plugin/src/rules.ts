@@ -6,25 +6,85 @@ function toKebabCase(name: string): string {
   return name.replace(/([a-z])([A-Z])/g, "$1-$2").toLowerCase();
 }
 
-// Per-file diagnostic cache keyed by filename + content hash. ESLint's rule
-// machinery calls every rule's Program visitor for each file, so without this
-// the Rust `lint_file` runs once per (rule × file) instead of once per file.
-// The hash rules out stale-content collisions that a length-based key would
-// miss (e.g., successive `lintText` calls with same-length inputs).
+// Per-file diagnostic cache keyed by filename + content hash + per-rule
+// overrides hash. ESLint's rule machinery calls every rule's Program visitor
+// for each file; without a cache the Rust `lint_file` would run once per
+// (rule × file) instead of once per file. The content hash rules out
+// stale-content collisions that a length-based key would miss (e.g.,
+// successive `lintText` calls with same-length inputs).
+//
+// The overrides hash is part of the key so that different rules' option sets
+// don't share a cache slot. Rules with no ESLint-config options (no second
+// rule entry) all hit the same slot — common case stays one binding call per
+// file. Each rule that DOES carry options triggers its own cache slot, so
+// per-rule binding calls are O(rules-with-options) rather than O(rules).
 const fileCache = new Map<string, binding.JsDiagnostic[]>();
 
-function cacheKey(filePath: string, source: string): string {
-  const digest = createHash("sha1").update(source).digest("hex");
+function stableJson(value: unknown): string {
+  // Stable serialization so option-equivalent objects with reordered keys
+  // share a cache slot. Recurses through arrays and objects; primitives
+  // round-trip via JSON.stringify.
+  if (value === null || typeof value !== "object") return JSON.stringify(value);
+  if (Array.isArray(value)) return `[${value.map(stableJson).join(",")}]`;
+  const keys = Object.keys(value as Record<string, unknown>).sort();
+  const entries = keys.map(
+    (k) => `${JSON.stringify(k)}:${stableJson((value as Record<string, unknown>)[k])}`,
+  );
+  return `{${entries.join(",")}}`;
+}
+
+function cacheKey(filePath: string, source: string, overrides?: Record<string, unknown>): string {
+  const overridesPart = overrides && Object.keys(overrides).length > 0 ? stableJson(overrides) : "";
+  const digest = createHash("sha1")
+    .update(source)
+    .update("\0")
+    .update(overridesPart)
+    .digest("hex");
   return `${filePath}\0${digest}`;
 }
 
-function diagnosticsFor(filePath: string, source: string): binding.JsDiagnostic[] {
-  const key = cacheKey(filePath, source);
+function diagnosticsFor(
+  filePath: string,
+  source: string,
+  overrides?: Record<string, unknown>,
+): binding.JsDiagnostic[] {
+  const key = cacheKey(filePath, source, overrides);
   const cached = fileCache.get(key);
   if (cached) return cached;
-  const fresh = binding.lintFile(filePath, source);
+  const fresh = binding.lintFile(filePath, source, overrides);
   fileCache.set(key, fresh);
   return fresh;
+}
+
+// Per-rule override registry populated as ESLint instantiates each rule for a
+// file (`create(context)`). ESLint calls every enabled rule's `create()`
+// before any visitor method fires, so by the time the first `Program()`
+// runs the registry already contains every rule's ESLint-config options
+// for the current run. That lets the binding call use one merged overrides
+// payload instead of one binding call per rule. Different ESLint runs may
+// enable different rules, but options for a given rule are stable across
+// files within a run, so a Map keyed by analyzer rule name converges to
+// the right snapshot.
+const overridesByRule = new Map<string, { severity: string; options?: unknown }>();
+
+function registerOverride(analyzerRuleName: string, options: unknown): void {
+  // ESLint only invokes `create()` for rules enabled at warn or error
+  // (level >= 1), so just registering forces the analyzer to enable the
+  // rule. Severity here is the analyzer's "should I run this rule?" flag,
+  // not the user-facing severity — ESLint stamps its own level on the
+  // resulting messages. `"warn"` is the safe lower bound that always
+  // enables the rule.
+  overridesByRule.set(analyzerRuleName, {
+    severity: "warn",
+    ...(options !== undefined ? { options } : {}),
+  });
+}
+
+function buildOverridesPayload(): Record<string, unknown> | undefined {
+  if (overridesByRule.size === 0) return undefined;
+  const out: Record<string, unknown> = {};
+  for (const [name, cfg] of overridesByRule) out[name] = cfg;
+  return out;
 }
 
 // Rules where graphql-eslint reports a single-position `loc` (start only) so
@@ -104,9 +164,17 @@ function makeRule(analyzerRuleName: string, description: string): Rule.RuleModul
       messages: {},
     },
     create(context) {
+      // Register this rule's ESLint-config options into the shared registry
+      // so the eventual binding call carries every enabled rule's overrides
+      // in one payload (one binding call per file, not per rule).
+      registerOverride(analyzerRuleName, context.options[0]);
       return {
         Program() {
-          const diagnostics = diagnosticsFor(context.filename, context.sourceCode.text);
+          const diagnostics = diagnosticsFor(
+            context.filename,
+            context.sourceCode.text,
+            buildOverridesPayload(),
+          );
           for (const d of diagnostics) {
             if (d.rule !== analyzerRuleName) continue;
             const loc = startOnly
