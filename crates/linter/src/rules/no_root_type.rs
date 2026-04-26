@@ -1,4 +1,4 @@
-use crate::diagnostics::{LintDiagnostic, LintSeverity};
+use crate::diagnostics::{CodeSuggestion, LintDiagnostic, LintSeverity};
 use crate::traits::{LintRule, StandaloneSchemaLintRule};
 use graphql_base_db::{FileId, ProjectFiles};
 use serde::Deserialize;
@@ -116,6 +116,13 @@ impl StandaloneSchemaLintRule for NoRootTypeRuleImpl {
                 source: None,
             };
 
+            // Suggestion: remove the entire root type def (matches
+            // upstream's `fixer.remove(node.parent)`).
+            let def_start: usize = type_def.definition_range.start().into();
+            let def_end: usize = type_def.definition_range.end().into();
+            let suggestion =
+                CodeSuggestion::delete(format!("Remove `{type_name}` type"), def_start, def_end);
+
             diagnostics_by_file
                 .entry(type_def.file_id)
                 .or_default()
@@ -126,6 +133,7 @@ impl StandaloneSchemaLintRule for NoRootTypeRuleImpl {
                         format!("Root type `{type_name}` is forbidden."),
                         "noRootType",
                     )
+                    .with_suggestion(suggestion)
                     .with_help(format!("Remove `{type_name}` type")),
                 );
         }

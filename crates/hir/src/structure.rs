@@ -93,6 +93,11 @@ pub struct EnumValue {
     pub directives: Vec<DirectiveUsage>,
     /// The text range of the enum value's name token
     pub name_range: TextRange,
+    /// The text range of the entire enum value definition (name plus any
+    /// trailing directives like `@deprecated(...)`). Used by lint rules
+    /// that need to surface a "remove this whole value" fix matching
+    /// upstream's `fixer.remove(node)` semantics.
+    pub definition_range: TextRange,
 }
 
 /// A directive applied to a schema element
@@ -675,6 +680,7 @@ fn extract_enum_type(enum_def: &Node<ast::EnumTypeDefinition>, file_id: FileId) 
                 deprecation_reason,
                 directives: extract_directives(&v.directives),
                 name_range: name_range(&v.value),
+                definition_range: node_range(v),
             }
         })
         .collect();
@@ -876,6 +882,7 @@ fn extract_enum_type_extension(ext: &Node<ast::EnumTypeExtension>, file_id: File
                 deprecation_reason,
                 directives: extract_directives(&v.directives),
                 name_range: name_range(&v.value),
+                definition_range: node_range(v),
             }
         })
         .collect();

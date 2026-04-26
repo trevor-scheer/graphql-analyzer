@@ -346,6 +346,8 @@ const EXERCISED = {
     target: "schema.graphql",
     severity: 1,
     span: "full",
+    // Suggestion: `Remove \`Mutation\` type` deletes the full type def.
+    compareSuggest: true,
   },
 
   "no-scalar-result-type-on-mutation": {
@@ -366,6 +368,9 @@ const EXERCISED = {
     target: "schema.graphql",
     severity: 1,
     span: "full",
+    // Suggestion: `Remove \`User\` prefix` rewrites `userId` → `Id`,
+    // matching upstream's case-insensitive prefix strip.
+    compareSuggest: true,
   },
 
   "no-unreachable-types": {
@@ -376,6 +381,8 @@ const EXERCISED = {
     target: "schema.graphql",
     severity: 1,
     span: "full",
+    // Suggestion: `Remove \`Orphan\`` deletes the full type def.
+    compareSuggest: true,
   },
 
   "relay-arguments": {
@@ -543,6 +550,9 @@ const EXERCISED = {
     target: "schema.graphql",
     severity: 1,
     span: "full",
+    // Suggestion: `Remove \`VALUE\` enum value` (and similarly for the
+    // third duplicate) deletes the value's full def range.
+    compareSuggest: true,
   },
 
   "no-unused-fields": {
@@ -640,7 +650,7 @@ test("messages, counts, and source positions match graphql-eslint exactly", asyn
         errors.push(`${rule}: theirs fired (${theirDiag.length}) but ours didn't`);
         return;
       }
-      const drift = parityDiff(ourDiag, theirDiag, cfg.span, cfg.skipFix);
+      const drift = parityDiff(ourDiag, theirDiag, cfg.span, cfg.skipFix, cfg.compareSuggest);
       if (drift) errors.push(`${rule}: ${drift}`);
     });
   }
@@ -683,7 +693,7 @@ test("ESLint-config rule options reach the analyzer (no .graphqlrc.yaml lint blo
         );
         return;
       }
-      const drift = parityDiff(ourDiag, theirDiag, cfg.span, cfg.skipFix);
+      const drift = parityDiff(ourDiag, theirDiag, cfg.span, cfg.skipFix, cfg.compareSuggest);
       if (drift) errors.push(`${rule}: ${drift}`);
     });
   }
@@ -761,15 +771,18 @@ test("START_ONLY_RULES tracks upstream's actual start-only rule set", async () =
   );
 });
 
-function parityDiff(ours, theirs, span, skipFix = false) {
+function parityDiff(ours, theirs, span, skipFix = false, compareSuggest = false) {
   if (ours.length !== theirs.length) {
     return `count drift: ours=${ours.length} theirs=${theirs.length}`;
   }
-  const oursCanon = canonical(ours, span, skipFix);
-  const theirsCanon = canonical(theirs, span, skipFix);
+  const oursCanon = canonical(ours, span, skipFix, compareSuggest);
+  const theirsCanon = canonical(theirs, span, skipFix, compareSuggest);
   if (JSON.stringify(oursCanon) !== JSON.stringify(theirsCanon)) {
+    const flags = [`span=${span}`, skipFix && "skipFix", compareSuggest && "compareSuggest"]
+      .filter(Boolean)
+      .join(", ");
     return (
-      `diff (span=${span}${skipFix ? ", skipFix" : ""})\n` +
+      `diff (${flags})\n` +
       `    ours:   ${JSON.stringify(oursCanon)}\n` +
       `    theirs: ${JSON.stringify(theirsCanon)}`
     );
@@ -782,7 +795,11 @@ function parityDiff(ours, theirs, span, skipFix = false) {
 // Compares position, message, messageId, and fix together — drift in any one
 // surfaces as a difference. Source positions narrow to `line` only when
 // `span === "line"` (graphql-eslint reports start-only loc for some rules).
-function canonical(diagnostics, span, skipFix = false) {
+// `compareSuggest` is opt-in per-fixture: only fixtures that explicitly
+// expect suggestions enable it (the default `false` keeps the 33+ existing
+// no-suggestion fixtures from regressing as suggestion implementations
+// land per-rule).
+function canonical(diagnostics, span, skipFix = false, compareSuggest = false) {
   return diagnostics
     .map((d) => {
       const pos =
@@ -794,6 +811,14 @@ function canonical(diagnostics, span, skipFix = false) {
         message: d.message,
         messageId: d.messageId ?? null,
         ...(skipFix ? {} : { fix: d.fix ? { range: d.fix.range, text: d.fix.text } : null }),
+        ...(compareSuggest
+          ? {
+              suggestions: (d.suggestions ?? []).map((s) => ({
+                desc: s.desc,
+                ...(s.fix ? { fix: { range: s.fix.range, text: s.fix.text } } : {}),
+              })),
+            }
+          : {}),
       };
     })
     .sort((a, b) => {
