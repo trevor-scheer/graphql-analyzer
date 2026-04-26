@@ -36,6 +36,6 @@ export default defineConfig({
   build: { target: "esnext" },
   worker: { format: "es", plugins: () => [wasmStubPlugin()] },
   optimizeDeps: { exclude: ["monaco-editor"] },
-  server: { fs: { allow: [".."] } },
+  server: { fs: { allow: [resolve(__dirname, "../..")] } },
   plugins: [wasmStubPlugin()],
 });

@@ -118,7 +118,19 @@ impl WorkspaceManager {
 
         // For virtual files (non-file:// scheme), search all hosts
         if !uri_string.starts_with("file://") {
-            return self.find_host_for_virtual_file(&uri_string);
+            if let Some(entry) = self.find_host_for_virtual_file(&uri_string) {
+                return Some(entry);
+            }
+
+            // In the wasm path, route unrecognised virtual files to the first
+            // installed workspace so that `didOpen` can add them to a host.
+            #[cfg(not(feature = "native"))]
+            if let Some((workspace_uri, config)) = self.configs.iter().next() {
+                let project_name = config.projects().next().map(|(n, _)| n).unwrap_or("default");
+                return Some((workspace_uri.clone(), project_name.to_string()));
+            }
+
+            return None;
         }
 
         #[cfg(feature = "native")]

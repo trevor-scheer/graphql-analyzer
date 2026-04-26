@@ -26,6 +26,10 @@ pub use crate::global_state::{GlobalState, InlineDispatcher, TaskDispatcher};
 pub use crate::loading::install_workspace_from_init_options;
 pub use crate::main_loop::{tick, ControlFlow};
 
+/// No-op workspace bootstrap for the wasm path; documents are loaded
+/// lazily via `textDocument/didOpen` notifications instead.
+pub fn load_wasm_workspace(_state: &mut GlobalState) {}
+
 use std::path::PathBuf;
 
 use lsp_types::{
@@ -183,7 +187,7 @@ pub fn install_panic_hook() {
     }));
 }
 
-fn build_server_capabilities() -> ServerCapabilities {
+pub fn build_server_capabilities() -> ServerCapabilities {
     use lsp_types::CodeLensOptions;
 
     ServerCapabilities {

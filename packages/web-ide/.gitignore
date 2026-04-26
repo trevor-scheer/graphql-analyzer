@@ -1,5 +1,7 @@
 dist/
 node_modules/
+test-results/
+playwright-report/
 # wasm-pack output — the .d.ts stub is committed; the real artifacts are not
 src/wasm/*.js
 src/wasm/*.wasm

@@ -1,6 +1,9 @@
 import * as monaco from "monaco-editor";
 import { MinimalClient } from "./lsp/client";
 import { wireProviders } from "./lsp/providers";
+
+// Expose monaco globally so Playwright tests can call getModelMarkers.
+(window as unknown as Record<string, unknown>).__monaco = monaco;
 import schemaText from "./demo/schema.graphql?raw";
 import docText from "./demo/queries/example.graphql?raw";
 
@@ -21,15 +24,32 @@ monaco.editor.create(document.getElementById("doc")!, {
   automaticLayout: true,
 });
 
+console.log("Creating LSP worker...");
 const worker = new Worker(new URL("./lsp/worker.ts", import.meta.url), {
   type: "module",
 });
+worker.addEventListener("error", (e) => {
+  console.error("LSP worker error:", e.message, e.filename, e.lineno);
+});
+worker.addEventListener("messageerror", (e) => {
+  console.error("LSP worker messageerror:", e);
+});
+console.log("LSP worker created");
 const client = new MinimalClient(worker);
 const initOptions = {
   schema: "schema.graphql",
   documents: "**/*.graphql",
 };
-await client.start(initOptions);
+let initResult;
+try {
+  initResult = await client.start(initOptions);
+  console.log("LSP initialized", initResult.capabilities);
+  // Signal to e2e tests that the LSP is ready.
+  (window as unknown as Record<string, unknown>).__lspReady = true;
+} catch (e) {
+  console.error("LSP initialize failed", e);
+  throw e;
+}
 
 wireProviders(client);
 
