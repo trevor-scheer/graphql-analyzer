@@ -5,12 +5,12 @@ use crate::global_state::GlobalState;
 #[cfg(feature = "native")]
 use crate::loading;
 use graphql_ide::{DocumentKind, Language};
+#[cfg(feature = "native")]
+use lsp_types::FileChangeType;
 use lsp_types::{
     DidChangeTextDocumentParams, DidChangeWatchedFilesParams, DidCloseTextDocumentParams,
     DidOpenTextDocumentParams, DidSaveTextDocumentParams, Uri,
 };
-#[cfg(feature = "native")]
-use lsp_types::FileChangeType;
 use std::path::Path;
 use std::str::FromStr;
 

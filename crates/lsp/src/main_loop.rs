@@ -1,3 +1,4 @@
+#[cfg(feature = "native")]
 use crossbeam_channel::select;
 use lsp_server::{Connection, Message, Notification, Request};
 
@@ -45,6 +46,7 @@ pub fn tick(connection: &Connection, state: &mut GlobalState) -> ControlFlow {
 
 /// Blocking main loop for the native server. Wakes on any incoming message,
 /// then drains all pending messages via `tick`.
+#[cfg(feature = "native")]
 pub fn run(connection: &Connection, state: &mut GlobalState) {
     loop {
         select! {

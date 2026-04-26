@@ -197,6 +197,7 @@ impl TraceCaptureManager {
     }
 }
 
+#[cfg(feature = "native")]
 fn chrono_timestamp() -> String {
     use std::time::SystemTime;
 
@@ -216,6 +217,7 @@ fn chrono_timestamp() -> String {
     format!("{year:04}-{month:02}-{day:02}T{hours:02}-{minutes:02}-{seconds:02}")
 }
 
+#[cfg(feature = "native")]
 fn epoch_days_to_date(days: u64) -> (u64, u64, u64) {
     // Algorithm from http://howardhinnant.github.io/date_algorithms.html
     let z = days + 719_468;

@@ -451,8 +451,10 @@ pub fn install_workspace_from_init_options(
     workspace_path: &Path,
     init_options: serde_json::Value,
 ) -> Result<(), String> {
-    let config: graphql_config::GraphQLConfig = serde_json::from_value(init_options)
-        .map_err(|e| format!("`initializationOptions` is not a valid graphql_config::GraphQLConfig: {e}"))?;
+    let config: graphql_config::GraphQLConfig =
+        serde_json::from_value(init_options).map_err(|e| {
+            format!("`initializationOptions` is not a valid graphql_config::GraphQLConfig: {e}")
+        })?;
     state
         .workspace
         .workspace_roots

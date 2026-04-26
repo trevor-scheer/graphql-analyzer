@@ -126,7 +126,11 @@ impl WorkspaceManager {
             // installed workspace so that `didOpen` can add them to a host.
             #[cfg(not(feature = "native"))]
             if let Some((workspace_uri, config)) = self.configs.iter().next() {
-                let project_name = config.projects().next().map(|(n, _)| n).unwrap_or("default");
+                let project_name = config
+                    .projects()
+                    .next()
+                    .map(|(n, _)| n)
+                    .unwrap_or("default");
                 return Some((workspace_uri.clone(), project_name.to_string()));
             }
 

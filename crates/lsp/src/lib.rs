@@ -4,13 +4,6 @@
 //! server communicating over stdio. It uses a sync main loop with a thread pool
 //! for Salsa query execution.
 
-// Under wasm, the native entrypoint (`run_server`) is gated out, so most items
-// appear dead until the wasm entrypoint (Task 10) provides a caller.
-// This suppression should be removed once the wasm entrypoint in Task 10
-// (`crates/lsp-wasm`) provides a caller that reaches this crate's public API.
-// After Task 10 lands, verify removal:
-//   cargo check -p graphql-lsp --no-default-features --features wasm
-#![cfg_attr(not(feature = "native"), allow(dead_code, unused_imports))]
 
 mod conversions;
 mod dispatch;
@@ -30,6 +23,7 @@ pub use crate::main_loop::{tick, ControlFlow};
 /// lazily via `textDocument/didOpen` notifications instead.
 pub fn load_wasm_workspace(_state: &mut GlobalState) {}
 
+#[cfg(feature = "native")]
 use std::path::PathBuf;
 
 use lsp_types::{
@@ -45,6 +39,7 @@ use tracing_subscriber::layer::SubscriberExt;
 use tracing_subscriber::Layer;
 use tracing_subscriber::Registry;
 
+#[cfg(feature = "native")]
 use server::{StatusNotification, StatusParams};
 
 /// Build a tracing `EnvFilter`, always suppressing Salsa's internal logs
@@ -464,12 +459,10 @@ pub fn run_server() {
     let (introspection_result_sender, introspection_result_receiver) =
         crossbeam_channel::unbounded();
 
-    let dispatcher: Box<dyn global_state::TaskDispatcher> = Box::new(
-        global_state::ThreadPoolDispatcher::new(threadpool::ThreadPool::with_name(
-            "salsa-worker".into(),
-            num_cpus(),
-        )),
-    );
+    let dispatcher: Box<dyn global_state::TaskDispatcher> =
+        Box::new(global_state::ThreadPoolDispatcher::new(
+            threadpool::ThreadPool::with_name("salsa-worker".into(), num_cpus()),
+        ));
     let mut state = global_state::GlobalState::new(
         connection.sender.clone(),
         dispatcher,
@@ -505,6 +498,7 @@ pub fn run_server() {
     io_threads.join().expect("io threads");
 }
 
+#[cfg(feature = "native")]
 fn num_cpus() -> usize {
     std::thread::available_parallelism()
         .map(usize::from)

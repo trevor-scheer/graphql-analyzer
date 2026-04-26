@@ -171,7 +171,12 @@ mod tests {
         let (msg_sender, msg_receiver) = unbounded::<Message>();
         let (intro_req_sender, _intro_req_receiver) = unbounded();
         let (_intro_res_sender, intro_res_receiver) = unbounded();
-        let state = GlobalState::new(msg_sender, Box::new(crate::global_state::InlineDispatcher), intro_req_sender, intro_res_receiver);
+        let state = GlobalState::new(
+            msg_sender,
+            Box::new(crate::global_state::InlineDispatcher),
+            intro_req_sender,
+            intro_res_receiver,
+        );
         (state, msg_receiver)
     }
 
