@@ -99,8 +99,27 @@ fi
 
 ## Enabling expensive rules in CI
 
-Some lint rules (like `noUnusedFields`) are too expensive for real-time editor feedback but work well in CI. You can enable them via CLI flags:
+Some lint rules (like `noUnusedFields`) are too expensive for real-time editor feedback but work well in CI. Enable them via CLI-specific config overrides in `.graphqlrc.yaml`:
+
+```yaml
+extensions:
+  lint:
+    extends: recommended
+  cli:
+    lint:
+      rules:
+        noUnusedFields: error
+        noUnusedFragments: error
+```
+
+The `extensions.cli.lint.rules` block applies only when running the CLI, so the LSP and editor stays fast.
+
+## Enforcing zero warnings in CI
+
+Use `--max-warnings 0` to treat any warning as a failure:
 
 ```bash
-graphql check --rule noUnusedFields=error --rule noUnusedFragments=error
+graphql check --max-warnings 0
 ```
+
+This returns exit code 6 if any warnings are found, making CI strict about warnings without promoting them all to errors in the config.

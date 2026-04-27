@@ -80,3 +80,128 @@ Load a specific project by name.
 ### get_project_diagnostics
 
 Get all diagnostics for all loaded projects. No parameters.
+
+### goto_definition
+
+Find the definition of a GraphQL symbol (type, field, fragment, directive, etc.) at a given file position. Returns file locations with ranges.
+
+**Parameters:**
+
+- `file_path` (required) — Absolute path to the file
+- `line` (required) — Zero-based line number
+- `character` (required) — Zero-based character offset
+- `project` (optional) — Project name
+
+### find_references
+
+Find all references to a GraphQL symbol across the project at a given file position. Returns all file locations where the symbol is used.
+
+**Parameters:**
+
+- `file_path` (required) — Absolute path to the file
+- `line` (required) — Zero-based line number
+- `character` (required) — Zero-based character offset
+- `include_declaration` (optional) — Whether to include the declaration itself
+- `project` (optional) — Project name
+
+### hover
+
+Get hover information (type details, documentation, deprecation) for a GraphQL symbol at a given position. Returns markdown content.
+
+**Parameters:**
+
+- `file_path` (required) — Absolute path to the file
+- `line` (required) — Zero-based line number
+- `character` (required) — Zero-based character offset
+- `project` (optional) — Project name
+
+### document_symbols
+
+Get a hierarchical symbol outline for a GraphQL file (types, operations, fragments, fields). Useful for understanding file structure at a glance.
+
+**Parameters:**
+
+- `file_path` (required) — Absolute path to the file
+- `project` (optional) — Project name
+
+### workspace_symbols
+
+Search for GraphQL symbols by name across all workspace files. Returns matching symbols with their locations and kinds.
+
+**Parameters:**
+
+- `query` (required) — Symbol name or prefix to search for
+- `project` (optional) — Project name
+
+### get_completions
+
+Get completion suggestions at a cursor position in a GraphQL file. Returns labeled items with kind, detail, and documentation.
+
+**Parameters:**
+
+- `file_path` (required) — Absolute path to the file
+- `line` (required) — Zero-based line number
+- `character` (required) — Zero-based character offset
+- `project` (optional) — Project name
+
+### get_file_diagnostics
+
+Get diagnostics (errors and warnings) for a specific file. More targeted than `get_project_diagnostics` when you only need one file.
+
+**Parameters:**
+
+- `file_path` (required) — Absolute path to the file
+- `project` (optional) — Project name
+
+### get_schema_types
+
+List all types in the schema with their kind and metadata. Optionally filter by kind (`object`, `interface`, `union`, `enum`, `scalar`, `input_object`).
+
+**Parameters:**
+
+- `kind` (optional) — Filter by type kind
+- `project` (optional) — Project name
+
+### get_type_info
+
+Get full details for a named type: fields, arguments, interfaces, directives, enum values, and union members.
+
+**Parameters:**
+
+- `type_name` (required) — Name of the type to look up
+- `project` (optional) — Project name
+
+### get_schema_sdl
+
+Return the full merged schema as SDL text, with all extensions applied.
+
+**Parameters:**
+
+- `project` (optional) — Project name
+
+### get_operations
+
+Extract all operations from the loaded project with their names, types, variables, and fragment dependencies. Optionally filter by file.
+
+**Parameters:**
+
+- `file_path` (optional) — Filter to operations in a specific file
+- `project` (optional) — Project name
+
+### get_query_complexity
+
+Calculate complexity scores for operations. Returns total complexity, depth, per-field breakdown, and warnings. Optionally filter by operation name.
+
+**Parameters:**
+
+- `operation_name` (optional) — Filter to a specific operation
+- `project` (optional) — Project name
+
+### introspect_endpoint
+
+Fetch a schema from a remote GraphQL endpoint via introspection and return the SDL. Supports custom headers for authentication (e.g., `Authorization`).
+
+**Parameters:**
+
+- `url` (required) — GraphQL endpoint URL
+- `headers` (optional) — Map of HTTP headers to include in the request

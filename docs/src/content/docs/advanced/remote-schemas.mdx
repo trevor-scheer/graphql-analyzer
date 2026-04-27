@@ -12,7 +12,29 @@ schema: https://api.example.com/graphql
 documents: src/**/*.{graphql,tsx}
 ```
 
-The tool sends an introspection query to the endpoint and caches the result.
+The tool sends an introspection query to the endpoint. Introspection runs each time the schema is loaded; results are held in memory by the running LSP/CLI process.
+
+## Remote schema with options
+
+For authenticated endpoints or custom timeouts, use the structured form:
+
+```yaml
+schema:
+  url: https://api.example.com/graphql
+  headers:
+    Authorization: Bearer ${API_TOKEN}
+  timeout: 60
+  retry: 3
+```
+
+| Field     | Required | Description                                                 |
+| --------- | -------- | ----------------------------------------------------------- |
+| `url`     | Yes      | The GraphQL endpoint URL to introspect                      |
+| `headers` | No       | Map of header name → value; supports `${VAR}` interpolation |
+| `timeout` | No       | Request timeout in seconds (default: 30)                    |
+| `retry`   | No       | Number of retry attempts on failure (default: 0)            |
+
+The `${VAR}` syntax pulls values from environment variables at config load time. Use `${VAR:default}` to provide a fallback when the variable is unset. This keeps secrets out of config files that are checked into source control.
 
 ## Per-project remote schemas
 
@@ -28,9 +50,9 @@ projects:
 
 ## How it works
 
-1. On first load, the tool sends a standard introspection query to the endpoint
-2. The schema response is cached locally
-3. Both the LSP and CLI use the cached schema for validation
+1. The tool sends a standard introspection query to the endpoint each time the schema is loaded
+2. The schema response is held in memory by the running LSP/CLI process
+3. Both the LSP and CLI use the in-memory schema for validation
 
 ## Troubleshooting
 

@@ -8,7 +8,7 @@ description: Enforce naming conventions for operations, fragments, and variables
 | ---------------- | ------------------ |
 | Config name      | `namingConvention` |
 | Default severity | `—`                |
-| Context          | Document           |
+| Context          | Document + Schema  |
 | In recommended   | No                 |
 
 ## What it checks
@@ -35,6 +35,49 @@ query GetUser {
 }
 ```
 
+## Options
+
+Each option key is a GraphQL AST kind name (or a comma-separated list of kinds). The value is either a case-style string or a detailed object.
+
+**Accepted case styles:** `camelCase`, `PascalCase`, `snake_case`, `UPPER_CASE`
+
+**Document-side keys:**
+
+| Key                   | What it covers                      |
+| --------------------- | ----------------------------------- |
+| `OperationDefinition` | Query, mutation, subscription names |
+| `FragmentDefinition`  | Fragment names                      |
+| `VariableDefinition`  | Variable names inside operations    |
+
+**Schema-side keys:**
+
+| Key                         | What it covers                      |
+| --------------------------- | ----------------------------------- |
+| `types`                     | Umbrella default for all type kinds |
+| `ObjectTypeDefinition`      | Object type names                   |
+| `InterfaceTypeDefinition`   | Interface type names                |
+| `EnumTypeDefinition`        | Enum type names                     |
+| `UnionTypeDefinition`       | Union type names                    |
+| `ScalarTypeDefinition`      | Scalar type names                   |
+| `InputObjectTypeDefinition` | Input object type names             |
+| `FieldDefinition`           | Field names on types                |
+| `InputValueDefinition`      | Input field and argument names      |
+| `EnumValueDefinition`       | Enum value names                    |
+| `DirectiveDefinition`       | Directive names                     |
+
+**Detailed object form** (use instead of a bare string):
+
+```yaml
+OperationDefinition:
+  style: PascalCase
+  forbiddenPrefixes: ["get", "fetch"]
+  forbiddenSuffixes: ["Query", "Mutation"]
+  requiredPrefixes: []
+  requiredSuffixes: []
+  allowLeadingUnderscore: false
+  allowTrailingUnderscore: false
+```
+
 ## Configuration
 
 ```yaml
@@ -42,5 +85,12 @@ extensions:
   graphql-analyzer:
     lint:
       rules:
-        namingConvention: warn
+        namingConvention:
+          - warn
+          - OperationDefinition: PascalCase
+            FragmentDefinition: PascalCase
+            VariableDefinition: camelCase
+            types: PascalCase
+            FieldDefinition: camelCase
+            EnumValueDefinition: UPPER_CASE
 ```

@@ -13,10 +13,11 @@ graphql check [OPTIONS]
 
 ## Options
 
-| Option              | Description                                        |
-| ------------------- | -------------------------------------------------- |
-| `--format <FORMAT>` | Output format: `human` (default), `json`, `github` |
-| `--watch`           | Watch for file changes and re-check                |
+| Option                  | Description                                                                            |
+| ----------------------- | -------------------------------------------------------------------------------------- |
+| `-f, --format <FORMAT>` | Output format: `human` (default), `json`, `github`, `sarif`                            |
+| `-w, --watch`           | Watch for file changes and re-check                                                    |
+| `--max-warnings <N>`    | Maximum number of warnings allowed before returning a non-zero exit code (exit code 6) |
 
 ## Examples
 
@@ -38,3 +39,4 @@ graphql --project backend check
 
 - `0` — No validation or lint errors
 - `1` — Errors found
+- `6` — Warning threshold exceeded (`--max-warnings`)
