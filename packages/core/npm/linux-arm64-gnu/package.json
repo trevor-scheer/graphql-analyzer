@@ -1,6 +1,6 @@
 {
   "name": "@graphql-analyzer/core-linux-arm64-gnu",
-  "version": "0.1.1-alpha.0",
+  "version": "0.1.1",
   "description": "graphql-analyzer native addon (linux arm64 gnu)",
   "license": "MIT OR Apache-2.0",
   "repository": {
