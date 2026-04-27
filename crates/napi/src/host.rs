@@ -6,12 +6,25 @@ use parking_lot::Mutex;
 
 use graphql_ide::{AnalysisHost, DocumentKind, FilePath, Language};
 
-pub struct NapiAnalysisHost {
+/// One project's analysis state. We keep a separate `AnalysisHost` per
+/// project so each project's schema, documents, and lint config stay
+/// isolated — files in `apps/web` don't accidentally see schemas from
+/// `apps/server` and vice versa.
+struct ProjectState {
+    config: graphql_config::ProjectConfig,
     host: AnalysisHost,
-    /// Canonicalized paths of files loaded during `init_from_config`. On
-    /// subsequent `lint_file` calls for these paths we skip re-adding the file,
-    /// preserving the document kind (Schema vs Executable) set at init time.
+    /// Canonicalized paths of files loaded during init. On subsequent
+    /// `lint_file` calls for these paths we skip re-adding the file,
+    /// preserving the document kind (Schema vs Executable) set at init.
     known_files: HashSet<PathBuf>,
+}
+
+pub struct NapiAnalysisHost {
+    /// Per-project analysis state. Empty until `init_from_config` runs.
+    projects: Vec<ProjectState>,
+    /// Workspace root resolved from the config file's parent directory.
+    /// Used to make file paths relative for `ProjectConfig::matches_file`.
+    workspace_root: PathBuf,
     initialized: bool,
 }
 
@@ -20,8 +33,8 @@ static HOST: OnceLock<Mutex<NapiAnalysisHost>> = OnceLock::new();
 pub fn get_host() -> &'static Mutex<NapiAnalysisHost> {
     HOST.get_or_init(|| {
         Mutex::new(NapiAnalysisHost {
-            host: AnalysisHost::new(),
-            known_files: HashSet::new(),
+            projects: Vec::new(),
+            workspace_root: PathBuf::new(),
             initialized: false,
         })
     })
@@ -34,61 +47,63 @@ impl NapiAnalysisHost {
         // calls `init` once per resolved config path, so monorepos with
         // multiple configs (and parity tests that spin up many throwaway
         // projects in a single process) need each init to start fresh.
-        self.host = AnalysisHost::new();
-        self.known_files.clear();
+        self.projects.clear();
         self.initialized = false;
 
         let config = graphql_config::load_config(config_path)?;
         let base_dir = config_path.parent().unwrap_or_else(|| Path::new("."));
+        self.workspace_root = base_dir.to_path_buf();
 
-        let project_count = config.projects().count();
-        if project_count > 1 {
-            // Supporting multi-project configs requires selecting the project
-            // whose documents/schema globs match the file being linted. That
-            // dispatch isn't wired yet — fail loudly rather than silently
-            // dropping the extra projects.
-            anyhow::bail!(
-                "Multi-project .graphqlrc configs are not yet supported by the ESLint plugin \
-                 (found {project_count} projects in {}). Use a single-project config for now.",
-                config_path.display()
-            );
-        }
+        for (name, project) in config.projects() {
+            let mut host = AnalysisHost::new();
 
-        let (_name, project) = config
-            .projects()
-            .next()
-            .ok_or_else(|| anyhow::anyhow!("No projects found in config"))?;
-
-        if let Some(lint_value) = project.lint() {
-            let lint_config = serde_json::from_value::<graphql_linter::LintConfig>(lint_value)?;
-            if let Err(e) = lint_config.validate() {
-                return Err(anyhow::anyhow!("Invalid lint configuration:\n\n{e}"));
+            if let Some(lint_value) = project.lint() {
+                let lint_config = serde_json::from_value::<graphql_linter::LintConfig>(lint_value)?;
+                if let Err(e) = lint_config.validate() {
+                    return Err(anyhow::anyhow!(
+                        "Invalid lint configuration in project '{name}':\n\n{e}"
+                    ));
+                }
+                host.set_lint_config(lint_config);
             }
-            self.host.set_lint_config(lint_config);
-        }
 
-        if let Some(ref extensions) = project.extensions {
-            if let Some(extract_value) = extensions.get("extractConfig") {
-                let extract_config =
-                    serde_json::from_value::<graphql_extract::ExtractConfig>(extract_value.clone())
-                        .map_err(|e| anyhow::anyhow!("Invalid extractConfig:\n\n{e}"))?;
-                self.host.set_extract_config(extract_config);
+            if let Some(ref extensions) = project.extensions {
+                if let Some(extract_value) = extensions.get("extractConfig") {
+                    let extract_config = serde_json::from_value::<graphql_extract::ExtractConfig>(
+                        extract_value.clone(),
+                    )
+                    .map_err(|e| {
+                        anyhow::anyhow!("Invalid extractConfig in project '{name}':\n\n{e}")
+                    })?;
+                    host.set_extract_config(extract_config);
+                }
             }
-        }
 
-        let schema_result = self.host.load_schemas_from_config(project, base_dir)?;
-        for path in &schema_result.loaded_paths {
-            self.known_files.insert(canonicalize_or(path));
-        }
-
-        let extract_config = self.host.get_extract_config();
-        let (loaded, _result) =
-            self.host
-                .load_documents_from_config(project, base_dir, &extract_config);
-        for file in &loaded {
-            if let Some(path) = file_path_to_pathbuf(&file.path) {
-                self.known_files.insert(canonicalize_or(&path));
+            let mut known_files = HashSet::new();
+            let schema_result = host.load_schemas_from_config(project, base_dir)?;
+            for path in &schema_result.loaded_paths {
+                known_files.insert(canonicalize_or(path));
             }
+
+            let extract_config = host.get_extract_config();
+            let (loaded, _result) =
+                host.load_documents_from_config(project, base_dir, &extract_config);
+            for file in &loaded {
+                if let Some(path) = file_path_to_pathbuf(&file.path) {
+                    known_files.insert(canonicalize_or(&path));
+                }
+            }
+
+            let _ = name; // currently only surfaced in error messages above
+            self.projects.push(ProjectState {
+                config: project.clone(),
+                host,
+                known_files,
+            });
+        }
+
+        if self.projects.is_empty() {
+            return Err(anyhow::anyhow!("No projects found in config"));
         }
 
         self.initialized = true;
@@ -96,24 +111,108 @@ impl NapiAnalysisHost {
     }
 
     pub fn extract_config(&self) -> graphql_extract::ExtractConfig {
-        self.host.get_extract_config()
+        // Extract config is only used for embedded-GraphQL extraction in the
+        // processor, before any per-file routing happens. Use the first
+        // project's config — projects in a single workspace typically share
+        // pluck conventions, and a stricter API would force the processor to
+        // know which file it's looking at before extracting.
+        self.projects
+            .first()
+            .map_or_else(graphql_extract::ExtractConfig::default, |p| {
+                p.host.get_extract_config()
+            })
     }
 
-    pub fn lint_file(&mut self, path: &str, source: &str) -> Vec<graphql_ide::Diagnostic> {
+    pub fn lint_file(
+        &mut self,
+        path: &str,
+        source: &str,
+        overrides: Option<std::collections::HashMap<String, graphql_linter::LintRuleConfig>>,
+    ) -> Vec<graphql_ide::Diagnostic> {
         let file_path = FilePath::from_path(Path::new(path));
         let canonical = canonicalize_or(Path::new(path));
 
-        if !self.known_files.contains(&canonical) {
+        let Some(project_idx) = self.project_for_file(&canonical) else {
+            // No project claims this file. Return empty rather than guessing
+            // — emitting a diagnostic from the wrong project's schema would
+            // be worse than emitting none.
+            return Vec::new();
+        };
+        let project = &mut self.projects[project_idx];
+
+        if !project.known_files.contains(&canonical) {
             let (language, document_kind) = language_and_kind_from_path(path);
-            self.host
+            project
+                .host
                 .add_file(&file_path, source, language, document_kind);
         }
         // Known files were loaded during init; ESLint passes the on-disk
         // content, which matches. Live-editor updates would need a separate
         // path here.
 
-        let snapshot = self.host.snapshot();
-        snapshot.all_diagnostics_for_file(&file_path)
+        // Apply per-call rule overrides on top of the persistent config for
+        // the duration of this lint call, then restore. ESLint passes per-
+        // rule options through `rules: { rule: [severity, options] }` and
+        // the shim forwards them here so they take precedence over whatever
+        // `.graphqlrc.yaml` provided. Restoration keeps subsequent calls
+        // (and other consumers of the same host) on the persistent config.
+        let restore = if let Some(overrides) = overrides.filter(|m| !m.is_empty()) {
+            let original = project.host.lint_config();
+            let merged = (*original).clone().with_overrides(overrides);
+            project.host.set_lint_config(merged);
+            Some(original)
+        } else {
+            None
+        };
+
+        let diagnostics = {
+            let snapshot = project.host.snapshot();
+            snapshot.all_diagnostics_for_file(&file_path)
+        };
+
+        if let Some(original) = restore {
+            project.host.set_lint_config((*original).clone());
+        }
+
+        diagnostics
+    }
+
+    /// Resolve a file path to the project that owns it, mirroring
+    /// graphql-config's `getProjectForFile` semantics:
+    ///
+    /// 1. First project whose `matches_file` returns true wins.
+    /// 2. If no project matches and exactly one project has no
+    ///    include/exclude/schema/document constraints, that catch-all
+    ///    project wins.
+    /// 3. Otherwise, return `None` and let the caller produce an empty
+    ///    result.
+    ///
+    /// The single-project case ends up at branch 1 or 2 trivially, so this
+    /// stays a no-op fast path for non-monorepo users.
+    fn project_for_file(&self, canonical: &Path) -> Option<usize> {
+        for (idx, p) in self.projects.iter().enumerate() {
+            if p.config.matches_file(canonical, &self.workspace_root) {
+                return Some(idx);
+            }
+        }
+        let unconstrained: Vec<usize> = self
+            .projects
+            .iter()
+            .enumerate()
+            .filter(|(_, p)| !p.config.has_file_constraints())
+            .map(|(i, _)| i)
+            .collect();
+        if unconstrained.len() == 1 {
+            return Some(unconstrained[0]);
+        }
+        // Single-project default: even if it has constraints, treat it as
+        // the catch-all (matches the legacy single-project behavior where
+        // any unmatched file still got linted against the only project).
+        if self.projects.len() == 1 {
+            return Some(0);
+        }
+        let _ = canonical; // suppress unused-var when no project claims the file
+        None
     }
 }
 

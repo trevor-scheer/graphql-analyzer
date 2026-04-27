@@ -1,4 +1,4 @@
-use crate::diagnostics::{LintDiagnostic, LintSeverity};
+use crate::diagnostics::{CodeSuggestion, LintDiagnostic, LintSeverity};
 use crate::traits::{LintRule, StandaloneSchemaLintRule};
 use graphql_base_db::{FileId, ProjectFiles};
 use graphql_hir::{DirectiveUsage, TextRange};
@@ -164,6 +164,16 @@ impl NodeKind<'_> {
             }
         }
     }
+
+    /// The bare name used in upstream's "Remove `${nodeName}`" suggestion
+    /// description (just the field/argument/enum value identifier).
+    fn bare_name(&self) -> &str {
+        match self {
+            NodeKind::Field { field, .. } => field,
+            NodeKind::InputValue { arg, .. } => arg,
+            NodeKind::EnumValue { value, .. } => value,
+        }
+    }
 }
 
 fn span_from_range(range: TextRange) -> graphql_syntax::SourceSpan {
@@ -185,6 +195,7 @@ fn diagnose(
     deprecated: &DirectiveUsage,
     argument_name: &str,
     node: &NodeKind<'_>,
+    parent_def_range: TextRange,
 ) -> Option<LintDiagnostic> {
     let node_name = node.render();
     let directive_span = span_from_range(deprecated.name_range);
@@ -240,15 +251,31 @@ fn diagnose(
 
     // 4) Date is in the past — MESSAGE_CAN_BE_REMOVED.
     if now_ms() > deletion_ms {
-        return Some(
-            LintDiagnostic::new(
-                directive_span,
-                LintSeverity::Warning,
-                format!("{node_name} \u{0441}an be removed"),
-                "requireDeprecationDate",
-            )
-            .with_message_id("MESSAGE_CAN_BE_REMOVED"),
-        );
+        // Mirror upstream's `fixer.remove(parent)`: remove the entire
+        // field/argument/enum value definition.
+        let bare = node.bare_name();
+        let def_start: usize = parent_def_range.start().into();
+        let def_end: usize = parent_def_range.end().into();
+        let suggestion = if def_start < def_end {
+            Some(CodeSuggestion::delete(
+                format!("Remove `{bare}`"),
+                def_start,
+                def_end,
+            ))
+        } else {
+            None
+        };
+        let mut diag = LintDiagnostic::new(
+            directive_span,
+            LintSeverity::Warning,
+            format!("{node_name} \u{0441}an be removed"),
+            "requireDeprecationDate",
+        )
+        .with_message_id("MESSAGE_CAN_BE_REMOVED");
+        if let Some(s) = suggestion {
+            diag = diag.with_suggestion(s);
+        }
+        return Some(diag);
     }
 
     None
@@ -282,6 +309,7 @@ impl StandaloneSchemaLintRule for RequireDeprecationDateRuleImpl {
                             field: &field.name,
                             parent: &type_def.name,
                         },
+                        field.definition_range,
                     ) {
                         diagnostics_by_file
                             .entry(type_def.file_id)
@@ -299,6 +327,7 @@ impl StandaloneSchemaLintRule for RequireDeprecationDateRuleImpl {
                                 arg: &arg.name,
                                 field: &field.name,
                             },
+                            arg.definition_range,
                         ) {
                             diagnostics_by_file
                                 .entry(type_def.file_id)
@@ -318,6 +347,7 @@ impl StandaloneSchemaLintRule for RequireDeprecationDateRuleImpl {
                             value: &ev.name,
                             parent: &type_def.name,
                         },
+                        ev.definition_range,
                     ) {
                         diagnostics_by_file
                             .entry(type_def.file_id)

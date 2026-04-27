@@ -1,4 +1,4 @@
-use crate::diagnostics::{LintDiagnostic, LintSeverity};
+use crate::diagnostics::{CodeSuggestion, LintDiagnostic, LintSeverity};
 use crate::traits::{LintRule, StandaloneSchemaLintRule};
 use graphql_base_db::{FileId, ProjectFiles};
 use graphql_hir::TypeDefKind;
@@ -120,6 +120,18 @@ impl StandaloneSchemaLintRule for NoUnreachableTypesRuleImpl {
                     _ => "Type",
                 };
 
+                // Suggestion: remove the entire type def (matches upstream's
+                // `fixer.remove(node.parent)`). Range comes from
+                // `TypeDef.definition_range`, which the HIR already
+                // populates with the full declaration's byte span.
+                let def_start: usize = type_def.definition_range.start().into();
+                let def_end: usize = type_def.definition_range.end().into();
+                let suggestion = CodeSuggestion::delete(
+                    format!("Remove `{}`", type_def.name),
+                    def_start,
+                    def_end,
+                );
+
                 diagnostics_by_file
                     .entry(type_def.file_id)
                     .or_default()
@@ -131,6 +143,7 @@ impl StandaloneSchemaLintRule for NoUnreachableTypesRuleImpl {
                             "noUnreachableTypes",
                         )
                         .with_message_id("no-unreachable-types")
+                        .with_suggestion(suggestion)
                         .with_help(
                             "Remove the unreachable type, or reference it from a reachable type",
                         )

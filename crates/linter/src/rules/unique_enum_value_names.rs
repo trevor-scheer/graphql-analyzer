@@ -1,4 +1,4 @@
-use crate::diagnostics::{LintDiagnostic, LintSeverity};
+use crate::diagnostics::{CodeSuggestion, LintDiagnostic, LintSeverity};
 use crate::traits::{LintRule, StandaloneSchemaLintRule};
 use graphql_base_db::{FileId, ProjectFiles};
 use graphql_hir::TypeDefKind;
@@ -63,6 +63,18 @@ impl StandaloneSchemaLintRule for UniqueEnumValueNamesRuleImpl {
                     source: None,
                 };
 
+                // Suggestion: remove the duplicate enum value def (matches
+                // upstream's `fixer.remove(duplicate)`). Range covers the
+                // value's name plus any trailing directives via
+                // `EnumValue.definition_range`.
+                let def_start: usize = ev.definition_range.start().into();
+                let def_end: usize = ev.definition_range.end().into();
+                let suggestion = CodeSuggestion::delete(
+                    format!("Remove `{}` enum value", ev.name),
+                    def_start,
+                    def_end,
+                );
+
                 diagnostics_by_file.entry(type_def.file_id).or_default().push(
                     LintDiagnostic::new(
                         span,
@@ -72,7 +84,8 @@ impl StandaloneSchemaLintRule for UniqueEnumValueNamesRuleImpl {
                             ev.name, type_def.name
                         ),
                         "uniqueEnumValueNames",
-                    ),
+                    )
+                    .with_suggestion(suggestion),
                 );
             }
         }

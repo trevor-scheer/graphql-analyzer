@@ -270,6 +270,7 @@ pub(crate) fn handle_code_action(
                 message_id: None,
                 source: "graphql-linter".to_string(),
                 fix: None,
+                suggestions: Vec::new(),
                 help: diag.help.clone(),
                 url: diag.url.clone(),
                 tags: diag

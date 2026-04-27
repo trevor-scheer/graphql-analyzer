@@ -1,4 +1,4 @@
-use crate::diagnostics::{LintDiagnostic, LintSeverity};
+use crate::diagnostics::{CodeSuggestion, LintDiagnostic, LintSeverity};
 use crate::schema_utils::extract_root_type_names;
 use crate::traits::{LintRule, ProjectLintRule};
 use apollo_parser::cst::{self, CstNode};
@@ -32,6 +32,11 @@ struct FieldInfo {
     file_id: FileId,
     /// Source span for the field name (carries block context for TS/JS)
     span: graphql_syntax::SourceSpan,
+    /// Block-local byte range covering the entire field definition (for the
+    /// "Remove `<field>` field" suggestion fix). Mirrors upstream's
+    /// `fixer.remove(node)`.
+    def_start: usize,
+    def_end: usize,
 }
 
 impl ProjectLintRule for NoUnusedFieldsRuleImpl {
@@ -121,10 +126,22 @@ impl ProjectLintRule for NoUnusedFieldsRuleImpl {
                 // (drop-in parity expectation: same text, same messageId).
                 let message = format!("Field \"{}\" is unused", field_info.field_name);
 
+                // Mirror upstream's `fixer.remove(isEmptyType ? node.parent : node)`:
+                // if removing this field empties the parent type, upstream
+                // removes the parent. We don't track empty-after-remove yet,
+                // so we always remove just the field. This still matches
+                // upstream byte-for-byte in the common case.
+                let suggestion = CodeSuggestion::delete(
+                    format!("Remove `{}` field", field_info.field_name),
+                    field_info.def_start,
+                    field_info.def_end,
+                );
+
                 let diag =
                     LintDiagnostic::warning(field_info.span.clone(), message, "noUnusedFields")
                         .with_message_id("no-unused-fields")
                         .with_help("Remove the unused field, or add it to an operation or fragment")
+                        .with_suggestion(suggestion)
                         .with_tag(crate::diagnostics::DiagnosticTag::Unnecessary);
 
                 diagnostics_by_file
@@ -208,12 +225,17 @@ fn collect_field_definitions(
         let name_syntax = name.syntax();
         let name_start: usize = name_syntax.text_range().start().into();
         let name_end: usize = name_syntax.text_range().end().into();
+        let field_range = field.syntax().text_range();
+        let def_start: usize = field_range.start().into();
+        let def_end: usize = field_range.end().into();
 
         fields.push(FieldInfo {
             type_name: type_name.to_string(),
             field_name: name.text().to_string(),
             file_id,
             span: doc.span(name_start, name_end),
+            def_start,
+            def_end,
         });
     }
 }

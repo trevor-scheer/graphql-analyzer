@@ -18,11 +18,11 @@
 // force a parity decision on first sight.
 //
 // Intentional gaps (see docs/src/content/docs/linting/eslint-plugin.mdx):
-//   - Validation-category rules from graphql-js (`known-type-names`,
-//     `fields-on-correct-type`, etc.) run inside the analyzer's validation
-//     pass, not as configurable lint rules. `KNOWN_MISSING` captures these
-//     so we fail CI when graphql-eslint adds a non-validation rule we should
-//     have.
+//   - GraphQL spec validation rules (`known-type-names`, `fields-on-correct-type`,
+//     etc.) always run inside the analyzer's validation pass. We expose them
+//     as no-op stub rules (`STUB_RULES`) so users migrating upstream's preset
+//     configs don't see "rule not found" errors — but the configurable shim
+//     never fires, since the underlying check is always-on.
 //   - A handful of linter-specific rules we have that graphql-eslint doesn't
 //     (`operation-name-suffix`, `redundant-fields`, `require-id-field`, etc.).
 
@@ -36,6 +36,7 @@ import { fileURLToPath } from "node:url";
 import * as path from "node:path";
 
 import ours from "../dist/index.js";
+import { START_ONLY_RULES } from "../dist/rules.js";
 import theirsNs from "@graphql-eslint/eslint-plugin";
 
 const theirs = theirsNs.default ?? theirsNs;
@@ -45,11 +46,22 @@ const __dirname = path.dirname(fileURLToPath(import.meta.url));
 // prevents rule-N's project state from leaking into rule-(N+1)'s diagnostics.
 const THEIRS_RUNNER = path.join(__dirname, "_lint-theirs.mjs");
 
-// graphql-eslint rules we intentionally don't ship.
-const KNOWN_MISSING = new Set([
-  // GraphQL-spec validation rules (from graphql-js `specifiedRules`). They
-  // run inside the analyzer's validation pass rather than as configurable
-  // lint rules.
+// Rules we ship that graphql-eslint doesn't.
+const KNOWN_EXTRA = new Set([
+  "operation-name-suffix",
+  "redundant-fields",
+  "require-id-field",
+  "unique-names",
+]);
+
+// Rules we expose as no-op stubs purely for drop-in config compatibility
+// with `@graphql-eslint`'s preset configs that reference GraphQL spec
+// validation rules by name. The underlying check still runs as built-in
+// validation; the stub just stops ESLint from erroring with "rule not
+// found" when a user pastes upstream's `flat/schema-recommended` rules
+// list. Excluded from the shared-rule parity assertions for the same
+// reason — there's nothing to compare diagnostics-wise (they're no-ops).
+const STUB_RULES = new Set([
   "executable-definitions",
   "fields-on-correct-type",
   "fragments-on-composite-type",
@@ -82,14 +94,6 @@ const KNOWN_MISSING = new Set([
   "variables-in-allowed-position",
 ]);
 
-// Rules we ship that graphql-eslint doesn't.
-const KNOWN_EXTRA = new Set([
-  "operation-name-suffix",
-  "redundant-fields",
-  "require-id-field",
-  "unique-names",
-]);
-
 function theirRules() {
   return new Set(Object.keys(theirs.rules ?? {}));
 }
@@ -99,13 +103,15 @@ function ourRules() {
 }
 
 test("no unexpected missing rules vs graphql-eslint", () => {
-  const missing = [...theirRules()]
-    .filter((r) => !ourRules().has(r) && !KNOWN_MISSING.has(r))
-    .sort();
+  // Every upstream rule should be present in our plugin — either as an
+  // implemented rule or as a no-op stub (`STUB_RULES`) for spec validation
+  // rules that always run as built-in validation. New upstream additions
+  // need a deliberate decision: implement, or stub.
+  const missing = [...theirRules()].filter((r) => !ourRules().has(r)).sort();
   assert.deepEqual(
     missing,
     [],
-    `graphql-eslint has these rules we don't — add them or add to KNOWN_MISSING with a reason:\n  ${missing.join("\n  ")}`,
+    `graphql-eslint has these rules we don't — implement them or add to STUB_RULES (and the plugin's stub list) with a reason:\n  ${missing.join("\n  ")}`,
   );
 });
 
@@ -156,6 +162,9 @@ const EXERCISED = {
     target: "src/op.graphql",
     severity: 2,
     span: "line",
+    // Suggestion: `Rename to \`hello\`` inserts the operation name after
+    // the `query` keyword (or `query <name> ` for shorthand `{`).
+    compareSuggest: true,
   },
 
   "no-duplicate-fields": {
@@ -166,11 +175,26 @@ const EXERCISED = {
     target: "src/op.graphql",
     severity: 2,
     span: "line",
+    // Suggestion: `Remove \`id\` field` deletes the duplicate selection.
+    compareSuggest: true,
   },
 
   "no-hashtag-description": {
+    // Multiple `#` lines on adjacent rows attached to the same definition
+    // count as ONE comment block (graphql-eslint groups; we group). A
+    // separate `#` block at file scope (gap row before the next definition)
+    // is its own diagnostic. Single line covered indirectly by the second
+    // attached comment.
     files: {
-      "schema.graphql": "# Don't use this as a description\ntype Query { hello: String }\n",
+      "schema.graphql":
+        "# A note about the schema.\n" +
+        "\n" +
+        "# Represents a user\n" +
+        "# with a name\n" +
+        "type User { name: String }\n" +
+        "\n" +
+        "# A query type\n" +
+        "type Query { user: User }\n",
     },
     target: "schema.graphql",
     severity: 1,
@@ -184,6 +208,9 @@ const EXERCISED = {
     target: "schema.graphql",
     severity: 1,
     span: "full",
+    // Suggestion: `Change to block style description` rewraps `"A type"`
+    // → `"""A type"""` (or vice versa), matching upstream byte-for-byte.
+    compareSuggest: true,
   },
 
   "require-field-of-type-query-in-mutation-result": {
@@ -206,18 +233,32 @@ const EXERCISED = {
     target: "schema.graphql",
     severity: 1,
     span: "full",
+    // Suggestion: `Make String nullable` strips the `!` from the gqlType,
+    // mirroring upstream's `text.replace("!", "")` on the full type ref.
+    compareSuggest: true,
   },
 
   // ----- newly verified rules (this PR) -----
 
   alphabetize: {
-    // graphql-eslint requires explicit options (`minProperties: 1`).
-    options: { selections: ["OperationDefinition"] },
-    files: {
-      "schema.graphql": "type Query { user: User } type User { id: ID! name: String! age: Int }\n",
-      "src/op.graphql": "query Q { user { name age id } }\n",
+    // Exercises the schema-side modes: `definitions` (top-level type
+    // ordering), `fields` per-kind narrowing (object type field order),
+    // and `values` (enum value order). Messages, positions, AND fix
+    // payloads match upstream byte-for-byte (the schema-side swap fix
+    // mirrors the operation-side `swap_fix` shape).
+    options: {
+      definitions: true,
+      fields: ["ObjectTypeDefinition", "InterfaceTypeDefinition", "InputObjectTypeDefinition"],
+      values: true,
     },
-    target: "src/op.graphql",
+    files: {
+      "schema.graphql":
+        "type Query { hello: String }\n" +
+        "type Zebra { name: String age: Int }\n" +
+        "type Apple { id: ID! }\n" +
+        "enum Role { SUPER_ADMIN ADMIN USER GOD }\n",
+    },
+    target: "schema.graphql",
     severity: 1,
     span: "full",
   },
@@ -230,6 +271,8 @@ const EXERCISED = {
     target: "schema.graphql",
     severity: 1,
     span: "full",
+    // Suggestion: `Rename to \`input\`` replaces the argument's Name token.
+    compareSuggest: true,
   },
 
   "lone-executable-definition": {
@@ -254,13 +297,29 @@ const EXERCISED = {
   },
 
   "naming-convention": {
-    // Both plugins no-op without explicit kind config; this fixture just
-    // exercises that the no-config behavior matches.
-    files: {
-      "schema.graphql": "type Query { hello: String }\n",
-      "src/op.graphql": "query lowercaseOp { hello }\n",
+    // Exercises:
+    // - per-kind object form (`OperationDefinition: { style, forbiddenPrefixes }`)
+    // - the ESLint selector form `FieldDefinition[parent.name.value=Query]`
+    //   that upstream's `flat/schema-recommended` uses
+    // - the comma-list selector form `EnumTypeDefinition,EnumTypeExtension`
+    // The schema-only fixture isolates the schema-side enforcement so the
+    // diagnostic ordering is stable. Variable-name casing and the
+    // `forbiddenPatterns` shape mismatch are covered by Rust unit tests.
+    options: {
+      "FieldDefinition[parent.name.value=Query]": {
+        forbiddenPrefixes: ["query", "get"],
+      },
+      "EnumTypeDefinition,EnumTypeExtension": {
+        forbiddenPrefixes: ["Enum"],
+      },
     },
-    target: "src/op.graphql",
+    files: {
+      "schema.graphql":
+        "type Query { getUser: User queryAll: [User] hello: String } " +
+        "type User { id: ID! getName: String } " +
+        "enum EnumRole { ADMIN }\n",
+    },
+    target: "schema.graphql",
     severity: 1,
     span: "full",
   },
@@ -279,6 +338,9 @@ const EXERCISED = {
     target: "src/op.graphql",
     severity: 1,
     span: "full",
+    // Suggestion: `Remove Field` deletes the entire deprecated Field
+    // selection (matches upstream's `fixer.remove(node)`).
+    compareSuggest: true,
   },
 
   "no-one-place-fragments": {
@@ -300,6 +362,8 @@ const EXERCISED = {
     target: "schema.graphql",
     severity: 1,
     span: "full",
+    // Suggestion: `Remove \`Mutation\` type` deletes the full type def.
+    compareSuggest: true,
   },
 
   "no-scalar-result-type-on-mutation": {
@@ -310,6 +374,9 @@ const EXERCISED = {
     target: "schema.graphql",
     severity: 1,
     span: "full",
+    // Suggestion: `Remove \`Boolean\`` deletes the named-type token (matches
+    // upstream's `fixer.remove(node)` on the NamedType node).
+    compareSuggest: true,
   },
 
   "no-typename-prefix": {
@@ -320,6 +387,9 @@ const EXERCISED = {
     target: "schema.graphql",
     severity: 1,
     span: "full",
+    // Suggestion: `Remove \`User\` prefix` rewrites `userId` → `Id`,
+    // matching upstream's case-insensitive prefix strip.
+    compareSuggest: true,
   },
 
   "no-unreachable-types": {
@@ -330,6 +400,8 @@ const EXERCISED = {
     target: "schema.graphql",
     severity: 1,
     span: "full",
+    // Suggestion: `Remove \`Orphan\`` deletes the full type def.
+    compareSuggest: true,
   },
 
   "relay-arguments": {
@@ -465,7 +537,11 @@ const EXERCISED = {
   },
 
   "selection-set-depth": {
-    options: { maxDepth: 2 },
+    // Exercises both `maxDepth` and `ignore`: a query that *would* exceed
+    // depth 1 but for the field `b` being ignored. Both plugins should
+    // produce zero diagnostics — `b` is treated as a leaf and its subtree
+    // isn't counted.
+    options: { maxDepth: 1, ignore: ["b"] },
     files: {
       "schema.graphql":
         "type Query { a: A } type A { b: B } type B { c: C } type C { d: String }\n",
@@ -493,6 +569,9 @@ const EXERCISED = {
     target: "schema.graphql",
     severity: 1,
     span: "full",
+    // Suggestion: `Remove \`VALUE\` enum value` (and similarly for the
+    // third duplicate) deletes the value's full def range.
+    compareSuggest: true,
   },
 
   "no-unused-fields": {
@@ -505,6 +584,9 @@ const EXERCISED = {
     target: "schema.graphql",
     severity: 1,
     span: "full",
+    // Suggestion: `Remove \`unusedField\` field` deletes the field's
+    // entire definition range, matching upstream byte-for-byte.
+    compareSuggest: true,
   },
 
   "no-unused-fragments": {
@@ -531,8 +613,9 @@ const EXERCISED = {
 test("every shared rule is parity-verified", () => {
   // Inverts the default: any shared rule must appear in EXERCISED with a
   // verified parity assertion. New rules added to either plugin force a
-  // decision on first sight.
-  const shared = [...ourRules()].filter((r) => theirRules().has(r));
+  // decision on first sight. Stubs are excluded — they're no-op shims for
+  // drop-in compatibility, not active rules with diagnostics to compare.
+  const shared = [...ourRules()].filter((r) => theirRules().has(r) && !STUB_RULES.has(r));
   const exercised = new Set(Object.keys(EXERCISED));
 
   const unaccounted = shared.filter((r) => !exercised.has(r)).sort();
@@ -589,22 +672,139 @@ test("messages, counts, and source positions match graphql-eslint exactly", asyn
         errors.push(`${rule}: theirs fired (${theirDiag.length}) but ours didn't`);
         return;
       }
-      const drift = parityDiff(ourDiag, theirDiag, cfg.span);
+      const drift = parityDiff(ourDiag, theirDiag, cfg.span, cfg.skipFix, cfg.compareSuggest);
       if (drift) errors.push(`${rule}: ${drift}`);
     });
   }
   assert.deepEqual(errors, [], `parity drift:\n  ${errors.join("\n  ")}`);
 });
 
-function parityDiff(ours, theirs, span) {
+// Verifies rule options forwarded *only* through ESLint's `rules:` config
+// reach the analyzer (i.e. ESLint config alone is enough; .graphqlrc.yaml
+// doesn't need a duplicate `lint.rules` entry). The default `withProject`
+// helper writes options to *both* channels, so this test isolates the
+// ESLint channel by writing a `.graphqlrc.yaml` with no `lint.rules` block.
+//
+// Picks rules whose EXERCISED fixture sets `options` — without options we
+// have no way to distinguish "options forwarded" from "rule defaulted". The
+// rule must (a) fire at all (proving our analyzer enables it from the
+// ESLint config) and (b) fire identically to upstream (proving the options
+// payload arrived intact).
+test("ESLint-config rule options reach the analyzer (no .graphqlrc.yaml lint block)", async () => {
+  const errors = [];
+  for (const [rule, cfg] of Object.entries(EXERCISED)) {
+    if (cfg.options === undefined) continue;
+    await withProjectNoLintBlock(rule, cfg, async (root) => {
+      let ourDiag, theirDiag;
+      try {
+        ourDiag = await lintInProject(root, ours, "@graphql-analyzer", rule, cfg);
+      } catch (err) {
+        errors.push(`${rule}: ours threw: ${err.message.split("\n")[0]}`);
+        return;
+      }
+      try {
+        theirDiag = lintTheirsInChild(root, rule, cfg);
+      } catch (err) {
+        errors.push(`${rule}: theirs threw: ${err.message.split("\n")[0]}`);
+        return;
+      }
+      if (ourDiag.length === 0 && theirDiag.length > 0) {
+        errors.push(
+          `${rule}: theirs fired (${theirDiag.length}) but ours didn't — ` +
+            `options not reaching analyzer through ESLint config alone`,
+        );
+        return;
+      }
+      const drift = parityDiff(ourDiag, theirDiag, cfg.span, cfg.skipFix, cfg.compareSuggest);
+      if (drift) errors.push(`${rule}: ${drift}`);
+    });
+  }
+  assert.deepEqual(errors, [], `ESLint-options-only parity drift:\n  ${errors.join("\n  ")}`);
+});
+
+// Sibling of `withProject` that writes a `.graphqlrc.yaml` carrying *only*
+// the schema/documents wiring, with no `lint.rules` block. The rule must
+// reach the analyzer through the ESLint config payload alone.
+async function withProjectNoLintBlock(rule, cfg, fn) {
+  const root = mkdtempSync(path.join(tmpdir(), `parity-eslint-${rule}-`));
+  try {
+    for (const [relpath, content] of Object.entries(cfg.files)) {
+      const abs = path.join(root, relpath);
+      mkdirSync(path.dirname(abs), { recursive: true });
+      writeFileSync(abs, content);
+    }
+    const lines = [];
+    if (cfg.files["schema.graphql"]) lines.push(`schema: "schema.graphql"`);
+    const docs = Object.keys(cfg.files).filter((p) => p.startsWith("src/"));
+    if (docs.length > 0) lines.push(`documents: "src/**/*"`);
+    writeFileSync(path.join(root, ".graphqlrc.yaml"), lines.join("\n") + "\n");
+    return await fn(root);
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+}
+
+// Drift guard: graphql-eslint reports start-only `loc` (no endLine/endColumn)
+// for a few rules, and our shim manually strips end positions for the same
+// list (`START_ONLY_RULES` in `src/rules.ts`). When upstream changes a rule's
+// loc shape, that hand-curated list goes stale silently — until enough time
+// passes that someone notices the parity test using `span: "full"` is now
+// catching unrelated diffs.
+//
+// This test runs upstream against every EXERCISED fixture, observes which
+// diagnostics arrive with `endLine === undefined`, and asserts the inferred
+// set of "upstream is start-only" rules matches our hardcoded
+// `START_ONLY_RULES`. If upstream tightens or loosens a rule's loc shape on
+// a version bump, this test fails first with the rule named.
+test("START_ONLY_RULES tracks upstream's actual start-only rule set", async () => {
+  const camelOf = (kebab) => kebab.replace(/-([a-z])/g, (_, c) => c.toUpperCase());
+  const observed = new Set(); // rules where upstream produced ≥1 diagnostic
+  const observedStartOnly = new Set();
+  for (const [rule, cfg] of Object.entries(EXERCISED)) {
+    await withProject(rule, cfg, async (root) => {
+      let theirDiag;
+      try {
+        theirDiag = lintTheirsInChild(root, rule, cfg);
+      } catch {
+        return;
+      }
+      if (theirDiag.length === 0) return;
+      observed.add(camelOf(rule));
+      // Upstream is start-only for this rule iff *all* its diagnostics omit
+      // endLine. (A rule that mixes shapes would itself be a parity concern.)
+      const allStartOnly = theirDiag.every((d) => d.endLine === undefined || d.endLine === null);
+      if (allStartOnly) observedStartOnly.add(camelOf(rule));
+    });
+  }
+  // Compare only on the observable subset — rules whose fixtures intentionally
+  // produce zero diagnostics (e.g. `selection-set-depth` exercising `ignore`)
+  // can't have their loc shape verified, so we can't enforce membership for
+  // them either way. The full set still has to round-trip when at least one
+  // diagnostic surfaces.
+  const expectedObservable = [...START_ONLY_RULES].filter((r) => observed.has(r)).sort();
+  const observedSorted = [...observedStartOnly].sort();
+  assert.deepEqual(
+    observedSorted,
+    expectedObservable,
+    `START_ONLY_RULES drift vs upstream's actual loc shape:\n` +
+      `  ours (observable subset): ${JSON.stringify(expectedObservable)}\n` +
+      `  upstream:                 ${JSON.stringify(observedSorted)}\n` +
+      `Update src/rules.ts:START_ONLY_RULES to match.`,
+  );
+});
+
+function parityDiff(ours, theirs, span, skipFix = false, compareSuggest = false) {
   if (ours.length !== theirs.length) {
     return `count drift: ours=${ours.length} theirs=${theirs.length}`;
   }
-  const oursCanon = canonical(ours, span);
-  const theirsCanon = canonical(theirs, span);
+  const oursCanon = canonical(ours, span, skipFix, compareSuggest);
+  const theirsCanon = canonical(theirs, span, skipFix, compareSuggest);
   if (JSON.stringify(oursCanon) !== JSON.stringify(theirsCanon)) {
+    const flags = [`span=${span}`, skipFix && "skipFix", compareSuggest && "compareSuggest"]
+      .filter(Boolean)
+      .join(", ");
     return (
-      `diff (span=${span})\n` +
+      `diff (${flags})\n` +
       `    ours:   ${JSON.stringify(oursCanon)}\n` +
       `    theirs: ${JSON.stringify(theirsCanon)}`
     );
@@ -617,7 +817,11 @@ function parityDiff(ours, theirs, span) {
 // Compares position, message, messageId, and fix together — drift in any one
 // surfaces as a difference. Source positions narrow to `line` only when
 // `span === "line"` (graphql-eslint reports start-only loc for some rules).
-function canonical(diagnostics, span) {
+// `compareSuggest` is opt-in per-fixture: only fixtures that explicitly
+// expect suggestions enable it (the default `false` keeps the 33+ existing
+// no-suggestion fixtures from regressing as suggestion implementations
+// land per-rule).
+function canonical(diagnostics, span, skipFix = false, compareSuggest = false) {
   return diagnostics
     .map((d) => {
       const pos =
@@ -628,7 +832,15 @@ function canonical(diagnostics, span) {
         ...pos,
         message: d.message,
         messageId: d.messageId ?? null,
-        fix: d.fix ? { range: d.fix.range, text: d.fix.text } : null,
+        ...(skipFix ? {} : { fix: d.fix ? { range: d.fix.range, text: d.fix.text } : null }),
+        ...(compareSuggest
+          ? {
+              suggestions: (d.suggestions ?? []).map((s) => ({
+                desc: s.desc,
+                ...(s.fix ? { fix: { range: s.fix.range, text: s.fix.text } } : {}),
+              })),
+            }
+          : {}),
       };
     })
     .sort((a, b) => {

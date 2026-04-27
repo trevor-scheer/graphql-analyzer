@@ -1,4 +1,4 @@
-use crate::diagnostics::{LintDiagnostic, LintSeverity};
+use crate::diagnostics::{CodeSuggestion, LintDiagnostic, LintSeverity};
 use crate::traits::{LintRule, StandaloneDocumentLintRule};
 use apollo_parser::cst::{self, CstNode};
 use graphql_base_db::{FileContent, FileId, FileMetadata, ProjectFiles};
@@ -125,6 +125,20 @@ fn check_selection_set(
                             // hardcoded to `Field` because we only detect duplicate
                             // fields today; extending to duplicate Arguments and
                             // VariableDefinitions is a follow-up.
+
+                            // Mirror upstream's `fixer.remove(parent)` — for a
+                            // duplicate Field selection, parent is the Field
+                            // node itself. Use block-local offsets; the
+                            // convert_fix layer handles block→file translation.
+                            let field_range = field.syntax().text_range();
+                            let field_start: usize = field_range.start().into();
+                            let field_end: usize = field_range.end().into();
+                            let suggestion = CodeSuggestion::delete(
+                                format!("Remove `{name}` field"),
+                                field_start,
+                                field_end,
+                            );
+
                             diagnostics.push(
                                 LintDiagnostic::new(
                                     doc.span(start, end),
@@ -135,7 +149,8 @@ fn check_selection_set(
                                 .with_message_id("no-duplicate-fields")
                                 .with_help(
                                     "Remove the duplicate selection or give it a distinct alias",
-                                ),
+                                )
+                                .with_suggestion(suggestion),
                             );
                         }
                     }

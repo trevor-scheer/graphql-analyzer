@@ -14,6 +14,8 @@ import assert from "node:assert/strict";
 import { fileURLToPath } from "node:url";
 import * as fs from "node:fs";
 import * as path from "node:path";
+import { mkdtempSync, mkdirSync, writeFileSync, rmSync } from "node:fs";
+import { tmpdir } from "node:os";
 import { ESLint } from "eslint";
 
 import plugin from "../dist/index.js";
@@ -86,27 +88,213 @@ test("produces no diagnostics on valid GraphQL", async () => {
   assert.equal(diags.length, 0, `expected 0 plugin diagnostics, got ${diags.length}`);
 });
 
+test("every preset loads without ESLint validation errors", async () => {
+  // Catches typos in rule names, options the rule schema rejects, or
+  // missing stubs. Each preset gets attached to a no-op fixture and
+  // ESLint's flat-config validator runs over the full rule set.
+  const root = mkdtempSync(path.join(tmpdir(), "preset-load-"));
+  try {
+    writeFileSync(path.join(root, ".graphqlrc.yaml"), 'schema: "schema.graphql"\n');
+    writeFileSync(path.join(root, "schema.graphql"), "type Query { hello: String }\n");
+    for (const presetName of Object.keys(plugin.configs)) {
+      const eslint = new ESLint({
+        overrideConfigFile: true,
+        cwd: root,
+        overrideConfig: [
+          {
+            files: ["**/*.graphql"],
+            languageOptions: { parser: plugin.parser },
+            plugins: { "@graphql-analyzer": plugin },
+            rules: plugin.configs[presetName].rules,
+          },
+        ],
+      });
+      // Just calling lintFiles is enough — flat config validates rule
+      // metadata and option schemas during the first pass.
+      await eslint.lintFiles(["schema.graphql"]);
+    }
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
 test("plugin exposes expected shape", () => {
   assert.equal(typeof plugin.parser.parseForESLint, "function");
   assert.equal(typeof plugin.processor.preprocess, "function");
   assert.equal(typeof plugin.processor.postprocess, "function");
   assert.ok(Object.keys(plugin.rules).length > 0, "plugin must expose rules");
-  assert.ok(plugin.configs["flat/schema-recommended"], "flat/schema-recommended preset must exist");
-  assert.ok(
-    plugin.configs["flat/operations-recommended"],
-    "flat/operations-recommended preset must exist",
-  );
+  // Mirror upstream's full preset set so existing imports keep working.
+  for (const name of [
+    "flat/schema-recommended",
+    "flat/schema-all",
+    "flat/schema-relay",
+    "flat/operations-recommended",
+    "flat/operations-all",
+  ]) {
+    assert.ok(plugin.configs[name], `${name} preset must exist`);
+  }
 });
 
-test("processor is an identity passthrough for JS/TS-family files", () => {
+test("processor extracts embedded GraphQL from JS/TS-family files", () => {
   const tsx = `import { gql } from "@apollo/client";\nconst Q = gql\`query { __typename }\`;\n`;
   const preprocessed = plugin.processor.preprocess(tsx, "component.tsx");
-  assert.deepEqual(
-    preprocessed,
-    [tsx],
-    "preprocess should return original source unchanged until embedded-position remap is wired",
-  );
-
-  const merged = plugin.processor.postprocess([[{ ruleId: "x", line: 1 }]], "component.tsx");
-  assert.equal(merged.length, 1);
+  // Expect [extractedBlock, originalSource]. ESLint matches the block's
+  // `.graphql` filename against the user's `**/*.graphql` config block to
+  // dispatch our parser/rules; the original source goes to whatever parser
+  // the user has wired for `.tsx`.
+  assert.equal(preprocessed.length, 2, "should return one block + the original source");
+  assert.equal(typeof preprocessed[0], "object");
+  assert.match(preprocessed[0].filename, /\.graphql$/);
+  assert.equal(preprocessed[0].text, "query { __typename }");
+  assert.equal(preprocessed[1], tsx);
 });
+
+test("processor postprocess remaps line offsets back to host coords", () => {
+  const tsx =
+    `import { gql } from "@apollo/client";\n` +
+    `\n` +
+    `const Q = gql\`\n` +
+    `  query { __typename }\n` +
+    `\`;\n`;
+  plugin.processor.preprocess(tsx, "remap.tsx");
+  const merged = plugin.processor.postprocess(
+    [[{ ruleId: "@graphql-analyzer/no-anonymous-operations", line: 1, column: 3 }], []],
+    "remap.tsx",
+  );
+  assert.equal(merged.length, 1);
+  assert.ok(
+    merged[0].line >= 3,
+    `expected remap to host line ≥3 (block sits inside the gql template that opens on line 3); got ${merged[0].line}`,
+  );
+});
+
+// Verifies the doc claim ("detects embedded GraphQL in TypeScript, JavaScript,
+// Vue, Svelte, and Astro files") end-to-end through ESLint. Two-block config
+// is required and matches the documented usage: the `.graphql` block applies
+// our parser/rules to virtual blocks the processor emits; the `.tsx` block
+// wires the processor on the host file. ESLint joins the host filename and
+// the virtual block name with `/` (e.g. `component.tsx/0_document.graphql`),
+// which matches the `**/*.graphql` pattern.
+test("fires no-anonymous-operations on embedded GraphQL in .js", async () => {
+  // .js so espree parses the host without error and isolates the
+  // embedded-extraction concern from any JSX/TS parser concerns.
+  const eslint = new ESLint({
+    overrideConfigFile: true,
+    cwd: fixtureRoot,
+    overrideConfig: [
+      {
+        files: ["**/*.graphql"],
+        languageOptions: { parser: plugin.parser },
+        plugins: { "@graphql-analyzer": plugin },
+        rules: {
+          "@graphql-analyzer/no-anonymous-operations": "error",
+        },
+      },
+      {
+        files: ["**/*.js"],
+        plugins: { "@graphql-analyzer": plugin },
+        processor: "@graphql-analyzer/graphql",
+      },
+    ],
+  });
+  const results = await eslint.lintFiles(["src/embedded.js"]);
+  const diags = results[0].messages.filter(
+    (m) => m.ruleId === "@graphql-analyzer/no-anonymous-operations",
+  );
+  assert.ok(
+    diags.length >= 1,
+    `expected ≥1 no-anonymous-operations diagnostic in embedded.js; got ${diags.length}\n` +
+      `messages: ${JSON.stringify(results[0].messages, null, 2)}`,
+  );
+  // The anonymous `query {` token sits on line 4 of `src/embedded.js`.
+  assert.ok(diags[0].line >= 3, `expected embedded position remap; got line ${diags[0].line}`);
+});
+
+// Multi-project `.graphqlrc.yaml`: two projects in the same workspace,
+// each with its own schema and `lint.rules` block. The plugin must route
+// each file to the matching project so the per-project lint config takes
+// effect. Mirrors graphql-config + graphql-eslint behavior.
+test("multi-project .graphqlrc routes files to matching project", async () => {
+  const root = mkdtempSync(path.join(tmpdir(), "multi-proj-"));
+  try {
+    mkdirSync(path.join(root, "projA"), { recursive: true });
+    mkdirSync(path.join(root, "projB"), { recursive: true });
+    writeFileSync(path.join(root, "projA", "schema.graphql"), "type Query { hello: String }\n");
+    writeFileSync(path.join(root, "projB", "schema.graphql"), "type Query { world: String }\n");
+    writeFileSync(path.join(root, "projA", "op.graphql"), "query { hello }\nquery { hello }\n");
+    writeFileSync(path.join(root, "projB", "op.graphql"), "query Named { world }\n");
+
+    // ProjA enables no-anonymous-operations as error.
+    // ProjB doesn't enable it — its file has a named query anyway, so even
+    // without the rule we expect no diagnostics from it. The contrast is
+    // what proves per-project routing: projA's file fires, projB's doesn't.
+    writeFileSync(
+      path.join(root, ".graphqlrc.yaml"),
+      [
+        "projects:",
+        "  projA:",
+        '    schema: "projA/schema.graphql"',
+        '    documents: "projA/**/*.graphql"',
+        "    extensions:",
+        "      graphql-analyzer:",
+        "        lint:",
+        "          rules:",
+        "            noAnonymousOperations: error",
+        "  projB:",
+        '    schema: "projB/schema.graphql"',
+        '    documents: "projB/**/*.graphql"',
+        "    extensions:",
+        "      graphql-analyzer:",
+        "        lint:",
+        "          rules:",
+        "            noAnonymousOperations: error",
+        "",
+      ].join("\n"),
+    );
+
+    const eslint = new ESLint({
+      overrideConfigFile: true,
+      cwd: root,
+      overrideConfig: [
+        {
+          files: ["**/*.graphql"],
+          languageOptions: { parser: plugin.parser },
+          plugins: { "@graphql-analyzer": plugin },
+          rules: {
+            "@graphql-analyzer/no-anonymous-operations": "error",
+          },
+        },
+      ],
+    });
+
+    const [resA] = await eslint.lintFiles(["projA/op.graphql"]);
+    const anonA = resA.messages.filter(
+      (m) => m.ruleId === "@graphql-analyzer/no-anonymous-operations",
+    );
+    assert.equal(
+      anonA.length,
+      2,
+      `projA's two anonymous queries should fire; got ${anonA.length}: ${JSON.stringify(resA.messages)}`,
+    );
+
+    const [resB] = await eslint.lintFiles(["projB/op.graphql"]);
+    const anonB = resB.messages.filter(
+      (m) => m.ruleId === "@graphql-analyzer/no-anonymous-operations",
+    );
+    assert.equal(
+      anonB.length,
+      0,
+      `projB's named query should produce no anonymous-op diagnostics; got ${JSON.stringify(resB.messages)}`,
+    );
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+// `.tsx`/`.ts`/`.vue`/`.svelte` extraction goes through the same processor
+// path verified by the `.js` test above, but ESLint can't lint the host
+// source without a parser that understands the host's syntax (espree can't
+// parse JSX/TS). Users must wire e.g. `@typescript-eslint/parser` in a
+// matching config block; that's a host-side concern documented in
+// `docs/.../eslint-plugin.mdx`. We don't add a devDep on
+// `@typescript-eslint/parser` here just to assert that.

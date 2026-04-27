@@ -1,4 +1,4 @@
-use crate::diagnostics::{LintDiagnostic, LintSeverity};
+use crate::diagnostics::{CodeSuggestion, LintDiagnostic, LintSeverity};
 use crate::traits::{LintRule, StandaloneSchemaLintRule};
 use apollo_compiler::Node;
 use graphql_base_db::{FileId, ProjectFiles};
@@ -230,6 +230,44 @@ impl DescriptionVisitor<'_> {
         let desc_str = desc.as_str();
         let span_end = end.min(start + desc_str.len().min(30) + 6);
 
+        // Mirror upstream: replace the entire StringValue with the converted
+        // text. inline → block: replace leading/trailing `"` with `"""`.
+        // block → inline: replace leading/trailing `"""` with `"` AND
+        // collapse whitespace runs to a single space.
+        let new_text = match self.opts.style {
+            DescriptionStyleKind::Block => {
+                // current is inline, target is block
+                let mut s = raw.to_string();
+                if s.starts_with('"') {
+                    s.replace_range(0..1, "\"\"\"");
+                }
+                if s.ends_with('"') {
+                    let new_len = s.len();
+                    s.replace_range(new_len - 1..new_len, "\"\"\"");
+                }
+                s
+            }
+            DescriptionStyleKind::Inline => {
+                // current is block, target is inline
+                let mut s = raw.to_string();
+                if s.starts_with("\"\"\"") {
+                    s.replace_range(0..3, "\"");
+                }
+                if s.ends_with("\"\"\"") {
+                    let new_len = s.len();
+                    s.replace_range(new_len - 3..new_len, "\"");
+                }
+                // Collapse all whitespace runs to a single space.
+                collapse_whitespace(&s)
+            }
+        };
+        let suggestion = CodeSuggestion::replace(
+            format!("Change to {suggested} style description"),
+            start,
+            end,
+            new_text,
+        );
+
         self.diagnostics.push(
             LintDiagnostic::new(
                 self.doc.span(start, span_end),
@@ -237,9 +275,29 @@ impl DescriptionVisitor<'_> {
                 format!("Unexpected {unexpected} description for {parent_label}"),
                 "descriptionStyle",
             )
-            .with_help(format!("Change to {suggested} style description")),
+            .with_help(format!("Change to {suggested} style description"))
+            .with_suggestion(suggestion),
         );
     }
+}
+
+/// Collapse runs of whitespace (spaces, tabs, newlines) into a single space.
+/// Mirrors upstream's `originalText.replace(/\s+/g, " ")`.
+fn collapse_whitespace(s: &str) -> String {
+    let mut out = String::with_capacity(s.len());
+    let mut in_ws = false;
+    for c in s.chars() {
+        if c.is_whitespace() {
+            if !in_ws {
+                out.push(' ');
+                in_ws = true;
+            }
+        } else {
+            out.push(c);
+            in_ws = false;
+        }
+    }
+    out
 }
 
 #[cfg(test)]

@@ -537,6 +537,7 @@ fn unused_ignore_diagnostics(
                     code: Some("unused_ignore".into()),
                     message_id: None,
                     fix: None,
+                    suggestions: Vec::new(),
                     help: None,
                     url: None,
                     tags: vec![crate::DiagnosticTag::Unnecessary],
@@ -568,6 +569,7 @@ fn unused_ignore_diagnostics(
                         code: Some("unused_ignore".into()),
                         message_id: None,
                         fix: None,
+                        suggestions: Vec::new(),
                         help: None,
                         url: None,
                         tags: vec![crate::DiagnosticTag::Unnecessary],
@@ -681,7 +683,7 @@ fn convert_lint_diagnostics(
             // the same line index used for the diagnostic range, so fix
             // positions land in the same coordinate space (block-relative
             // when there's a `block_source`, file-relative otherwise).
-            let fix = ld.fix.as_ref().map(|f| {
+            let convert_fix = |f: &graphql_linter::CodeFix| -> crate::CodeFix {
                 let mut edits = Vec::with_capacity(f.edits.len());
                 for edit in &f.edits {
                     let (es_line, es_col, ee_line, ee_col) =
@@ -713,7 +715,16 @@ fn convert_lint_diagnostics(
                     label: f.label.clone(),
                     edits,
                 }
-            });
+            };
+            let fix = ld.fix.as_ref().map(&convert_fix);
+            let suggestions = ld
+                .suggestions
+                .iter()
+                .map(|s| crate::CodeSuggestion {
+                    desc: s.desc.clone(),
+                    fix: convert_fix(&s.fix),
+                })
+                .collect();
 
             Some(Diagnostic {
                 severity,
@@ -732,6 +743,7 @@ fn convert_lint_diagnostics(
                 code: Some(rule_name.to_string().into()),
                 message_id: ld.message_id.map(Into::into),
                 fix,
+                suggestions,
                 help: ld.help.map(Into::into),
                 url: Some(resolve_rule_url(ld.url, rule_name).into()),
                 tags: ld

@@ -162,6 +162,7 @@ pub fn validate_file(
                         code: None,
                         message_id: None,
                         fix: None,
+                        suggestions: Vec::new(),
                         help: None,
                         url: None,
                         tags: Vec::new(),

@@ -1,4 +1,4 @@
-use crate::diagnostics::{LintDiagnostic, LintSeverity};
+use crate::diagnostics::{CodeSuggestion, LintDiagnostic, LintSeverity};
 use crate::traits::{LintRule, StandaloneSchemaLintRule};
 use graphql_base_db::{FileId, ProjectFiles};
 use graphql_hir::TypeDefKind;
@@ -73,6 +73,8 @@ impl StandaloneSchemaLintRule for NoScalarResultTypeOnMutationRuleImpl {
                     source: None,
                 };
 
+                let suggestion =
+                    CodeSuggestion::delete(format!("Remove `{return_type_name}`"), start, end);
                 diagnostics_by_file
                     .entry(mutation_type.file_id)
                     .or_default()
@@ -86,6 +88,7 @@ impl StandaloneSchemaLintRule for NoScalarResultTypeOnMutationRuleImpl {
                             ),
                             "noScalarResultTypeOnMutation",
                         )
+                        .with_suggestion(suggestion)
                         .with_help("Return an object type that wraps the result so future fields can be added without breaking clients"),
                     );
             }
