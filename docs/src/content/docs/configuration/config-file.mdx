@@ -57,12 +57,12 @@ import { Tabs, TabItem } from "@astrojs/starlight/components";
   </TabItem>
 </Tabs>
 
-| Field       | Required | Description                                                   |
-| ----------- | -------- | ------------------------------------------------------------- |
-| `schema`    | Yes      | Schema source (file, glob, or URL)                            |
-| `documents` | No       | Document file patterns                                        |
-| `include`   | No       | File patterns that scope which files belong to this project   |
-| `exclude`   | No       | File patterns to exclude from this project                    |
+| Field       | Required | Description                                                 |
+| ----------- | -------- | ----------------------------------------------------------- |
+| `schema`    | Yes      | Schema source (file, glob, or URL)                          |
+| `documents` | No       | Document file patterns                                      |
+| `include`   | No       | File patterns that scope which files belong to this project |
+| `exclude`   | No       | File patterns to exclude from this project                  |
 
 ## Adding linting
 
@@ -144,17 +144,10 @@ module.exports = {
 
 <Tabs>
   <TabItem label="YAML">
-    ```yaml
-    # .graphqlrc.yml (equivalent)
-    schema: schema.graphql
-    documents: src/**/*.graphql
-    ```
+    ```yaml # .graphqlrc.yml (equivalent) schema: schema.graphql documents: src/**/*.graphql ```
   </TabItem>
   <TabItem label="TOML">
-    ```toml
-    # .graphqlrc.toml (equivalent)
-    schema = "schema.graphql"
-    documents = "src/**/*.graphql"
+    ```toml # .graphqlrc.toml (equivalent) schema = "schema.graphql" documents = "src/**/*.graphql"
     ```
   </TabItem>
 </Tabs>

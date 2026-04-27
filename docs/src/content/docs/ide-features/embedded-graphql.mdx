@@ -7,12 +7,12 @@ GraphQL Analyzer provides full IDE support for GraphQL embedded in TypeScript, J
 
 ## Supported file types
 
-| File type               | Extensions                   | How GraphQL is found                                    |
-| ----------------------- | ---------------------------- | ------------------------------------------------------- |
+| File type               | Extensions                                   | How GraphQL is found                                    |
+| ----------------------- | -------------------------------------------- | ------------------------------------------------------- |
 | TypeScript / JavaScript | `.ts`, `.tsx`, `.js`, `.jsx`, `.mjs`, `.cjs` | Tagged template literals (`gql`, `graphql`)             |
-| Vue                     | `.vue`                       | `<script>` / `<script setup>` blocks → tagged templates |
-| Svelte                  | `.svelte`                    | `<script>` blocks → tagged templates                    |
-| Astro                   | `.astro`                     | Frontmatter (`---`) section → tagged templates          |
+| Vue                     | `.vue`                                       | `<script>` / `<script setup>` blocks → tagged templates |
+| Svelte                  | `.svelte`                                    | `<script>` blocks → tagged templates                    |
+| Astro                   | `.astro`                                     | Frontmatter (`---`) section → tagged templates          |
 
 All IDE features work inside embedded GraphQL regardless of file type:
 
@@ -121,13 +121,18 @@ In addition to tagged template literals, the analyzer extracts GraphQL from unta
 ```typescript
 const query = /* GraphQL */ `
   query GetUser($id: ID!) {
-    user(id: $id) { id name }
+    user(id: $id) {
+      id
+      name
+    }
   }
 `;
 
 const mutation = /* GraphQL */ `
   mutation UpdateUser($id: ID!, $name: String!) {
-    updateUser(id: $id, name: $name) { id }
+    updateUser(id: $id, name: $name) {
+      id
+    }
   }
 `;
 ```

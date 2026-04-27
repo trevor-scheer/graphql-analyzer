@@ -3,8 +3,8 @@ title: alphabetize
 description: Enforce alphabetical ordering of selections, arguments, and variables.
 ---
 
-| Property         | Value         |
-| ---------------- | ------------- |
+| Property         | Value             |
+| ---------------- | ----------------- |
 | Config name      | `alphabetize`     |
 | Default severity | `—`               |
 | Context          | Document + Schema |
@@ -40,15 +40,15 @@ query GetUser {
 
 ## Options
 
-| Option        | Type                   | Default | Description                                                                                                         |
-| ------------- | ---------------------- | ------- | ------------------------------------------------------------------------------------------------------------------- |
-| `selections`  | `bool \| string[]`     | `true`  | Enforce alphabetical order in selection sets. Pass `true` or a list of owner kinds (`OperationDefinition`, `FragmentDefinition`). |
-| `arguments`   | `bool \| string[]`     | `false` | Enforce alphabetical order on arguments. Pass `true` or a list of AST kinds (`FieldDefinition`, `Field`, …).        |
-| `variables`   | `bool`                 | `false` | Enforce alphabetical order on variable definitions.                                                                 |
-| `definitions` | `bool`                 | `false` | Enforce alphabetical order on top-level type definitions across the document (schema-side).                         |
-| `fields`      | `bool \| string[]`     | `false` | Enforce alphabetical order on field declarations. `true` covers all type kinds; pass an array to scope to specific kinds (e.g. `ObjectTypeDefinition`). |
-| `values`      | `bool`                 | `false` | Enforce alphabetical order on enum value declarations.                                                              |
-| `groups`      | `string[]`             | `[]`    | Explicit ordering groups (e.g. `["id", "*", "createdAt"]`). Names in earlier groups sort first; `"*"` is the catch-all bucket. |
+| Option        | Type               | Default | Description                                                                                                                                             |
+| ------------- | ------------------ | ------- | ------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `selections`  | `bool \| string[]` | `true`  | Enforce alphabetical order in selection sets. Pass `true` or a list of owner kinds (`OperationDefinition`, `FragmentDefinition`).                       |
+| `arguments`   | `bool \| string[]` | `false` | Enforce alphabetical order on arguments. Pass `true` or a list of AST kinds (`FieldDefinition`, `Field`, …).                                            |
+| `variables`   | `bool`             | `false` | Enforce alphabetical order on variable definitions.                                                                                                     |
+| `definitions` | `bool`             | `false` | Enforce alphabetical order on top-level type definitions across the document (schema-side).                                                             |
+| `fields`      | `bool \| string[]` | `false` | Enforce alphabetical order on field declarations. `true` covers all type kinds; pass an array to scope to specific kinds (e.g. `ObjectTypeDefinition`). |
+| `values`      | `bool`             | `false` | Enforce alphabetical order on enum value declarations.                                                                                                  |
+| `groups`      | `string[]`         | `[]`    | Explicit ordering groups (e.g. `["id", "*", "createdAt"]`). Names in earlier groups sort first; `"*"` is the catch-all bucket.                          |
 
 ## Configuration
 

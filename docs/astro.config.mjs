@@ -144,7 +144,10 @@ export default defineConfig({
             },
             { label: "requireIdField", slug: "rules/requireIdField" },
             { label: "requireImportFragment", slug: "rules/requireImportFragment" },
-            { label: "requireNullableFieldsWithOneof", slug: "rules/requireNullableFieldsWithOneof" },
+            {
+              label: "requireNullableFieldsWithOneof",
+              slug: "rules/requireNullableFieldsWithOneof",
+            },
             { label: "requireNullableResultInRoot", slug: "rules/requireNullableResultInRoot" },
             { label: "requireSelections", slug: "rules/requireSelections" },
             { label: "requireTypePatternWithOneof", slug: "rules/requireTypePatternWithOneof" },

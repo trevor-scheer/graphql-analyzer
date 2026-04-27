@@ -27,12 +27,12 @@ schema:
   retry: 3
 ```
 
-| Field     | Required | Description                                                  |
-| --------- | -------- | ------------------------------------------------------------ |
-| `url`     | Yes      | The GraphQL endpoint URL to introspect                       |
-| `headers` | No       | Map of header name → value; supports `${VAR}` interpolation  |
-| `timeout` | No       | Request timeout in seconds (default: 30)                     |
-| `retry`   | No       | Number of retry attempts on failure (default: 0)             |
+| Field     | Required | Description                                                 |
+| --------- | -------- | ----------------------------------------------------------- |
+| `url`     | Yes      | The GraphQL endpoint URL to introspect                      |
+| `headers` | No       | Map of header name → value; supports `${VAR}` interpolation |
+| `timeout` | No       | Request timeout in seconds (default: 30)                    |
+| `retry`   | No       | Number of retry attempts on failure (default: 0)            |
 
 The `${VAR}` syntax pulls values from environment variables at config load time. Use `${VAR:default}` to provide a fallback when the variable is unset. This keeps secrets out of config files that are checked into source control.
 

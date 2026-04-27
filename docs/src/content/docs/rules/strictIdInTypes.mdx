@@ -36,13 +36,13 @@ type User {
 
 ## Options
 
-| Option                    | Type       | Default    | Description                                                                                          |
-| ------------------------- | ---------- | ---------- | ---------------------------------------------------------------------------------------------------- |
-| `acceptedIdNames`         | `string[]` | `["id"]`   | Field names that satisfy the unique identifier requirement.                                          |
-| `acceptedIdTypes`         | `string[]` | `["ID"]`   | GraphQL types (non-null) that are accepted as the identifier field's type.                           |
-| `exceptions`              | `object`   | `{}`       | Types or type-name suffixes to exclude from this rule.                                               |
-| `exceptions.types`        | `string[]` | `[]`       | Exact type names to skip (e.g. `["Error", "PageInfo"]`).                                             |
-| `exceptions.suffixes`     | `string[]` | `[]`       | Type-name suffixes to skip — any type whose name ends with one of these is excluded (e.g. `["Payload", "Connection"]`). |
+| Option                | Type       | Default  | Description                                                                                                             |
+| --------------------- | ---------- | -------- | ----------------------------------------------------------------------------------------------------------------------- |
+| `acceptedIdNames`     | `string[]` | `["id"]` | Field names that satisfy the unique identifier requirement.                                                             |
+| `acceptedIdTypes`     | `string[]` | `["ID"]` | GraphQL types (non-null) that are accepted as the identifier field's type.                                              |
+| `exceptions`          | `object`   | `{}`     | Types or type-name suffixes to exclude from this rule.                                                                  |
+| `exceptions.types`    | `string[]` | `[]`     | Exact type names to skip (e.g. `["Error", "PageInfo"]`).                                                                |
+| `exceptions.suffixes` | `string[]` | `[]`     | Type-name suffixes to skip — any type whose name ends with one of these is excluded (e.g. `["Payload", "Connection"]`). |
 
 ## Configuration
 

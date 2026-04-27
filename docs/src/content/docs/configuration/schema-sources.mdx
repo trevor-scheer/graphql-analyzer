@@ -48,12 +48,12 @@ schema:
   retry: 3
 ```
 
-| Field     | Required | Description                                                    |
-| --------- | -------- | -------------------------------------------------------------- |
-| `url`     | Yes      | The GraphQL endpoint URL to introspect                         |
-| `headers` | No       | Map of header name → value; supports `${VAR}` interpolation   |
-| `timeout` | No       | Request timeout in seconds (default: 30)                       |
-| `retry`   | No       | Number of retry attempts on failure (default: 0)               |
+| Field     | Required | Description                                                 |
+| --------- | -------- | ----------------------------------------------------------- |
+| `url`     | Yes      | The GraphQL endpoint URL to introspect                      |
+| `headers` | No       | Map of header name → value; supports `${VAR}` interpolation |
+| `timeout` | No       | Request timeout in seconds (default: 30)                    |
+| `retry`   | No       | Number of retry attempts on failure (default: 0)            |
 
 See [Environment variable interpolation](#environment-variable-interpolation) for how to keep secrets out of your config file.
 

@@ -36,34 +36,34 @@ The `recommended` preset enables rules that are objectively beneficial without b
 
 These rules are available but not in the `recommended` preset — enable them based on your project's needs:
 
-| Rule                                      | Description                                  |
-| ----------------------------------------- | -------------------------------------------- |
-| `alphabetize`                             | Enforce alphabetical ordering                |
-| `descriptionStyle`                        | Enforce block vs inline description style    |
-| `inputName`                               | Require configurable suffix on input types   |
-| `loneExecutableDefinition`                | Require one operation or fragment per file   |
-| `namingConvention`                        | Enforce naming conventions                   |
-| `noOnePlaceFragments`                     | Detect fragments used in only one place      |
-| `noScalarResultTypeOnMutation`            | Require mutations to return object types     |
-| `noTypenamePrefix`                        | Disallow field names prefixed with type name |
-| `operationNameSuffix`                     | Enforce operation name conventions           |
-| `requireDescription`                      | Require descriptions on type definitions     |
-| `requireFieldOfTypeQueryInMutationResult` | Require Query field in mutation results      |
-| `requireIdField`                          | Require `id` field for cache normalization   |
-| `selectionSetDepth`                       | Limit selection set nesting depth            |
-| `strictIdInTypes`                         | Require ID field in object types             |
-| `uniqueNames`                             | Ensure operation/fragment names are unique   |
-| `noUnusedVariables`                       | Detect unused query variables                |
-| `matchDocumentFilename`                   | Document — Enforces that operation and fragment names match the filename |
-| `noRootType`                              | Schema — Disallows certain root type definitions in the schema |
-| `relayArguments`                          | Schema — Enforce Relay-compliant pagination arguments on connection fields |
-| `relayConnectionTypes`                    | Schema — Enforces Relay connection type conventions on types ending in 'Connection' |
-| `relayEdgeTypes`                          | Schema — Enforces Relay-compliant edge type definitions |
-| `relayPageInfo`                           | Schema — Enforces that the PageInfo type follows the Relay specification |
-| `requireDeprecationDate`                  | Schema — Requires @deprecated directives to include a deletion date |
-| `requireImportFragment`                   | Document — Requires fragment spreads to have a corresponding import comment |
-| `requireNullableFieldsWithOneof`          | Schema — Requires all fields in @oneOf input types to be nullable |
-| `requireNullableResultInRoot`             | Schema — Requires root type fields to return nullable types for error resilience |
+| Rule                                      | Description                                                                             |
+| ----------------------------------------- | --------------------------------------------------------------------------------------- |
+| `alphabetize`                             | Enforce alphabetical ordering                                                           |
+| `descriptionStyle`                        | Enforce block vs inline description style                                               |
+| `inputName`                               | Require configurable suffix on input types                                              |
+| `loneExecutableDefinition`                | Require one operation or fragment per file                                              |
+| `namingConvention`                        | Enforce naming conventions                                                              |
+| `noOnePlaceFragments`                     | Detect fragments used in only one place                                                 |
+| `noScalarResultTypeOnMutation`            | Require mutations to return object types                                                |
+| `noTypenamePrefix`                        | Disallow field names prefixed with type name                                            |
+| `operationNameSuffix`                     | Enforce operation name conventions                                                      |
+| `requireDescription`                      | Require descriptions on type definitions                                                |
+| `requireFieldOfTypeQueryInMutationResult` | Require Query field in mutation results                                                 |
+| `requireIdField`                          | Require `id` field for cache normalization                                              |
+| `selectionSetDepth`                       | Limit selection set nesting depth                                                       |
+| `strictIdInTypes`                         | Require ID field in object types                                                        |
+| `uniqueNames`                             | Ensure operation/fragment names are unique                                              |
+| `noUnusedVariables`                       | Detect unused query variables                                                           |
+| `matchDocumentFilename`                   | Document — Enforces that operation and fragment names match the filename                |
+| `noRootType`                              | Schema — Disallows certain root type definitions in the schema                          |
+| `relayArguments`                          | Schema — Enforce Relay-compliant pagination arguments on connection fields              |
+| `relayConnectionTypes`                    | Schema — Enforces Relay connection type conventions on types ending in 'Connection'     |
+| `relayEdgeTypes`                          | Schema — Enforces Relay-compliant edge type definitions                                 |
+| `relayPageInfo`                           | Schema — Enforces that the PageInfo type follows the Relay specification                |
+| `requireDeprecationDate`                  | Schema — Requires @deprecated directives to include a deletion date                     |
+| `requireImportFragment`                   | Document — Requires fragment spreads to have a corresponding import comment             |
+| `requireNullableFieldsWithOneof`          | Schema — Requires all fields in @oneOf input types to be nullable                       |
+| `requireNullableResultInRoot`             | Schema — Requires root type fields to return nullable types for error resilience        |
 | `requireTypePatternWithOneof`             | Schema — Enforces that types with @oneOf directive contain both 'ok' and 'error' fields |
 
 See the [Rules Catalog](/graphql-analyzer/rules/catalog/) for details on each rule.
