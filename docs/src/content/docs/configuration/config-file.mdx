@@ -20,6 +20,7 @@ The tool searches for these files in order, walking up the directory tree from y
 5. `graphql.config.yml` / `graphql.config.yaml`
 6. `graphql.config.json`
 7. `graphql.config.toml`
+8. `package.json` (with a `"graphql"` key — lowest priority fallback)
 
 You can also specify a config file explicitly:
 
@@ -56,10 +57,12 @@ import { Tabs, TabItem } from "@astrojs/starlight/components";
   </TabItem>
 </Tabs>
 
-| Field       | Required | Description                        |
-| ----------- | -------- | ---------------------------------- |
-| `schema`    | Yes      | Schema source (file, glob, or URL) |
-| `documents` | No       | Document file patterns             |
+| Field       | Required | Description                                                   |
+| ----------- | -------- | ------------------------------------------------------------- |
+| `schema`    | Yes      | Schema source (file, glob, or URL)                            |
+| `documents` | No       | Document file patterns                                        |
+| `include`   | No       | File patterns that scope which files belong to this project   |
+| `exclude`   | No       | File patterns to exclude from this project                    |
 
 ## Adding linting
 
@@ -141,15 +144,39 @@ module.exports = {
 
 <Tabs>
   <TabItem label="YAML">
-    ```yaml # .graphqlrc.yml (equivalent) schema: schema.graphql documents: src/**/*.graphql ```
+    ```yaml
+    # .graphqlrc.yml (equivalent)
+    schema: schema.graphql
+    documents: src/**/*.graphql
+    ```
   </TabItem>
   <TabItem label="TOML">
-    ```toml # .graphqlrc.toml (equivalent) schema = "schema.graphql" documents = "src/**/*.graphql"
+    ```toml
+    # .graphqlrc.toml (equivalent)
+    schema = "schema.graphql"
+    documents = "src/**/*.graphql"
     ```
   </TabItem>
 </Tabs>
 
 For dynamic configuration needs, generate the YAML/JSON/TOML config as a build step.
+
+## Environment variable interpolation
+
+Config values support `${VAR}` and `${VAR:default}` substitution. This is useful for keeping secrets like API tokens out of your config file:
+
+```yaml
+schema:
+  url: https://api.example.com/graphql
+  headers:
+    Authorization: Bearer ${API_TOKEN}
+    X-Tenant: ${TENANT_ID:default-tenant}
+```
+
+- `${VAR}` — replaced with the value of `VAR`; fails with an error if the variable is unset
+- `${VAR:default}` — replaced with the value of `VAR`, or `default` if the variable is unset
+
+Interpolation is applied to all string values before the config is parsed, so it works in any field — URLs, headers, file paths, etc.
 
 ## Environment variables
 

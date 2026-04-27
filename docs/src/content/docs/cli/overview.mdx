@@ -19,17 +19,21 @@ See [Installation](/graphql-analyzer/getting-started/installation/) for all meth
 
 ## Commands
 
-| Command        | Description                               | Recommended for      |
-| -------------- | ----------------------------------------- | -------------------- |
-| `check`        | Run validation + linting in a single pass | Most workflows       |
-| `validate`     | Run schema validation only                | Schema-only checks   |
-| `lint`         | Run lint rules only                       | Lint-only checks     |
-| `deprecations` | List deprecated field usages              | Deprecation tracking |
-| `schema`       | Schema management (download, etc.)        | Schema introspection |
-| `stats`        | Display project statistics                | Project overview     |
-| `fragments`    | Analyze fragment usage                    | Fragment cleanup     |
-| `coverage`     | Show schema field coverage by operations  | Coverage analysis    |
-| `complexity`   | Analyze query complexity                  | Complexity budgeting |
+| Command        | Description                                                  |
+| -------------- | ------------------------------------------------------------ |
+| `check`        | Run validation + linting in a single pass (recommended)      |
+| `validate`     | Run schema validation only                                   |
+| `lint`         | Run lint rules only                                          |
+| `deprecations` | List all deprecated field usages across the project          |
+| `schema`       | Schema-related commands (download, etc.)                     |
+| `stats`        | Display statistics about the GraphQL project                 |
+| `fragments`    | Analyze fragment usage across the project                    |
+| `coverage`     | Show schema field coverage by operations                     |
+| `complexity`   | Analyze query complexity for GraphQL operations              |
+| `mcp`          | Start an MCP server for AI agent integration                 |
+| `list-rules`   | List all available lint rules                                |
+| `explain`      | Show details about a lint rule                               |
+| `lsp`          | Start the Language Server Protocol (LSP) server              |
 
 **`check` is the recommended command** — it's more efficient than running `validate` and `lint` separately.
 
@@ -60,15 +64,17 @@ graphql complexity --threshold 100
 
 ## Global options
 
-| Option              | Description                                      |
-| ------------------- | ------------------------------------------------ |
-| `--config <PATH>`   | Path to config file (auto-discovered by default) |
-| `--project <NAME>`  | Project name for multi-project configs           |
-| `--quiet`, `-q`     | Suppress all output except errors                |
-| `--no-progress`     | Suppress progress spinners only                  |
-| `--format <FORMAT>` | Output format: `human`, `json`, `github`         |
-| `--color`           | Force colored output even when not a TTY         |
-| `--no-color`        | Disable colored output                           |
+| Option                   | Description                                      |
+| ------------------------ | ------------------------------------------------ |
+| `-c, --config <FILE>`    | Path to config file (auto-discovered by default) |
+| `-p, --project <PROJECT>`| Project name for multi-project configs           |
+| `--color`                | Force colored output even when not a TTY         |
+| `--no-color`             | Disable colored output                           |
+| `-q, --quiet`            | Suppress all output except errors                |
+| `--no-progress`          | Suppress progress spinners only                  |
+| `-V, --version`          | Print version and exit                           |
+
+Each output-producing command supports `-f, --format` independently.
 
 **Output verbosity:**
 
@@ -88,6 +94,7 @@ graphql complexity --threshold 100
 | 3    | Schema load error (introspection failed, etc.) |
 | 4    | I/O error (file read/write failure)            |
 | 5    | Parse error (invalid GraphQL syntax)           |
+| 6    | Warning threshold exceeded (`--max-warnings` limit hit) |
 
 ```sh
 graphql validate
@@ -104,6 +111,7 @@ esac
 
 | Variable         | Description                                           |
 | ---------------- | ----------------------------------------------------- |
+| `GRAPHQL_CONFIG` | Override config file path                             |
 | `RUST_LOG`       | Log level (`error`, `warn`, `info`, `debug`, `trace`) |
 | `NO_COLOR`       | Disable colored output                                |
 | `CLICOLOR`       | `0` to disable, `1` to enable colors                  |

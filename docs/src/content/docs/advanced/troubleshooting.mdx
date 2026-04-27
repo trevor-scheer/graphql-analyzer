@@ -48,9 +48,12 @@ Supported file names (in priority order):
 
 1. `.graphqlrc.yml` / `.graphqlrc.yaml`
 2. `.graphqlrc.json`
-3. `.graphqlrc`
-4. `graphql.config.yml` / `graphql.config.yaml`
-5. `graphql.config.json`
+3. `.graphqlrc.toml`
+4. `.graphqlrc` (YAML or JSON, auto-detected)
+5. `graphql.config.yml` / `graphql.config.yaml`
+6. `graphql.config.json`
+7. `graphql.config.toml`
+8. `package.json` with a `"graphql"` key (lowest priority fallback)
 
 **Not supported:** `graphql.config.js`, `graphql.config.ts`
 

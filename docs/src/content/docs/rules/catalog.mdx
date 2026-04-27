@@ -17,34 +17,34 @@ description: All available lint rules.
 | [uniqueEnumValueNames](/graphql-analyzer/rules/uniqueEnumValueNames/)                                       | warn             | Schema          | Yes               |
 | [noUnusedFragments](/graphql-analyzer/rules/noUnusedFragments/)                                             | warn             | Project         | Yes               |
 | [noUnusedFields](/graphql-analyzer/rules/noUnusedFields/)                                                   | warn             | Project         | Yes               |
-| [alphabetize](/graphql-analyzer/rules/alphabetize/)                                                         | —                | Document        | No                |
-| [descriptionStyle](/graphql-analyzer/rules/descriptionStyle/)                                               | —                | Schema          | No                |
-| [inputName](/graphql-analyzer/rules/inputName/)                                                             | —                | Schema          | No                |
-| [loneExecutableDefinition](/graphql-analyzer/rules/loneExecutableDefinition/)                               | —                | Document        | No                |
-| [matchDocumentFilename](/graphql-analyzer/rules/matchDocumentFilename/)                                     | —                | Document        | No                |
-| [namingConvention](/graphql-analyzer/rules/namingConvention/)                                               | —                | Document        | No                |
-| [noOnePlaceFragments](/graphql-analyzer/rules/noOnePlaceFragments/)                                         | —                | Project         | No                |
-| [noRootType](/graphql-analyzer/rules/noRootType/)                                                           | —                | Schema          | No                |
-| [noScalarResultTypeOnMutation](/graphql-analyzer/rules/noScalarResultTypeOnMutation/)                       | —                | Schema          | No                |
-| [noTypenamePrefix](/graphql-analyzer/rules/noTypenamePrefix/)                                               | —                | Schema          | No                |
-| [operationNameSuffix](/graphql-analyzer/rules/operationNameSuffix/)                                         | —                | Document        | No                |
-| [relayConnectionTypes](/graphql-analyzer/rules/relayConnectionTypes/)                                       | —                | Schema          | No                |
-| [relayEdgeTypes](/graphql-analyzer/rules/relayEdgeTypes/)                                                   | —                | Schema          | No                |
-| [relayArguments](/graphql-analyzer/rules/relayArguments/)                                                   | —                | Schema          | No                |
-| [requireDeprecationDate](/graphql-analyzer/rules/requireDeprecationDate/)                                   | —                | Schema          | No                |
-| [relayPageInfo](/graphql-analyzer/rules/relayPageInfo/)                                                     | —                | Schema          | No                |
-| [requireDescription](/graphql-analyzer/rules/requireDescription/)                                           | —                | Schema          | No                |
-| [requireFieldOfTypeQueryInMutationResult](/graphql-analyzer/rules/requireFieldOfTypeQueryInMutationResult/) | —                | Schema          | No                |
-| [requireIdField](/graphql-analyzer/rules/requireIdField/)                                                   | —                | Document-Schema | No                |
-| [requireNullableFieldsWithOneof](/graphql-analyzer/rules/requireNullableFieldsWithOneof/)                   | —                | Schema          | No                |
-| [requireNullableResultInRoot](/graphql-analyzer/rules/requireNullableResultInRoot/)                         | —                | Schema          | No                |
-| [requireTypePatternWithOneof](/graphql-analyzer/rules/requireTypePatternWithOneof/)                         | —                | Schema          | No                |
-| [requireImportFragment](/graphql-analyzer/rules/requireImportFragment/)                                     | —                | Document        | No                |
+| [alphabetize](/graphql-analyzer/rules/alphabetize/)                                                         | warn             | Document + Schema | No                |
+| [descriptionStyle](/graphql-analyzer/rules/descriptionStyle/)                                               | warn             | Schema          | No                |
+| [inputName](/graphql-analyzer/rules/inputName/)                                                             | warn             | Schema          | No                |
+| [loneExecutableDefinition](/graphql-analyzer/rules/loneExecutableDefinition/)                               | warn             | Document        | No                |
+| [matchDocumentFilename](/graphql-analyzer/rules/matchDocumentFilename/)                                     | warn             | Document        | No                |
+| [namingConvention](/graphql-analyzer/rules/namingConvention/)                                               | warn             | Document + Schema | No                |
+| [noOnePlaceFragments](/graphql-analyzer/rules/noOnePlaceFragments/)                                         | warn             | Project         | No                |
+| [noRootType](/graphql-analyzer/rules/noRootType/)                                                           | error            | Schema          | No                |
+| [noScalarResultTypeOnMutation](/graphql-analyzer/rules/noScalarResultTypeOnMutation/)                       | warn             | Schema          | No                |
+| [noTypenamePrefix](/graphql-analyzer/rules/noTypenamePrefix/)                                               | warn             | Schema          | No                |
+| [operationNameSuffix](/graphql-analyzer/rules/operationNameSuffix/)                                         | warn             | Document        | No                |
+| [relayConnectionTypes](/graphql-analyzer/rules/relayConnectionTypes/)                                       | warn             | Schema          | No                |
+| [relayEdgeTypes](/graphql-analyzer/rules/relayEdgeTypes/)                                                   | warn             | Schema          | No                |
+| [relayArguments](/graphql-analyzer/rules/relayArguments/)                                                   | warn             | Schema          | No                |
+| [requireDeprecationDate](/graphql-analyzer/rules/requireDeprecationDate/)                                   | warn             | Schema          | No                |
+| [relayPageInfo](/graphql-analyzer/rules/relayPageInfo/)                                                     | warn             | Schema          | No                |
+| [requireDescription](/graphql-analyzer/rules/requireDescription/)                                           | warn             | Document + Schema | No                |
+| [requireFieldOfTypeQueryInMutationResult](/graphql-analyzer/rules/requireFieldOfTypeQueryInMutationResult/) | warn             | Schema          | No                |
+| [requireIdField](/graphql-analyzer/rules/requireIdField/)                                                   | warn             | Document-Schema | No                |
+| [requireNullableFieldsWithOneof](/graphql-analyzer/rules/requireNullableFieldsWithOneof/)                   | error            | Schema          | No                |
+| [requireNullableResultInRoot](/graphql-analyzer/rules/requireNullableResultInRoot/)                         | warn             | Schema          | No                |
+| [requireTypePatternWithOneof](/graphql-analyzer/rules/requireTypePatternWithOneof/)                         | warn             | Schema          | No                |
+| [requireImportFragment](/graphql-analyzer/rules/requireImportFragment/)                                     | warn             | Document        | No                |
 | [requireSelections](/graphql-analyzer/rules/requireSelections/)                                             | error            | Document-Schema | No                |
-| [selectionSetDepth](/graphql-analyzer/rules/selectionSetDepth/)                                             | —                | Document        | No                |
-| [strictIdInTypes](/graphql-analyzer/rules/strictIdInTypes/)                                                 | —                | Schema          | No                |
+| [selectionSetDepth](/graphql-analyzer/rules/selectionSetDepth/)                                             | warn             | Document        | No                |
+| [strictIdInTypes](/graphql-analyzer/rules/strictIdInTypes/)                                                 | warn             | Schema          | No                |
 | [uniqueNames](/graphql-analyzer/rules/uniqueNames/)                                                         | error            | Project         | No                |
-| [noUnusedVariables](/graphql-analyzer/rules/noUnusedVariables/)                                             | —                | Document        | No                |
+| [noUnusedVariables](/graphql-analyzer/rules/noUnusedVariables/)                                             | warn             | Document        | No                |
 
 ## Contexts
 

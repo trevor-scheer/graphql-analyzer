@@ -103,6 +103,7 @@ export default defineConfig({
               label: "loneExecutableDefinition",
               slug: "rules/loneExecutableDefinition",
             },
+            { label: "matchDocumentFilename", slug: "rules/matchDocumentFilename" },
             { label: "namingConvention", slug: "rules/namingConvention" },
             {
               label: "noAnonymousOperations",
@@ -115,6 +116,7 @@ export default defineConfig({
               slug: "rules/noHashtagDescription",
             },
             { label: "noOnePlaceFragments", slug: "rules/noOnePlaceFragments" },
+            { label: "noRootType", slug: "rules/noRootType" },
             {
               label: "noScalarResultTypeOnMutation",
               slug: "rules/noScalarResultTypeOnMutation",
@@ -126,6 +128,11 @@ export default defineConfig({
             { label: "noUnusedVariables", slug: "rules/noUnusedVariables" },
             { label: "operationNameSuffix", slug: "rules/operationNameSuffix" },
             { label: "redundantFields", slug: "rules/redundantFields" },
+            { label: "relayArguments", slug: "rules/relayArguments" },
+            { label: "relayConnectionTypes", slug: "rules/relayConnectionTypes" },
+            { label: "relayEdgeTypes", slug: "rules/relayEdgeTypes" },
+            { label: "relayPageInfo", slug: "rules/relayPageInfo" },
+            { label: "requireDeprecationDate", slug: "rules/requireDeprecationDate" },
             {
               label: "requireDeprecationReason",
               slug: "rules/requireDeprecationReason",
@@ -136,7 +143,11 @@ export default defineConfig({
               slug: "rules/requireFieldOfTypeQueryInMutationResult",
             },
             { label: "requireIdField", slug: "rules/requireIdField" },
+            { label: "requireImportFragment", slug: "rules/requireImportFragment" },
+            { label: "requireNullableFieldsWithOneof", slug: "rules/requireNullableFieldsWithOneof" },
+            { label: "requireNullableResultInRoot", slug: "rules/requireNullableResultInRoot" },
             { label: "requireSelections", slug: "rules/requireSelections" },
+            { label: "requireTypePatternWithOneof", slug: "rules/requireTypePatternWithOneof" },
             { label: "selectionSetDepth", slug: "rules/selectionSetDepth" },
             { label: "strictIdInTypes", slug: "rules/strictIdInTypes" },
             {

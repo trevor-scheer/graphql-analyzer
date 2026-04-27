@@ -13,12 +13,13 @@ graphql lint [OPTIONS]
 
 ## Options
 
-| Option              | Description                                        |
-| ------------------- | -------------------------------------------------- |
-| `--format <FORMAT>` | Output format: `human` (default), `json`, `github` |
-| `--watch`           | Watch for file changes and re-lint                 |
-| `--fix`             | Automatically fix issues that have safe fixes      |
-| `--fix-dry-run`     | Show what would be fixed without modifying files   |
+| Option                    | Description                                                    |
+| ------------------------- | -------------------------------------------------------------- |
+| `-f, --format <FORMAT>`   | Output format: `human` (default), `json`, `github`, `sarif`   |
+| `-w, --watch`             | Watch for file changes and re-lint                             |
+| `--fix`                   | Automatically fix issues that have safe fixes                  |
+| `--fix-dry-run`           | Show what would be fixed without modifying files               |
+| `--max-warnings <N>`      | Maximum number of warnings allowed before returning a non-zero exit code (exit code 6) |
 
 ## Examples
 
@@ -46,6 +47,7 @@ graphql --project frontend lint
 
 - `0` — No lint errors (warnings don't cause non-zero exit)
 - `1` — Lint errors found
+- `6` — Warning threshold exceeded (`--max-warnings`)
 
 ## Configuring rules
 

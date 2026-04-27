@@ -54,25 +54,32 @@ This is key to keeping the IDE responsive in large codebases.
 
 ### Enable OpenTelemetry tracing
 
+In VS Code settings (`Preferences: Open User Settings (JSON)`):
+
+```json
+{
+  "graphql-analyzer.debug.otelEnabled": true,
+  "graphql-analyzer.debug.otelEndpoint": "http://localhost:4317"
+}
+```
+
+`4317` is the OTLP gRPC ingestion endpoint (the collector). View traces in Jaeger's UI at `http://localhost:16686` (requires Jaeger running locally — these are two different ports with different purposes).
+
+### Enable debug logging
+
 In VS Code settings:
 
 ```json
 {
+  "graphql-analyzer.debug.logLevel": "debug",
   "graphql-analyzer.server.env": {
-    "OTEL_TRACES_ENABLED": "1",
     "RUST_LOG": "debug"
   }
 }
 ```
 
-View traces in Jaeger at `http://localhost:16686` (requires Jaeger running locally).
-
-### Enable debug logging
+For the CLI:
 
 ```sh
-# CLI
 RUST_LOG=debug graphql validate
-
-# LSP
-RUST_LOG=debug graphql-lsp 2> lsp.log
 ```
