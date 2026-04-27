@@ -44,8 +44,7 @@
       "mcp__ide__getHoverInfo",
       "mcp__ide__getDefinition",
       "mcp__ide__getReferences"
-    ],
-    "deny": ["Edit(.github/workflows/release.yml)"]
+    ]
   },
   "hooks": {
     "SessionStart": [
