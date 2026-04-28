@@ -440,7 +440,7 @@ fn invalid_l207_ignored_selectors() {
         super::UPSTREAM_SHA,
     ))
     .code(
-        r#"type Query {
+        r"type Query {
   user: User
 }
 type User {
@@ -465,7 +465,7 @@ type PageInfo {
   hasNextPage: Boolean!
   startCursor: String
   endCursor: String
-}"#,
+}",
     )
     .options(serde_json::json!({
         "types": true,

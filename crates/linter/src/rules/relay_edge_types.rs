@@ -290,8 +290,10 @@ impl StandaloneSchemaLintRule for RelayEdgeTypesRuleImpl {
         // Upstream checks all types, not just connection types, because the rule
         // is about enforcing consistent Relay pagination patterns project-wide.
         if opts.list_type_can_wrap_only_edge_type {
-            let edge_name_set: std::collections::HashSet<&str> =
-                edge_type_names.iter().map(std::convert::AsRef::as_ref).collect();
+            let edge_name_set: std::collections::HashSet<&str> = edge_type_names
+                .iter()
+                .map(std::convert::AsRef::as_ref)
+                .collect();
             for type_def in schema_types.values() {
                 if !matches!(type_def.kind, TypeDefKind::Object | TypeDefKind::Interface) {
                     continue;

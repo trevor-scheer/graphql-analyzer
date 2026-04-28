@@ -14,14 +14,14 @@ fn valid_l9_correct_page_info() {
         super::UPSTREAM_SHA,
     ))
     .code(
-        r#"
+        r"
         type PageInfo {
           hasPreviousPage: Boolean!
           hasNextPage: Boolean!
           startCursor: String
           endCursor: String
         }
-      "#,
+      ",
     )
     .run_against_standalone_schema(RelayPageInfoRuleImpl);
 }
@@ -35,14 +35,14 @@ fn valid_l19_start_end_cursor_can_be_scalar() {
         super::UPSTREAM_SHA,
     ))
     .code(
-        r#"
+        r"
         type PageInfo {
           hasPreviousPage: Boolean!
           hasNextPage: Boolean!
           startCursor: Int
           endCursor: Float
         }
-      "#,
+      ",
     )
     .run_against_standalone_schema(RelayPageInfoRuleImpl);
 }
@@ -74,7 +74,7 @@ fn invalid_l37_union_page_info() {
         super::UPSTREAM_SHA,
     ))
     .code(
-        r#"
+        r"
         union PageInfo = UserConnection | Post
         extend union PageInfo = Comment
         type UserConnection {
@@ -84,7 +84,7 @@ fn invalid_l37_union_page_info() {
         type Post
         type Comment
         type UserEdge
-      "#,
+      ",
     )
     .errors(vec![ExpectedError::new()])
     .run_against_standalone_schema(RelayPageInfoRuleImpl);
@@ -100,7 +100,7 @@ fn invalid_l51_input_page_info() {
         super::UPSTREAM_SHA,
     ))
     .code(
-        r#"
+        r"
         input PageInfo
         extend input PageInfo {
           hasPreviousPage: Boolean!
@@ -108,7 +108,7 @@ fn invalid_l51_input_page_info() {
           startCursor: String
           endCursor: String
         }
-      "#,
+      ",
     )
     .errors(vec![ExpectedError::new()])
     .run_against_standalone_schema(RelayPageInfoRuleImpl);
@@ -123,7 +123,7 @@ fn invalid_l63_enum_page_info() {
         super::UPSTREAM_SHA,
     ))
     .code(
-        r#"
+        r"
         enum PageInfo
         extend enum PageInfo {
           hasPreviousPage
@@ -131,7 +131,7 @@ fn invalid_l63_enum_page_info() {
           startCursor
           endCursor
         }
-      "#,
+      ",
     )
     .errors(vec![ExpectedError::new()])
     .run_against_standalone_schema(RelayPageInfoRuleImpl);
@@ -146,7 +146,7 @@ fn invalid_l75_interface_page_info() {
         super::UPSTREAM_SHA,
     ))
     .code(
-        r#"
+        r"
         interface PageInfo
         extend interface PageInfo {
           hasPreviousPage: Boolean!
@@ -154,7 +154,7 @@ fn invalid_l75_interface_page_info() {
           startCursor: String
           endCursor: String
         }
-      "#,
+      ",
     )
     .errors(vec![ExpectedError::new()])
     .run_against_standalone_schema(RelayPageInfoRuleImpl);
@@ -173,7 +173,7 @@ fn invalid_l87_extend_type_page_info() {
         super::UPSTREAM_SHA,
     ))
     .code(
-        r#"
+        r"
         type PageInfo
         extend type PageInfo {
           hasPreviousPage: Boolean!
@@ -181,7 +181,7 @@ fn invalid_l87_extend_type_page_info() {
           startCursor: String
           endCursor: String
         }
-      "#,
+      ",
     )
     .run_against_standalone_schema(RelayPageInfoRuleImpl);
 }
@@ -196,12 +196,12 @@ fn invalid_l101_wrong_fields() {
         super::UPSTREAM_SHA,
     ))
     .code(
-        r#"
+        r"
         type PageInfo {
           hasPreviousPage: [Boolean!]!
           startCursor: [String]
         }
-      "#,
+      ",
     )
     .errors(vec![
         ExpectedError::new(),

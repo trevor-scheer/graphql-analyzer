@@ -25,7 +25,7 @@ fn valid_l21_float_scalar_accepted_for_before() {
         super::UPSTREAM_SHA,
     ))
     .code(schema_with_types(
-        r#"
+        r"
         type User {
           posts(
             after: String!
@@ -34,7 +34,7 @@ fn valid_l21_float_scalar_accepted_for_before() {
             last: Int
           ): PostConnection
         }
-      "#,
+      ",
     ))
     .run_against_standalone_schema(RelayArgumentsRuleImpl);
 }
@@ -49,12 +49,12 @@ fn valid_l33_include_both_false_forward_or_backward_ok() {
         super::UPSTREAM_SHA,
     ))
     .code(schema_with_types(
-        r#"
+        r"
         type User {
           posts(after: String!, first: Int!): PostConnection
           comments(before: Float, last: Int): PostConnection
         }
-      "#,
+      ",
     ))
     .options(serde_json::json!({ "includeBoth": false }))
     .run_against_standalone_schema(RelayArgumentsRuleImpl);
@@ -75,7 +75,7 @@ fn invalid_l45_missing_args_and_wrong_types() {
         super::UPSTREAM_SHA,
     ))
     .code(schema_with_types(
-        r#"
+        r"
         type User {
           posts: PostConnection
           comments(
@@ -85,7 +85,7 @@ fn invalid_l45_missing_args_and_wrong_types() {
             last: [PostConnection]
           ): PostConnection
         }
-      "#,
+      ",
     ))
     .errors(vec![
         ExpectedError::new(),
@@ -107,11 +107,11 @@ fn invalid_l64_missing_backward_args_with_forward_present() {
         super::UPSTREAM_SHA,
     ))
     .code(schema_with_types(
-        r#"
+        r"
         type User {
           posts(after: String, first: Int): PostConnection
         }
-      "#,
+      ",
     ))
     .errors(vec![ExpectedError::new(), ExpectedError::new()])
     .run_against_standalone_schema(RelayArgumentsRuleImpl);
@@ -129,11 +129,11 @@ fn invalid_l74_include_both_false_missing_paired_arg() {
         super::UPSTREAM_SHA,
     ))
     .code(schema_with_types(
-        r#"
+        r"
         type User {
           posts(after: String, first: Int, before: Float): PostConnection
         }
-      "#,
+      ",
     ))
     .options(serde_json::json!({ "includeBoth": false }))
     .errors(vec![ExpectedError::new()])

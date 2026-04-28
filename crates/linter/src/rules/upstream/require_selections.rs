@@ -21,8 +21,8 @@
 //!   because our rule requires ALL listed fields that exist on the type.
 //! - Cases using `requireAllFields: true` align with our default behavior because
 //!   we always require all listed fields.
-//! - The OperationDefinition check note: upstream explicitly says it's redundant to
-//!   check selections on the OperationDefinition itself; our rule agrees and skips it.
+//! - The `OperationDefinition` check note: upstream explicitly says it's redundant to
+//!   check selections on the `OperationDefinition` itself; our rule agrees and skips it.
 
 use super::harness::{Case, ExpectedError};
 use crate::rules::require_selections::RequireSelectionsRuleImpl;

@@ -14,7 +14,7 @@ fn valid_l16_cursor_returns_string_should_implement_node_false() {
         super::UPSTREAM_SHA,
     ))
     .code(
-        r#"
+        r"
         type AEdge {
           node: Int!
           cursor: String!
@@ -22,7 +22,7 @@ fn valid_l16_cursor_returns_string_should_implement_node_false() {
         type AConnection {
           edges: [AEdge]
         }
-      "#,
+      ",
     )
     .options(serde_json::json!({ "shouldImplementNode": false }))
     .run_against_standalone_schema(RelayEdgeTypesRuleImpl);
@@ -37,7 +37,7 @@ fn valid_l29_cursor_returns_scalar() {
         super::UPSTREAM_SHA,
     ))
     .code(
-        r#"
+        r"
         scalar Email
         type AEdge {
           node: Email!
@@ -46,7 +46,7 @@ fn valid_l29_cursor_returns_scalar() {
         type AConnection {
           edges: [AEdge]
         }
-      "#,
+      ",
     )
     .options(serde_json::json!({ "shouldImplementNode": false }))
     .run_against_standalone_schema(RelayEdgeTypesRuleImpl);
@@ -60,7 +60,7 @@ fn valid_l43_with_edge_suffix_true() {
         super::UPSTREAM_SHA,
     ))
     .code(
-        r#"
+        r"
         scalar Email
         type AEdge {
           node: Email!
@@ -69,7 +69,7 @@ fn valid_l43_with_edge_suffix_true() {
         type AConnection {
           edges: [AEdge]
         }
-      "#,
+      ",
     )
     .options(serde_json::json!({ "withEdgeSuffix": true, "shouldImplementNode": false }))
     .run_against_standalone_schema(RelayEdgeTypesRuleImpl);
@@ -83,7 +83,7 @@ fn valid_l57_should_implement_node() {
         super::UPSTREAM_SHA,
     ))
     .code(
-        r#"
+        r"
         interface Node {
           id: ID!
         }
@@ -97,7 +97,7 @@ fn valid_l57_should_implement_node() {
         type AConnection {
           edges: [AEdge]
         }
-      "#,
+      ",
     )
     .options(serde_json::json!({ "shouldImplementNode": true }))
     .run_against_standalone_schema(RelayEdgeTypesRuleImpl);
@@ -114,7 +114,7 @@ fn valid_l74_not_object_type_no_throw() {
         super::UPSTREAM_SHA,
     ))
     .code(
-        r#"
+        r"
         type AEdge {
           node: Int!
           cursor: String!
@@ -122,7 +122,7 @@ fn valid_l74_not_object_type_no_throw() {
         type AConnection {
           edges: [AEdge]
         }
-      "#,
+      ",
     )
     .options(serde_json::json!({ "shouldImplementNode": false }))
     .run_against_standalone_schema(RelayEdgeTypesRuleImpl);
@@ -138,7 +138,7 @@ fn invalid_l89_edge_type_must_be_object_type() {
         super::UPSTREAM_SHA,
     ))
     .code(
-        r#"
+        r"
         type PageInfo
         type BConnection
         type DConnection
@@ -162,7 +162,7 @@ fn invalid_l89_edge_type_must_be_object_type() {
           edges: [DEdge!]!
           pageInfo: PageInfo!
         }
-      "#,
+      ",
     )
     .options(serde_json::json!({ "shouldImplementNode": false, "listTypeCanWrapOnlyEdgeType": false }))
     .errors(vec![
@@ -183,14 +183,14 @@ fn invalid_l118_fields_missing() {
         super::UPSTREAM_SHA,
     ))
     .code(
-        r#"
+        r"
         type PageInfo
         type AEdge
         type AConnection {
           edges: [AEdge]
           pageInfo: PageInfo!
         }
-      "#,
+      ",
     )
     .options(serde_json::json!({ "shouldImplementNode": false }))
     .errors(vec![ExpectedError::new(), ExpectedError::new()])
@@ -207,7 +207,7 @@ fn invalid_l131_cursor_list_type() {
         super::UPSTREAM_SHA,
     ))
     .code(
-        r#"
+        r"
         type PageInfo
         type AEdge {
           node: [PageInfo!]!
@@ -217,7 +217,7 @@ fn invalid_l131_cursor_list_type() {
           edges: [AEdge]
           pageInfo: PageInfo!
         }
-      "#,
+      ",
     )
     .options(serde_json::json!({ "shouldImplementNode": false, "listTypeCanWrapOnlyEdgeType": false }))
     .errors(vec![ExpectedError::new(), ExpectedError::new()])
@@ -233,7 +233,7 @@ fn invalid_l149_without_edge_suffix() {
         super::UPSTREAM_SHA,
     ))
     .code(
-        r#"
+        r"
         scalar Email
         type Aedge {
           node: Email!
@@ -242,7 +242,7 @@ fn invalid_l149_without_edge_suffix() {
         type AConnection {
           edges: [Aedge]
         }
-      "#,
+      ",
     )
     .options(serde_json::json!({ "withEdgeSuffix": true, "shouldImplementNode": false }))
     .errors(vec![ExpectedError::new()])
@@ -260,7 +260,7 @@ fn invalid_l163_list_type_can_wrap_only_edge_type() {
         super::UPSTREAM_SHA,
     ))
     .code(
-        r#"
+        r"
         type AEdge {
           node: Int!
           cursor: String!
@@ -274,7 +274,7 @@ fn invalid_l163_list_type_can_wrap_only_edge_type() {
           messages: [Int]!
           posts: [Int!]!
         }
-      "#,
+      ",
     )
     .options(serde_json::json!({ "listTypeCanWrapOnlyEdgeType": true, "shouldImplementNode": false }))
     .errors(vec![
@@ -295,7 +295,7 @@ fn invalid_l184_should_implement_node() {
         super::UPSTREAM_SHA,
     ))
     .code(
-        r#"
+        r"
         type User {
           id: ID!
         }
@@ -306,7 +306,7 @@ fn invalid_l184_should_implement_node() {
         type AConnection {
           edges: [AEdge]
         }
-      "#,
+      ",
     )
     .options(serde_json::json!({ "shouldImplementNode": true }))
     .errors(vec![ExpectedError::new()])

@@ -14,7 +14,7 @@ fn valid_l8_union_of_scalars() {
         super::UPSTREAM_SHA,
     ))
     .code(
-        r#"
+        r"
         scalar A
         scalar B
 
@@ -24,7 +24,7 @@ fn valid_l8_union_of_scalars() {
         type Query {
           foo: Response
         }
-      "#,
+      ",
     )
     .run_against_standalone_schema(NoUnreachableTypesRuleImpl);
 }
@@ -37,7 +37,7 @@ fn valid_l23_object_type_reachable() {
         super::UPSTREAM_SHA,
     ))
     .code(
-        r#"
+        r"
         type Query {
           me: User
         }
@@ -47,7 +47,7 @@ fn valid_l23_object_type_reachable() {
           id: ID
           name: String
         }
-      "#,
+      ",
     )
     .run_against_standalone_schema(NoUnreachableTypesRuleImpl);
 }
@@ -60,7 +60,7 @@ fn valid_l38_interface_type_reachable() {
         super::UPSTREAM_SHA,
     ))
     .code(
-        r#"
+        r"
         type Query {
           me: User
         }
@@ -73,7 +73,7 @@ fn valid_l38_interface_type_reachable() {
         type User implements Address {
           city: String
         }
-      "#,
+      ",
     )
     .run_against_standalone_schema(NoUnreachableTypesRuleImpl);
 }
@@ -86,14 +86,14 @@ fn valid_l56_scalar_reachable() {
         super::UPSTREAM_SHA,
     ))
     .code(
-        r#"
+        r"
         # ScalarTypeDefinition
         scalar DateTime
 
         type Query {
           now: DateTime
         }
-      "#,
+      ",
     )
     .run_against_standalone_schema(NoUnreachableTypesRuleImpl);
 }
@@ -106,7 +106,7 @@ fn valid_l67_enum_reachable() {
         super::UPSTREAM_SHA,
     ))
     .code(
-        r#"
+        r"
         # EnumTypeDefinition
         enum Role {
           ADMIN
@@ -116,7 +116,7 @@ fn valid_l67_enum_reachable() {
         type Query {
           role: Role
         }
-      "#,
+      ",
     )
     .run_against_standalone_schema(NoUnreachableTypesRuleImpl);
 }
@@ -129,7 +129,7 @@ fn valid_l81_input_type_in_argument() {
         super::UPSTREAM_SHA,
     ))
     .code(
-        r#"
+        r"
         input UserInput {
           id: ID
         }
@@ -138,7 +138,7 @@ fn valid_l81_input_type_in_argument() {
           # InputValueDefinition
           user(input: UserInput!): Boolean
         }
-      "#,
+      ",
     )
     .run_against_standalone_schema(NoUnreachableTypesRuleImpl);
 }
@@ -159,7 +159,7 @@ fn valid_l112_custom_root_types_all_reachable() {
         super::UPSTREAM_SHA,
     ))
     .code(
-        r#"
+        r"
         type RootQuery
         type RootMutation
         type RootSubscription
@@ -169,7 +169,7 @@ fn valid_l112_custom_root_types_all_reachable() {
           mutation: RootMutation
           subscription: RootSubscription
         }
-      "#,
+      ",
     )
     .run_against_standalone_schema(NoUnreachableTypesRuleImpl);
 }
@@ -182,7 +182,7 @@ fn valid_l124_interface_implementing_interface() {
         super::UPSTREAM_SHA,
     ))
     .code(
-        r#"
+        r"
         interface User {
           id: ID!
         }
@@ -199,7 +199,7 @@ fn valid_l124_interface_implementing_interface() {
         type Query {
           me: User
         }
-      "#,
+      ",
     )
     .run_against_standalone_schema(NoUnreachableTypesRuleImpl);
 }
@@ -235,7 +235,7 @@ fn invalid_l188_interface_and_object_unreachable() {
         super::UPSTREAM_SHA,
     ))
     .code(
-        r#"
+        r"
         type Query {
           node(id: ID!): AnotherNode!
         }
@@ -258,7 +258,7 @@ fn invalid_l188_interface_and_object_unreachable() {
           name: String
           address: String
         }
-      "#,
+      ",
     )
     .errors(vec![
         ExpectedError::new().message("Interface type `Node` is unreachable."),
@@ -283,7 +283,7 @@ fn invalid_l261_scalar_unreachable() {
         super::UPSTREAM_SHA,
     ))
     .code(
-        r#"
+        r"
         interface User {
           id: String
         }
@@ -302,7 +302,7 @@ fn invalid_l261_scalar_unreachable() {
         }
 
         scalar DateTime
-      "#,
+      ",
     )
     .errors(vec![ExpectedError::new()
         .message("Scalar type `DateTime` is unreachable.")])
@@ -328,7 +328,7 @@ fn invalid_l284_type_extension_unreachable_divergence() {
         super::UPSTREAM_SHA,
     ))
     .code(
-        r#"
+        r"
         interface User {
           id: String
         }
@@ -349,7 +349,7 @@ fn invalid_l284_type_extension_unreachable_divergence() {
         type Query {
           user: AnotherUser!
         }
-      "#,
+      ",
     )
     .errors(vec![
         ExpectedError::new().message("Interface type `User` is unreachable."),
@@ -368,7 +368,7 @@ fn invalid_l313_scalar_unreachable_with_reachable_chain() {
         super::UPSTREAM_SHA,
     ))
     .code(
-        r#"
+        r"
         type Query {
           node(id: ID!): Node!
         }
@@ -389,7 +389,7 @@ fn invalid_l313_scalar_unreachable_with_reachable_chain() {
         }
 
         scalar DateTime
-      "#,
+      ",
     )
     .errors(vec![ExpectedError::new()
         .message("Scalar type `DateTime` is unreachable.")])

@@ -14,7 +14,7 @@
 use super::harness::{Case, ExpectedError};
 use crate::rules::selection_set_depth::SelectionSetDepthRuleImpl;
 
-/// Fragment used as a sibling document in WITH_SIBLINGS cases.
+/// Fragment used as a sibling document in `WITH_SIBLINGS` cases.
 const ALBUM_FIELDS_FRAGMENT: &str = "fragment AlbumFields on Album { id }";
 
 /// <https://github.com/dimaMachina/graphql-eslint/blob/f0f200ef0b030cb8a905bbcb32fe346b87cc2e24/packages/plugin/src/rules/selection-set-depth/index.test.ts#L14>

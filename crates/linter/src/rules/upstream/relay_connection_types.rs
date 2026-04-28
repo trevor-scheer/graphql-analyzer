@@ -14,12 +14,12 @@ fn valid_l8_follow_relay_spec() {
         super::UPSTREAM_SHA,
     ))
     .code(
-        r#"
+        r"
         type UserConnection {
           edges: [UserEdge]
           pageInfo: PageInfo!
         }
-      "#,
+      ",
     )
     .run_against_standalone_schema(RelayConnectionTypesRuleImpl);
 }
@@ -34,7 +34,7 @@ fn valid_l14_edges_returns_list_wrapping_edge_type() {
         super::UPSTREAM_SHA,
     ))
     .code(
-        r#"
+        r"
         type UserConnection {
           edges: [UserEdge]
           pageInfo: PageInfo!
@@ -51,7 +51,7 @@ fn valid_l14_edges_returns_list_wrapping_edge_type() {
           edges: [AddressEdge!]!
           pageInfo: PageInfo!
         }
-      "#,
+      ",
     )
     .run_against_standalone_schema(RelayConnectionTypesRuleImpl);
 }
@@ -65,12 +65,12 @@ fn valid_l33_unnamed_string() {
         super::UPSTREAM_SHA,
     ))
     .code(
-        r#"
+        r"
       type UserConnection {
         edges: [UserEdge]
         pageInfo: PageInfo!
       }
-    "#,
+    ",
     )
     .run_against_standalone_schema(RelayConnectionTypesRuleImpl);
 }
@@ -84,12 +84,12 @@ fn valid_l40_extend_type() {
         super::UPSTREAM_SHA,
     ))
     .code(
-        r#"
+        r"
       extend type UserConnection {
         edges: [UserEdge]
         pageInfo: PageInfo!
       }
-    "#,
+    ",
     )
     .run_against_standalone_schema(RelayConnectionTypesRuleImpl);
 }
@@ -109,7 +109,7 @@ fn invalid_l50_non_object_types_with_connection_suffix() {
         super::UPSTREAM_SHA,
     ))
     .code(
-        r#"
+        r"
         scalar DateTimeConnection
         union DataConnection = Post
         extend union DataConnection = Comment
@@ -127,7 +127,7 @@ fn invalid_l50_non_object_types_with_connection_suffix() {
         }
         type Post
         type Comment
-      "#,
+      ",
     )
     .errors(vec![
         ExpectedError::new(),
@@ -148,12 +148,12 @@ fn invalid_l73_missing_connection_suffix() {
         super::UPSTREAM_SHA,
     ))
     .code(
-        r#"
+        r"
         type User {
           edges: UserEdge
           pageInfo: PageInfo
         }
-      "#,
+      ",
     )
     .errors(vec![ExpectedError::new()])
     .run_against_standalone_schema(RelayConnectionTypesRuleImpl);
@@ -193,7 +193,7 @@ fn invalid_l92_edges_not_list_type() {
         super::UPSTREAM_SHA,
     ))
     .code(
-        r#"
+        r"
         type AConnection {
           edges: AEdge
           pageInfo: PageInfo!
@@ -202,7 +202,7 @@ fn invalid_l92_edges_not_list_type() {
           edges: BEdge!
           pageInfo: PageInfo!
         }
-      "#,
+      ",
     )
     .errors(vec![ExpectedError::new(), ExpectedError::new()])
     .run_against_standalone_schema(RelayConnectionTypesRuleImpl);
@@ -218,7 +218,7 @@ fn invalid_l104_page_info_not_non_null_page_info() {
         super::UPSTREAM_SHA,
     ))
     .code(
-        r#"
+        r"
         type AConnection {
           edges: [AEdge]
           pageInfo: PageInfo
@@ -239,7 +239,7 @@ fn invalid_l104_page_info_not_non_null_page_info() {
           edges: [EEdge]
           pageInfo: [PageInfo!]!
         }
-      "#,
+      ",
     )
     .errors(vec![
         ExpectedError::new(),

@@ -145,13 +145,25 @@ fn unquote_string(s: &str) -> Option<&str> {
 /// Format the `nodeName` portion of graphql-eslint's diagnostic messages,
 /// matching `displayNodeName` + `getNodeName`.
 enum NodeKind<'a> {
-    Field { field: &'a str, parent: &'a str },
-    InputValue { arg: &'a str, field: &'a str },
-    EnumValue { value: &'a str, parent: &'a str },
+    Field {
+        field: &'a str,
+        parent: &'a str,
+    },
+    InputValue {
+        arg: &'a str,
+        field: &'a str,
+    },
+    EnumValue {
+        value: &'a str,
+        parent: &'a str,
+    },
     /// Type-level `@deprecated` (e.g. `scalar Old @deprecated`).
     /// `kind_str` mirrors upstream's `DisplayNodeNameMap` (e.g. "scalar",
     /// "type", "input", "enum", "interface", "union").
-    TypeLevel { kind_str: &'a str, name: &'a str },
+    TypeLevel {
+        kind_str: &'a str,
+        name: &'a str,
+    },
 }
 
 impl NodeKind<'_> {

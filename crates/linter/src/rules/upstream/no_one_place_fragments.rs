@@ -16,7 +16,7 @@ use crate::rules::no_one_place_fragments::NoOnePlaceFragmentsRuleImpl;
 
 /// Content of `packages/plugin/__tests__/mocks/no-one-place-fragments.graphql`
 /// at the pinned SHA. This fragment is spread in two places so it is valid.
-const NO_ONE_PLACE_MOCK: &str = r#"fragment UserFields on User {
+const NO_ONE_PLACE_MOCK: &str = r"fragment UserFields on User {
   id
 }
 
@@ -27,15 +27,15 @@ const NO_ONE_PLACE_MOCK: &str = r#"fragment UserFields on User {
       ...UserFields
     }
   }
-}"#;
+}";
 
 /// Content of `packages/plugin/__tests__/mocks/user-fields.graphql`
 /// at the pinned SHA. This fragment is only spread once (in the inline
 /// extra document), so it is invalid.
-const USER_FIELDS_MOCK: &str = r#"fragment UserFields on User {
+const USER_FIELDS_MOCK: &str = r"fragment UserFields on User {
   id
   firstName
-}"#;
+}";
 
 /// <https://github.com/dimaMachina/graphql-eslint/blob/f0f200ef0b030cb8a905bbcb32fe346b87cc2e24/packages/plugin/src/rules/no-one-place-fragments/index.test.ts#L8>
 #[test]

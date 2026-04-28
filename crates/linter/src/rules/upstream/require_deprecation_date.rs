@@ -19,17 +19,24 @@ fn tomorrow_date_string() -> String {
     // Compute year/month/day from Unix timestamp (UTC)
     let days = tomorrow_secs / 86_400;
     let (year, month, day) = days_to_ymd(days);
-    format!("{:02}/{:02}/{}", day, month, year)
+    format!("{day:02}/{month:02}/{year}")
 }
 
 /// Convert days-since-epoch to (year, month, day) in UTC.
+// Hinnant's civil_from_days uses signed/unsigned casts that are correct within
+// any plausible date range; allow the cast lints rather than obscure the algorithm.
+#[allow(
+    clippy::cast_possible_wrap,
+    clippy::cast_sign_loss,
+    clippy::cast_possible_truncation
+)]
 fn days_to_ymd(days: u64) -> (u32, u32, u32) {
     // Algorithm: Howard Hinnant's civil_from_days, adapted for u64 input.
     let z = days as i64 + 719_468;
     let era = if z >= 0 { z } else { z - 146_096 } / 146_097;
     let doe = (z - era * 146_097) as u32;
     let yoe = (doe - doe / 1460 + doe / 36524 - doe / 146_096) / 365;
-    let y = yoe as i64 + era * 400;
+    let y = i64::from(yoe) + era * 400;
     let doy = doe - (365 * yoe + yoe / 4 - yoe / 100);
     let mp = (5 * doy + 2) / 153;
     let d = doy - (153 * mp + 2) / 5 + 1;
