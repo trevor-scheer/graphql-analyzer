@@ -33,3 +33,7 @@ mod no_unused_fields;
 mod no_unused_fragments;
 mod no_unused_variables;
 mod relay_arguments;
+mod relay_connection_types;
+mod relay_edge_types;
+mod relay_page_info;
+mod require_deprecation_date;
