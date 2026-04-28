@@ -29,5 +29,6 @@ mod no_root_type;
 mod no_scalar_result_type_on_mutation;
 mod no_typename_prefix;
 mod no_unreachable_types;
-mod no_unused_fragments;
 mod no_unused_fields;
+mod no_unused_fragments;
+mod no_unused_variables;
