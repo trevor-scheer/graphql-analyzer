@@ -16,7 +16,11 @@
 pub(crate) const UPSTREAM_SHA: &str = "f0f200ef0b030cb8a905bbcb32fe346b87cc2e24";
 
 mod alphabetize;
+mod description_style;
 pub(crate) mod harness;
+mod input_name;
+mod lone_executable_definition;
+mod match_document_filename;
 mod no_anonymous_operations;
 mod no_deprecated;
 mod no_unused_fields;
