@@ -1,7 +1,7 @@
 use crate::diagnostics::{CodeSuggestion, LintDiagnostic, LintSeverity};
 use crate::traits::{LintRule, StandaloneSchemaLintRule};
 use graphql_base_db::{FileId, ProjectFiles};
-use graphql_hir::{DirectiveUsage, TextRange};
+use graphql_hir::{DirectiveUsage, TextRange, TypeDefKind};
 use serde::Deserialize;
 use std::collections::HashMap;
 
@@ -148,6 +148,10 @@ enum NodeKind<'a> {
     Field { field: &'a str, parent: &'a str },
     InputValue { arg: &'a str, field: &'a str },
     EnumValue { value: &'a str, parent: &'a str },
+    /// Type-level `@deprecated` (e.g. `scalar Old @deprecated`).
+    /// `kind_str` mirrors upstream's `DisplayNodeNameMap` (e.g. "scalar",
+    /// "type", "input", "enum", "interface", "union").
+    TypeLevel { kind_str: &'a str, name: &'a str },
 }
 
 impl NodeKind<'_> {
@@ -162,6 +166,9 @@ impl NodeKind<'_> {
             NodeKind::EnumValue { value, parent } => {
                 format!("enum value \"{value}\" in enum \"{parent}\"")
             }
+            NodeKind::TypeLevel { kind_str, name } => {
+                format!("{kind_str} \"{name}\"")
+            }
         }
     }
 
@@ -172,6 +179,7 @@ impl NodeKind<'_> {
             NodeKind::Field { field, .. } => field,
             NodeKind::InputValue { arg, .. } => arg,
             NodeKind::EnumValue { value, .. } => value,
+            NodeKind::TypeLevel { name, .. } => name,
         }
     }
 }
@@ -354,6 +362,35 @@ impl StandaloneSchemaLintRule for RequireDeprecationDateRuleImpl {
                             .or_default()
                             .push(diag);
                     }
+                }
+            }
+
+            // Type-level `@deprecated` (e.g. `scalar Old @deprecated`). Upstream
+            // visits every `Directive[name.value=deprecated]` node, which includes
+            // directives attached to the type definition itself.
+            if let Some(d) = find_deprecated(&type_def.directives) {
+                let kind_str = match type_def.kind {
+                    TypeDefKind::Scalar => "scalar",
+                    TypeDefKind::InputObject => "input",
+                    TypeDefKind::Enum => "enum",
+                    TypeDefKind::Interface => "interface",
+                    TypeDefKind::Union => "union",
+                    // Object and any future kinds map to "type"
+                    _ => "type",
+                };
+                if let Some(diag) = diagnose(
+                    d,
+                    &opts.argument_name,
+                    &NodeKind::TypeLevel {
+                        kind_str,
+                        name: &type_def.name,
+                    },
+                    type_def.definition_range,
+                ) {
+                    diagnostics_by_file
+                        .entry(type_def.file_id)
+                        .or_default()
+                        .push(diag);
                 }
             }
         }
