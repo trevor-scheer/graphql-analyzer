@@ -1043,11 +1043,15 @@ fn extract_deprecation(
         if directive.name == "deprecated" {
             let reason = directive.arguments.iter().find_map(|arg| {
                 if arg.name == "reason" {
-                    if let apollo_compiler::ast::Value::String(s) = &*arg.value {
-                        Some(Arc::from(s.as_str()))
-                    } else {
-                        None
-                    }
+                    // Accept any value type as a valid reason, not just strings.
+                    // Numeric literals like `reason: 0` are unusual but valid per
+                    // graphql-eslint's `require-deprecation-reason` rule, which only
+                    // requires the argument to be present regardless of its type.
+                    let s: Arc<str> = match &*arg.value {
+                        apollo_compiler::ast::Value::String(s) => Arc::from(s.as_str()),
+                        other => Arc::from(other.to_string().as_str()),
+                    };
+                    Some(s)
                 } else {
                     None
                 }
