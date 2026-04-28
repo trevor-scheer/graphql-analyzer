@@ -59,9 +59,16 @@ impl ExpectedType {
     }
 }
 
+/// Built-in GraphQL scalar type names that are always present even when not
+/// explicitly defined in the user's schema. The HIR's `schema_types` map only
+/// contains user-defined (and extension) types, so we must recognise these
+/// as scalars without consulting the map.
+const BUILTIN_SCALARS: &[&str] = &["Int", "Float", "String", "Boolean", "ID"];
+
 /// Mirrors graphql-eslint's `isAllowedNonNullType` check: unwraps a single
 /// `NonNull` wrapper, rejects `List` types, then verifies the named type matches
-/// the expected kind. For `StringOrScalar`, any `Scalar` type is accepted.
+/// the expected kind. For `StringOrScalar`, any `Scalar` type is accepted
+/// (including built-in scalars like `Float` that may not appear in schema_types).
 fn is_allowed_arg_type(
     type_ref: &graphql_hir::TypeRef,
     expected: ExpectedType,
@@ -70,10 +77,12 @@ fn is_allowed_arg_type(
     if type_ref.is_list {
         return false;
     }
+    let type_name = type_ref.name.as_ref();
+    let is_builtin_scalar = BUILTIN_SCALARS.contains(&type_name);
     match expected {
-        ExpectedType::Int => type_ref.name.as_ref() == "Int",
+        ExpectedType::Int => type_name == "Int",
         ExpectedType::StringOrScalar => {
-            if type_ref.name.as_ref() == "String" {
+            if type_name == "String" || is_builtin_scalar {
                 return true;
             }
             schema_types
