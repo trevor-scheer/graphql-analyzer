@@ -233,7 +233,7 @@ impl Case {
     }
 }
 
-#[allow(dead_code)]
+#[allow(dead_code, clippy::needless_pass_by_value)]
 impl Case {
     /// Run the case against a `StandaloneDocumentLintRule`. The case's
     /// `code:` is placed at `query.graphql`; `schema.graphql` is the
@@ -318,7 +318,7 @@ impl Case {
 
 /// Convert a 0-based byte offset in `source` to (line, column) using
 /// 1-based line/column with column counted in chars-from-start-of-line.
-/// Matches ESLint's positional convention for our diagnostics.
+/// Matches `ESLint`'s positional convention for our diagnostics.
 #[allow(dead_code)]
 fn byte_to_line_col(source: &str, byte_offset: usize) -> (u32, u32) {
     let mut line: u32 = 1;
@@ -428,15 +428,20 @@ impl Case {
                     );
                 }
             }
-            assert_eq!(
-                got.suggestions.len(),
-                want.suggestions.len(),
-                "{} #{i}: suggestion count mismatch (want {}, got {}):\n{:#?}",
-                self.permalink,
-                want.suggestions.len(),
-                got.suggestions.len(),
-                got.suggestions,
-            );
+            // Only assert suggestion count when the test case explicitly pins
+            // suggestions. Upstream tests that don't care about suggestions
+            // leave `want.suggestions` empty, meaning "don't check".
+            if !want.suggestions.is_empty() {
+                assert_eq!(
+                    got.suggestions.len(),
+                    want.suggestions.len(),
+                    "{} #{i}: suggestion count mismatch (want {}, got {}):\n{:#?}",
+                    self.permalink,
+                    want.suggestions.len(),
+                    got.suggestions.len(),
+                    got.suggestions,
+                );
+            }
             for (j, (got_sug, want_sug)) in got
                 .suggestions
                 .iter()

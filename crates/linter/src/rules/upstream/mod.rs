@@ -9,8 +9,6 @@
 //! See `docs/superpowers/specs/2026-04-28-port-graphql-eslint-tests-design.md`
 //! for the rationale and what's intentionally out of scope.
 
-#![cfg(test)]
-
 /// Upstream `dimaMachina/graphql-eslint` SHA all ported cases pin to.
 /// Recorded once at start of port; never refreshed (see spec).
 pub(crate) const UPSTREAM_SHA: &str = "f0f200ef0b030cb8a905bbcb32fe346b87cc2e24";
@@ -21,6 +19,9 @@ pub(crate) mod harness;
 mod input_name;
 mod lone_executable_definition;
 mod match_document_filename;
+mod naming_convention;
 mod no_anonymous_operations;
 mod no_deprecated;
+mod no_duplicate_fields;
+mod no_hashtag_description;
 mod no_unused_fields;

@@ -409,9 +409,8 @@ fn check_value_for_deprecated(
             let input_type_def = expected_type_name.and_then(|name| schema_types.get(name));
 
             for obj_field in obj.object_fields() {
-                let field_name_node = match obj_field.name() {
-                    Some(n) => n,
-                    None => continue,
+                let Some(field_name_node) = obj_field.name() else {
+                    continue;
                 };
                 let field_name = field_name_node.text();
 
