@@ -255,31 +255,88 @@ impl StandaloneSchemaLintRule for AlphabetizeRuleImpl {
     }
 }
 
-/// Returns `(kind_label, name_node)` for each top-level definition that has
-/// a name. `Some` means it's orderable; `None` (e.g. anonymous schema
-/// definition) is skipped for ordering purposes.
-fn definition_label_and_name(definition: &cst::Definition) -> Option<(&'static str, cst::Name)> {
+/// One top-level definition's ordering metadata. Unnamed definitions (anonymous
+/// operations, schema blocks) still participate as prev-sentinels but have no name
+/// to order by.
+enum DefinitionEntry {
+    /// Named definition: `(kind_label, name_node)`. Named operations carry the
+    /// specific operation type (`"query"`, `"mutation"`, `"subscription"`)
+    /// rather than the generic `"operation"`, matching graphql-eslint's
+    /// `getNodeTypeName` helper.
+    Named(&'static str, cst::Name),
+    /// Unnamed definition that still participates in the definitions ordering
+    /// sequence as a prev-sentinel. When a named definition immediately follows
+    /// an unnamed one, graphql-eslint always fires regardless of alphabetical
+    /// order (upstream `checkNodes` skips the comparison when `prevName` is
+    /// empty and falls through to `context.report`).
+    ///
+    /// The carried `&'static str` is the display label for the message (e.g.
+    /// `"operation definition"`, `"schema definition"`), matching
+    /// `lowerCase(prevNode.kind)` in upstream.
+    Unnamed(&'static str),
+}
+
+/// Returns the ordering entry for a top-level definition, or `None` only in
+/// unreachable branches (everything now maps to `Named` or `Unnamed`).
+fn definition_entry(definition: &cst::Definition) -> Option<DefinitionEntry> {
     match definition {
-        cst::Definition::ObjectTypeDefinition(d) => Some(("type", d.name()?)),
-        cst::Definition::ObjectTypeExtension(d) => Some(("type", d.name()?)),
-        cst::Definition::InterfaceTypeDefinition(d) => Some(("interface", d.name()?)),
-        cst::Definition::InterfaceTypeExtension(d) => Some(("interface", d.name()?)),
-        cst::Definition::UnionTypeDefinition(d) => Some(("union", d.name()?)),
-        cst::Definition::UnionTypeExtension(d) => Some(("union", d.name()?)),
-        cst::Definition::EnumTypeDefinition(d) => Some(("enum", d.name()?)),
-        cst::Definition::EnumTypeExtension(d) => Some(("enum", d.name()?)),
-        cst::Definition::ScalarTypeDefinition(d) => Some(("scalar", d.name()?)),
-        cst::Definition::ScalarTypeExtension(d) => Some(("scalar", d.name()?)),
-        cst::Definition::InputObjectTypeDefinition(d) => Some(("input", d.name()?)),
-        cst::Definition::InputObjectTypeExtension(d) => Some(("input", d.name()?)),
-        cst::Definition::DirectiveDefinition(d) => Some(("directive", d.name()?)),
-        cst::Definition::OperationDefinition(d) => {
-            // OperationDefinitions can appear in mixed schemas; an anonymous
-            // operation has no name to order by.
-            Some(("operation", d.name()?))
+        cst::Definition::ObjectTypeDefinition(d) => Some(DefinitionEntry::Named("type", d.name()?)),
+        cst::Definition::ObjectTypeExtension(d) => Some(DefinitionEntry::Named("type", d.name()?)),
+        cst::Definition::InterfaceTypeDefinition(d) => {
+            Some(DefinitionEntry::Named("interface", d.name()?))
         }
-        cst::Definition::FragmentDefinition(d) => Some(("fragment", d.fragment_name()?.name()?)),
-        cst::Definition::SchemaDefinition(_) | cst::Definition::SchemaExtension(_) => None,
+        cst::Definition::InterfaceTypeExtension(d) => {
+            Some(DefinitionEntry::Named("interface", d.name()?))
+        }
+        cst::Definition::UnionTypeDefinition(d) => Some(DefinitionEntry::Named("union", d.name()?)),
+        cst::Definition::UnionTypeExtension(d) => Some(DefinitionEntry::Named("union", d.name()?)),
+        cst::Definition::EnumTypeDefinition(d) => Some(DefinitionEntry::Named("enum", d.name()?)),
+        cst::Definition::EnumTypeExtension(d) => Some(DefinitionEntry::Named("enum", d.name()?)),
+        cst::Definition::ScalarTypeDefinition(d) => {
+            Some(DefinitionEntry::Named("scalar", d.name()?))
+        }
+        cst::Definition::ScalarTypeExtension(d) => {
+            Some(DefinitionEntry::Named("scalar", d.name()?))
+        }
+        cst::Definition::InputObjectTypeDefinition(d) => {
+            Some(DefinitionEntry::Named("input", d.name()?))
+        }
+        cst::Definition::InputObjectTypeExtension(d) => {
+            Some(DefinitionEntry::Named("input", d.name()?))
+        }
+        cst::Definition::DirectiveDefinition(d) => {
+            Some(DefinitionEntry::Named("directive", d.name()?))
+        }
+        cst::Definition::OperationDefinition(d) => {
+            // Use the specific operation type as the label, matching
+            // graphql-eslint's `getNodeTypeName` which returns `node.operation`
+            // ("query", "mutation", "subscription") for OperationDefinition.
+            // Anonymous operations (no name) still participate as prev-sentinels.
+            let kind_label = match d.operation_type() {
+                Some(op) => match op.mutation_token() {
+                    Some(_) => "mutation",
+                    None => match op.subscription_token() {
+                        Some(_) => "subscription",
+                        None => "query",
+                    },
+                },
+                None => "query", // bare `{ ... }` shorthand is an anonymous query
+            };
+            match d.name() {
+                Some(name) => Some(DefinitionEntry::Named(kind_label, name)),
+                None => Some(DefinitionEntry::Unnamed("operation definition")),
+            }
+        }
+        cst::Definition::FragmentDefinition(d) => Some(DefinitionEntry::Named(
+            "fragment",
+            d.fragment_name()?.name()?,
+        )),
+        // Schema definitions have no name but still participate as prev-sentinels:
+        // a named definition immediately following a schema block is always reported
+        // (mirrors upstream's `!prevName → always report` path in `checkNodes`).
+        cst::Definition::SchemaDefinition(_) | cst::Definition::SchemaExtension(_) => {
+            Some(DefinitionEntry::Unnamed("schema definition"))
+        }
     }
 }
 
@@ -292,35 +349,62 @@ fn check_schema_document(
 
     // 1. Top-level definition ordering. Track each definition's full byte
     // range so misordered pairs get a swap fix matching graphql-eslint's.
+    //
+    // `prev` carries `(sort_name, display_kind, range)`. For unnamed definitions
+    // (anonymous operations, schema blocks), `sort_name` is `""` which triggers
+    // "always report" when a named definition follows.
     if opts.definitions {
         let mut prev: Option<(String, &'static str, (usize, usize))> = None;
         for definition in doc_cst.definitions() {
-            let Some((kind_label, name_node)) = definition_label_and_name(&definition) else {
-                continue;
-            };
-            let curr_name = name_node.text().to_string();
-            let curr_range = {
-                let r = definition.syntax().text_range();
-                let s: usize = r.start().into();
-                let e: usize = r.end().into();
-                (s, e)
-            };
-            if let Some((ref prev_name, prev_kind, prev_range)) = prev {
-                if is_misordered(&curr_name, prev_name, &opts.groups) {
-                    let fix = swap_fix(doc.source, prev_range, curr_range);
-                    push_alphabetize_diagnostic_with_fix(
-                        doc,
-                        diagnostics,
-                        &name_node,
-                        kind_label,
-                        &curr_name,
-                        prev_kind,
-                        prev_name,
-                        Some(fix),
-                    );
+            let entry = definition_entry(&definition);
+            match entry {
+                None => {}
+                Some(DefinitionEntry::Unnamed(display_label)) => {
+                    // Unnamed definitions update prev with an empty sort name so
+                    // that the next named definition always fires (upstream's
+                    // `if (!prevName) → always report` path).
+                    let curr_range = {
+                        let r = definition.syntax().text_range();
+                        let s: usize = r.start().into();
+                        let e: usize = r.end().into();
+                        (s, e)
+                    };
+                    prev = Some((String::new(), display_label, curr_range));
+                }
+                Some(DefinitionEntry::Named(kind_label, name_node)) => {
+                    let curr_name = name_node.text().to_string();
+                    let curr_range = {
+                        let r = definition.syntax().text_range();
+                        let s: usize = r.start().into();
+                        let e: usize = r.end().into();
+                        (s, e)
+                    };
+                    if let Some((ref prev_name, prev_kind, prev_range)) = prev {
+                        // When prev has no name (empty), always report — mirrors
+                        // upstream skipping the alphabetical comparison when
+                        // `prevName` is falsy and falling through to `report`.
+                        let should_report = if prev_name.is_empty() {
+                            true
+                        } else {
+                            is_misordered(&curr_name, prev_name, &opts.groups)
+                        };
+                        if should_report {
+                            let fix = swap_fix(doc.source, prev_range, curr_range);
+                            push_alphabetize_diagnostic_with_fix(
+                                doc,
+                                diagnostics,
+                                &name_node,
+                                kind_label,
+                                &curr_name,
+                                prev_kind,
+                                prev_name,
+                                Some(fix),
+                            );
+                        }
+                    }
+                    prev = Some((curr_name, kind_label, curr_range));
                 }
             }
-            prev = Some((curr_name, kind_label, curr_range));
         }
     }
 
@@ -399,11 +483,13 @@ fn check_schema_document(
                 // Directive arguments. Selector context is `DirectiveDefinition`
                 // — narrow with `arguments: ["DirectiveDefinition"]` (mirrors
                 // upstream's array form). Bool `true` enables every context.
+                // These are `InputValueDefinition` nodes, so upstream calls them
+                // "input value" in its messages (same as field/input-type nodes).
                 if opts.arguments.includes_kind("DirectiveDefinition") {
                     if let Some(args) = d.arguments_definition() {
                         check_input_value_definition_order(
                             args.input_value_definitions(),
-                            "argument",
+                            "input value",
                             &opts.groups,
                             doc,
                             diagnostics,
@@ -433,9 +519,11 @@ fn check_schema_document(
             };
             for field in fields.field_definitions() {
                 if let Some(args) = field.arguments_definition() {
+                    // Schema-side field arguments are `InputValueDefinition` nodes;
+                    // upstream labels them "input value" (same as field/input-type nodes).
                     check_input_value_definition_order(
                         args.input_value_definitions(),
-                        "argument",
+                        "input value",
                         &opts.groups,
                         doc,
                         diagnostics,
@@ -574,10 +662,18 @@ fn push_alphabetize_diagnostic_with_fix(
 ) {
     let start: usize = name_node.syntax().text_range().start().into();
     let end: usize = name_node.syntax().text_range().end().into();
+    // When prev has no name (e.g. anonymous operation, schema block), upstream
+    // formats the prev side without quotes, matching its
+    // `prevName ? displayNodeName(prevNode) : lowerCase(prevNode.kind)` path.
+    let message = if prev_name.is_empty() {
+        format!("{curr_kind} \"{curr_name}\" should be before {prev_kind}")
+    } else {
+        format!("{curr_kind} \"{curr_name}\" should be before {prev_kind} \"{prev_name}\"")
+    };
     let mut diag = LintDiagnostic::new(
         doc.span(start, end),
         LintSeverity::Warning,
-        format!("{curr_kind} \"{curr_name}\" should be before {prev_kind} \"{prev_name}\""),
+        message,
         "alphabetize",
     )
     .with_message_id("alphabetize")
@@ -627,6 +723,57 @@ impl SelectionKind {
     }
 }
 
+/// One selection's ordering metadata, tracking enough info for group-aware
+/// comparison.
+struct SelectionInfo {
+    name: String,
+    kind: SelectionKind,
+    /// True when the selection is a `Field` that has a sub-selection set (`{`
+    /// group bucket in graphql-eslint's `getIndex`).
+    has_selection_set: bool,
+    full_range: (usize, usize),
+    /// Byte range of the name/alias node itself (used as the diagnostic anchor).
+    name_range: (usize, usize),
+}
+
+/// Compute the group rank for a selection, mirroring graphql-eslint's `getIndex`:
+///   1. Exact name match in `groups`
+///   2. `{` if the selection has a sub-selection set
+///   3. `...` if the selection is a fragment spread
+///   4. `*` catch-all
+fn selection_group_rank(info: &SelectionInfo, groups: &[String]) -> Option<usize> {
+    if groups.is_empty() {
+        return None;
+    }
+    if let Some(i) = groups.iter().position(|g| g == &info.name) {
+        return Some(i);
+    }
+    if info.has_selection_set {
+        if let Some(i) = groups.iter().position(|g| g == "{") {
+            return Some(i);
+        }
+    }
+    if matches!(info.kind, SelectionKind::FragmentSpread) {
+        if let Some(i) = groups.iter().position(|g| g == "...") {
+            return Some(i);
+        }
+    }
+    groups.iter().position(|g| g == "*")
+}
+
+/// True when `curr` selection is misordered relative to `prev` selection.
+fn selection_is_misordered(curr: &SelectionInfo, prev: &SelectionInfo, groups: &[String]) -> bool {
+    if groups.is_empty() {
+        return locale_compare(&curr.name, &prev.name) == std::cmp::Ordering::Less;
+    }
+    let curr_rank = selection_group_rank(curr, groups);
+    let prev_rank = selection_group_rank(prev, groups);
+    match (prev_rank, curr_rank) {
+        (Some(pr), Some(cr)) if pr != cr => pr > cr,
+        _ => locale_compare(&curr.name, &prev.name) == std::cmp::Ordering::Less,
+    }
+}
+
 fn check_selection_set_order(
     selection_set: &cst::SelectionSet,
     opts: &AlphabetizeOptions,
@@ -635,84 +782,78 @@ fn check_selection_set_order(
     diagnostics: &mut Vec<LintDiagnostic>,
 ) {
     if scan_selections {
-        // Track the previous selection's full byte range too so we can emit a
-        // graphql-eslint-compatible swap fix.
-        let mut last: Option<(String, SelectionKind, (usize, usize))> = None;
+        let mut last: Option<SelectionInfo> = None;
 
         for selection in selection_set.selections() {
-            let current = match &selection {
-                cst::Selection::Field(field) => field
-                    .alias()
-                    .and_then(|a| a.name())
-                    .or_else(|| field.name())
-                    .map(|n| (n.text().to_string(), SelectionKind::Field)),
-                cst::Selection::FragmentSpread(spread) => spread
-                    .fragment_name()
-                    .and_then(|fn_| fn_.name())
-                    .map(|n| (n.text().to_string(), SelectionKind::FragmentSpread)),
-                cst::Selection::InlineFragment(_) => None, // Inline fragments don't have a name to order by
-            };
-
-            // Full byte range of the entire current selection — used both as
-            // the diagnostic anchor's containing range and as half of the
-            // swap fix.
-            let curr_full_range = {
-                let r = selection.syntax().text_range();
-                let s: usize = r.start().into();
-                let e: usize = r.end().into();
-                (s, e)
-            };
-
-            if let Some((name, curr_kind)) = current {
-                if let Some((prev_name, prev_kind, prev_full_range)) = &last {
-                    if name.to_lowercase() < prev_name.to_lowercase() {
-                        let start_offset = match &selection {
-                            cst::Selection::Field(f) => f
-                                .alias()
-                                .and_then(|a| a.name())
-                                .or_else(|| f.name())
-                                .map(|n| {
-                                    let s: usize = n.syntax().text_range().start().into();
-                                    let e: usize = n.syntax().text_range().end().into();
-                                    (s, e)
-                                }),
-                            cst::Selection::FragmentSpread(s) => {
-                                s.fragment_name().and_then(|fn_| fn_.name()).map(|n| {
-                                    let s: usize = n.syntax().text_range().start().into();
-                                    let e: usize = n.syntax().text_range().end().into();
-                                    (s, e)
-                                })
-                            }
-                            cst::Selection::InlineFragment(_) => None,
+            let info: Option<SelectionInfo> = match &selection {
+                cst::Selection::Field(field) => {
+                    let name_node = field
+                        .alias()
+                        .and_then(|a| a.name())
+                        .or_else(|| field.name());
+                    name_node.map(|n| {
+                        let full_range = {
+                            let r = selection.syntax().text_range();
+                            (r.start().into(), r.end().into())
                         };
-
-                        if let Some((start, end)) = start_offset {
-                            // Build the swap fix matching graphql-eslint:
-                            // replace [prev.start, curr.end] with
-                            // <curr_text><whitespace_between><prev_text>.
-                            let fix = swap_fix(doc.source, *prev_full_range, curr_full_range);
-
-                            diagnostics.push(
-                                LintDiagnostic::new(
-                                    doc.span(start, end),
-                                    LintSeverity::Warning,
-                                    format!(
-                                        "{curr_label} \"{name}\" should be before {prev_label} \"{prev_name}\"",
-                                        curr_label = curr_kind.label(),
-                                        prev_label = prev_kind.label(),
-                                    ),
-                                    "alphabetize",
-                                )
-                                .with_message_id("alphabetize")
-                                .with_fix(fix)
-                                .with_help(
-                                    "Reorder selections alphabetically by their response name",
-                                ),
-                            );
+                        SelectionInfo {
+                            name: n.text().to_string(),
+                            kind: SelectionKind::Field,
+                            has_selection_set: field.selection_set().is_some(),
+                            full_range,
+                            name_range: (
+                                n.syntax().text_range().start().into(),
+                                n.syntax().text_range().end().into(),
+                            ),
                         }
+                    })
+                }
+                cst::Selection::FragmentSpread(spread) => {
+                    let name_node = spread.fragment_name().and_then(|fn_| fn_.name());
+                    name_node.map(|n| {
+                        let full_range = {
+                            let r = selection.syntax().text_range();
+                            (r.start().into(), r.end().into())
+                        };
+                        SelectionInfo {
+                            name: n.text().to_string(),
+                            kind: SelectionKind::FragmentSpread,
+                            has_selection_set: false,
+                            full_range,
+                            name_range: (
+                                n.syntax().text_range().start().into(),
+                                n.syntax().text_range().end().into(),
+                            ),
+                        }
+                    })
+                }
+                cst::Selection::InlineFragment(_) => None,
+            };
+
+            if let Some(curr_info) = info {
+                if let Some(ref prev_info) = last {
+                    if selection_is_misordered(&curr_info, prev_info, &opts.groups) {
+                        let fix = swap_fix(doc.source, prev_info.full_range, curr_info.full_range);
+                        diagnostics.push(
+                            LintDiagnostic::new(
+                                doc.span(curr_info.name_range.0, curr_info.name_range.1),
+                                LintSeverity::Warning,
+                                format!(
+                                    "{curr_label} \"{name}\" should be before {prev_label} \"{prev_name}\"",
+                                    curr_label = curr_info.kind.label(),
+                                    name = curr_info.name,
+                                    prev_label = prev_info.kind.label(),
+                                    prev_name = prev_info.name,
+                                ),
+                                "alphabetize",
+                            )
+                            .with_message_id("alphabetize")
+                            .with_fix(fix)
+                            .with_help("Reorder selections alphabetically by their response name"),
+                        );
                     }
                 }
-                last = Some((name, curr_kind, curr_full_range));
+                last = Some(curr_info);
             }
         }
     }
@@ -740,14 +881,35 @@ fn check_selection_set_order(
     }
 }
 
+/// Locale-aware case-insensitive compare matching JS `String.prototype.localeCompare`.
+///
+/// Primary comparison is case-insensitive (fold both to lowercase). When
+/// names are equal case-insensitively, the tiebreaker puts lowercase before
+/// uppercase, mirroring the en-US locale where `"bar" < "Bar"`. This is
+/// required to match graphql-eslint's `prevName.localeCompare(currName)` for
+/// enum values and field names that differ only in case.
+fn locale_compare(a: &str, b: &str) -> std::cmp::Ordering {
+    let a_lower = a.to_lowercase();
+    let b_lower = b.to_lowercase();
+    match a_lower.cmp(&b_lower) {
+        std::cmp::Ordering::Equal => {
+            // Tiebreaker: lowercase before uppercase. In the Unicode/en-US locale
+            // `"a" < "A"`, so a name with all-lowercase chars sorts before its
+            // titlecase/uppercase variant.
+            a.cmp(b).reverse()
+        }
+        other => other,
+    }
+}
+
 /// Compare two names under the `groups` rule. Mirrors graphql-eslint's
 /// `getRank` exactly: prefer the explicit group index from the array, fall
 /// back to `"*"` (catch-all) when the name isn't listed, then break ties
-/// alphabetically (case-insensitive). When `groups` is empty the comparator
-/// degrades to plain alphabetical, matching the legacy default.
+/// using locale-aware comparison. When `groups` is empty the comparator
+/// degrades to plain locale-aware alphabetical.
 fn group_compare(a: &str, b: &str, groups: &[String]) -> std::cmp::Ordering {
     if groups.is_empty() {
-        return a.to_lowercase().cmp(&b.to_lowercase());
+        return locale_compare(a, b);
     }
     let rank = |name: &str| -> Option<usize> {
         if let Some(i) = groups.iter().position(|g| g == name) {
@@ -757,8 +919,8 @@ fn group_compare(a: &str, b: &str, groups: &[String]) -> std::cmp::Ordering {
     };
     match (rank(a), rank(b)) {
         (Some(ar), Some(br)) if ar != br => ar.cmp(&br),
-        // Same group (or both ungrouped) — alphabetical within the bucket.
-        _ => a.to_lowercase().cmp(&b.to_lowercase()),
+        // Same group (or both ungrouped) — locale-aware alphabetical within bucket.
+        _ => locale_compare(a, b),
     }
 }
 
