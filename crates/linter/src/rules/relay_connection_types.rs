@@ -176,7 +176,9 @@ impl StandaloneSchemaLintRule for RelayConnectionTypesRuleImpl {
                 }
                 Some(field) => {
                     let is_wrong_type = field.type_ref.name.as_ref() != "PageInfo";
-                    let is_nullable = !field.type_ref.is_non_null;
+                    // `pageInfo` must be non-null and a named (non-list) type:
+                    // `PageInfo!` is valid, `[PageInfo]!` is not.
+                    let is_nullable = !field.type_ref.is_non_null || field.type_ref.is_list;
                     if is_wrong_type || is_nullable {
                         let field_start: usize = field.type_ref.name_range.start().into();
                         let field_end: usize = field.type_ref.name_range.end().into();
