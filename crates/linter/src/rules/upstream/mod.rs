@@ -32,3 +32,4 @@ mod no_unreachable_types;
 mod no_unused_fields;
 mod no_unused_fragments;
 mod no_unused_variables;
+mod relay_arguments;
