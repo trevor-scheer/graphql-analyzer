@@ -45,3 +45,6 @@ mod require_nullable_fields_with_oneof;
 mod require_nullable_result_in_root;
 mod require_selections;
 mod require_type_pattern_with_oneof;
+mod selection_set_depth;
+mod strict_id_in_types;
+mod unique_enum_value_names;
