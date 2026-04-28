@@ -8,7 +8,7 @@ use crate::rules::no_unused_fields::NoUnusedFieldsRuleImpl;
 
 /// Full schema used by valid L58 and by the big valid case to establish that
 /// all fields are reachable when the right operations are provided.
-const TEST_SCHEMA: &str = r#"
+const TEST_SCHEMA: &str = r"
   type User {
     id: ID!
     firstName: String
@@ -43,7 +43,7 @@ const TEST_SCHEMA: &str = r#"
     createUser(firstName: String!): User
     deleteUser(id: ID!): User
   }
-"#;
+";
 
 /// <https://github.com/dimaMachina/graphql-eslint/blob/f0f200ef0b030cb8a905bbcb32fe346b87cc2e24/packages/plugin/src/rules/no-unused-fields/index.test.ts#L58>
 #[test]
@@ -117,7 +117,7 @@ fn invalid_l114_firstname_unused() {
     // as used. Without a Query root the operation is un-typed and `id` appears
     // unused too. We add a minimal Query here to give the same resolution
     // context upstream has implicitly.
-    .code(r#"
+    .code(r"
         type User {
           id: ID!
           firstName: String
@@ -126,16 +126,16 @@ fn invalid_l114_firstname_unused() {
         type Query {
           user(id: ID!): User
         }
-      "#)
+      ")
     .document(
         "op.graphql",
-        r#"
+        r"
             {
               user(id: 1) {
                 id
               }
             }
-        "#,
+        ",
     )
     .errors(vec![ExpectedError::new()
         .message("Field \"firstName\" is unused")
@@ -163,7 +163,7 @@ fn invalid_l134_deleteuser_unused_root_field_divergence() {
         "https://github.com/dimaMachina/graphql-eslint/blob/{}/packages/plugin/src/rules/no-unused-fields/index.test.ts#L134",
         super::UPSTREAM_SHA,
     ))
-    .code(r#"
+    .code(r"
         type Query {
           user(id: ID!): User
         }
@@ -171,16 +171,16 @@ fn invalid_l134_deleteuser_unused_root_field_divergence() {
         type Mutation {
           deleteUser(id: ID!): User
         }
-      "#)
+      ")
     .document(
         "op.graphql",
-        r#"
+        r"
             {
               user(id: 1) {
                 id
               }
             }
-        "#,
+        ",
     )
     .run_against_project_schema(NoUnusedFieldsRuleImpl);
 }
