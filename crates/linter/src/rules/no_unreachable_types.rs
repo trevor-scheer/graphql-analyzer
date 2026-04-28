@@ -52,6 +52,19 @@ impl StandaloneSchemaLintRule for NoUnreachableTypesRuleImpl {
             queue.push_back(name.clone());
         }
 
+        // Build a reverse-implementation map: interface name → all types that implement it.
+        // When an interface becomes reachable, all its implementors become reachable too
+        // (mirrors graphql-js `schema.getImplementations(type)`).
+        let mut implementors: HashMap<String, Vec<String>> = HashMap::new();
+        for type_def in schema_types.values() {
+            for iface in &type_def.implements {
+                implementors
+                    .entry(iface.to_string())
+                    .or_default()
+                    .push(type_def.name.to_string());
+            }
+        }
+
         // BFS to find all reachable types
         while let Some(type_name) = queue.pop_front() {
             if !reachable.insert(type_name.clone()) {
@@ -75,11 +88,22 @@ impl StandaloneSchemaLintRule for NoUnreachableTypesRuleImpl {
                     }
                 }
 
-                // Add implemented interfaces
+                // Add implemented interfaces (outgoing: this type → its interfaces)
                 for iface in &type_def.implements {
                     let iface_name = iface.to_string();
                     if !reachable.contains(&iface_name) {
                         queue.push_back(iface_name);
+                    }
+                }
+
+                // Add implementing types (incoming: interface → all types that implement it).
+                // This mirrors graphql-js `schema.getImplementations(type)` which upstream
+                // uses to mark concrete types reachable whenever their interface is reachable.
+                if let Some(impls) = implementors.get(&type_name) {
+                    for impl_name in impls {
+                        if !reachable.contains(impl_name) {
+                            queue.push_back(impl_name.clone());
+                        }
                     }
                 }
 
@@ -93,12 +117,8 @@ impl StandaloneSchemaLintRule for NoUnreachableTypesRuleImpl {
             }
         }
 
-        // Report unreachable types (skip scalars, they're often used via directives or custom logic)
+        // Report unreachable types. Scalars are included per upstream behavior.
         for type_def in schema_types.values() {
-            if type_def.kind == TypeDefKind::Scalar {
-                continue;
-            }
-
             if !reachable.contains(type_def.name.as_ref()) {
                 let start: usize = type_def.name_range.start().into();
                 let end: usize = type_def.name_range.end().into();
@@ -150,6 +170,12 @@ impl StandaloneSchemaLintRule for NoUnreachableTypesRuleImpl {
                         .with_tag(crate::diagnostics::DiagnosticTag::Unnecessary),
                     );
             }
+        }
+
+        // Sort diagnostics within each file by span start so callers see a
+        // deterministic, source-order output regardless of HashMap iteration order.
+        for diags in diagnostics_by_file.values_mut() {
+            diags.sort_by_key(|d| d.span.start);
         }
 
         diagnostics_by_file
