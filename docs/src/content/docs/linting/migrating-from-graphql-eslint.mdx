@@ -115,3 +115,12 @@ rule and asserts:
 
 If you migrate and see different results, that's a parity bug — please
 [open an issue](https://github.com/trevor-scheer/graphql-analyzer/issues).
+
+In addition to the live integration parity test
+(`packages/eslint-plugin/test/parity.test.mjs`, which runs both plugins
+side by side), every shared rule has its `valid:`/`invalid:` cases
+ported verbatim from upstream's unit tests into Rust tests under
+`crates/linter/src/rules/upstream/`. Each ported case carries a
+permalink to the original upstream source line at a pinned SHA, and
+runs against the rule implementation directly — failures point at a
+specific upstream test the rule no longer matches.
