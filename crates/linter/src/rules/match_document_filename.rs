@@ -76,9 +76,8 @@ impl<'de> serde::Deserialize<'de> for DefinitionTypeConfig {
 
             // String shorthand: `"matchDocumentStyle"`, `"PascalCase"`, etc.
             fn visit_str<E: de::Error>(self, v: &str) -> Result<Self::Value, E> {
-                let style = FilenameStyle::deserialize(
-                    serde::de::value::StrDeserializer::<E>::new(v),
-                )?;
+                let style =
+                    FilenameStyle::deserialize(serde::de::value::StrDeserializer::<E>::new(v))?;
                 Ok(DefinitionTypeConfig {
                     style: Some(style),
                     suffix: String::new(),
@@ -206,6 +205,27 @@ impl StandaloneDocumentLintRule for MatchDocumentFilenameRuleImpl {
         for doc in parse.documents() {
             let doc_cst = doc.tree.document();
 
+            // MATCH_EXTENSION: upstream checks the extension before looking at
+            // operation/fragment names, so it fires even for anonymous operations.
+            // Use offset 0 (start of file) as the anchor span for extension errors.
+            let extension_anchor = doc.span(0, 0);
+            if let Some(expected_ext) = opts.file_extension.as_deref() {
+                if let Some(actual) = actual_extension.as_deref() {
+                    if actual != expected_ext {
+                        diagnostics.push(
+                            LintDiagnostic::warning(
+                                extension_anchor,
+                                format!(
+                                    "File extension \"{actual}\" don't match extension \"{expected_ext}\""
+                                ),
+                                "matchDocumentFilename",
+                            )
+                            .with_message_id("MATCH_EXTENSION"),
+                        );
+                    }
+                }
+            }
+
             // graphql-eslint reports at most one filename diagnostic per document,
             // selecting `firstOperation || firstFragment` and pointing at the
             // first character of the file. We mirror that here.
@@ -259,27 +279,13 @@ impl StandaloneDocumentLintRule for MatchDocumentFilenameRuleImpl {
 
             let anchor_span = doc.span(target_start, target_start);
 
-            // MATCH_EXTENSION: emit before MATCH_STYLE so ordering matches the
-            // upstream rule (extension check runs first in `Document(documentNode)`).
-            if let Some(expected_ext) = opts.file_extension.as_deref() {
-                if let Some(actual) = actual_extension.as_deref() {
-                    if actual != expected_ext {
-                        diagnostics.push(
-                            LintDiagnostic::warning(
-                                anchor_span.clone(),
-                                format!(
-                                    "File extension \"{actual}\" don't match extension \"{expected_ext}\""
-                                ),
-                                "matchDocumentFilename",
-                            )
-                            .with_message_id("MATCH_EXTENSION"),
-                        );
-                    }
-                }
-            }
-
-            let expected_filename =
-                build_expected_filename(&name_text, config.style, &config.prefix, &config.suffix, &filename_stem);
+            let expected_filename = build_expected_filename(
+                &name_text,
+                config.style,
+                &config.prefix,
+                &config.suffix,
+                &filename_stem,
+            );
 
             if expected_filename != filename_stem {
                 // graphql-eslint reports the *full* filename (stem + extension)

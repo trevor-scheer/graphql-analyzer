@@ -81,13 +81,13 @@ impl StandaloneDocumentLintRule for LoneExecutableDefinitionRuleImpl {
             let counted_ops: Vec<_> = operations
                 .iter()
                 .filter(|op| {
-                    let kind_key = op
-                        .operation_type()
-                        .map_or("query", |op_type| match get_operation_kind(&op_type) {
+                    let kind_key = op.operation_type().map_or("query", |op_type| {
+                        match get_operation_kind(&op_type) {
                             OperationKind::Query => "query",
                             OperationKind::Mutation => "mutation",
                             OperationKind::Subscription => "subscription",
-                        });
+                        }
+                    });
                     !ignore.contains(kind_key)
                 })
                 .collect();
