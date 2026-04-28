@@ -238,9 +238,11 @@ impl Case {
         self.assert_outcome(&diagnostics, &self.code);
     }
 
-    /// Run the case against a `DocumentSchemaLintRule`. Same placement as
-    /// `StandaloneDocumentLintRule`; the rule reads schema via the
-    /// project's HIR queries.
+    /// Run the case against a `DocumentSchemaLintRule`. The body is identical
+    /// to `run_against_standalone_document`; the two runners exist as
+    /// separate generics because they take different `LintRule` trait bounds
+    /// (the `check(...)` signatures happen to match). Each rule is implemented
+    /// against exactly one trait, so the call site picks the correct runner.
     pub(crate) fn run_against_document_schema<R: DocumentSchemaLintRule>(self, rule: R) {
         let project = self.build_project(CodePlacement::Document);
         let target = project.documents.first().expect("document slot");
@@ -289,6 +291,12 @@ impl Case {
         // Flattening across files loses cross-file ordering — sort by
         // (start byte, message) so assertion order is deterministic.
         diagnostics.sort_by(|a, b| (a.span.start, &a.message).cmp(&(b.span.start, &b.message)));
+        // `source` is the primary `code:` string. Per-error position assertions
+        // in `assert_outcome` only make sense for diagnostics whose offsets
+        // reference this string — i.e. diagnostics on `schema.graphql` (for
+        // `Schema` placement) or `query.graphql` (for `Document` placement).
+        // Cases whose target diagnostic fires on an `extra_documents` file
+        // must not assert `line`/`column` (or must use a separate runner).
         self.assert_outcome(&diagnostics, &self.code);
     }
 }
@@ -437,11 +445,22 @@ impl Case {
         }
 
         if let Some(ref want_output) = self.expected_output {
+            // Flatten edits from every diagnostic's fix into one list, sort
+            // right-to-left, and apply in a single pass. Per-fix sorting (the
+            // job of `apply_fix`) is not enough across multiple diagnostics:
+            // applying fix N after fix N-1 has mutated the string would
+            // reference stale offsets.
+            let mut all_edits: Vec<crate::diagnostics::TextEdit> = diagnostics
+                .iter()
+                .filter_map(|d| d.fix.as_ref())
+                .flat_map(|fix| fix.edits.iter().cloned())
+                .collect();
+            all_edits.sort_by_key(|e| std::cmp::Reverse(e.offset_range.start));
             let mut applied = source.to_string();
-            for d in diagnostics {
-                if let Some(ref fix) = d.fix {
-                    applied = apply_fix(&applied, fix);
-                }
+            for edit in all_edits {
+                let start = edit.offset_range.start;
+                let end = edit.offset_range.end;
+                applied.replace_range(start..end, &edit.new_text);
             }
             assert_eq!(
                 &applied, want_output,
