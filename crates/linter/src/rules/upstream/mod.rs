@@ -19,3 +19,4 @@ mod alphabetize;
 pub(crate) mod harness;
 mod no_anonymous_operations;
 mod no_deprecated;
+mod no_unused_fields;
