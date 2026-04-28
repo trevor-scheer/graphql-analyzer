@@ -170,12 +170,14 @@ fn check_document(
                         .name()
                         .map_or_else(|| root_type_name.to_string(), |n| n.text().to_string());
                     let mut visited_fragments = HashSet::new();
+                    let mut checked_fragments = HashSet::new();
                     check_selection_set(
                         &selection_set,
                         root_type_name,
                         &display_name,
                         check_context,
                         &mut visited_fragments,
+                        &mut checked_fragments,
                         diagnostics,
                         doc,
                     );
@@ -197,12 +199,14 @@ fn check_document(
                         .map(|n| n.text().to_string());
                     let display_name = frag_name.unwrap_or_else(|| type_name.to_string());
                     let mut visited_fragments = HashSet::new();
+                    let mut checked_fragments = HashSet::new();
                     check_selection_set(
                         &selection_set,
                         type_name,
                         &display_name,
                         check_context,
                         &mut visited_fragments,
+                        &mut checked_fragments,
                         diagnostics,
                         doc,
                     );
@@ -230,6 +234,7 @@ fn check_selection_set(
     parent_display_name: &str,
     context: &CheckContext,
     visited_fragments: &mut HashSet<String>,
+    checked_fragments: &mut HashSet<String>,
     diagnostics: &mut Vec<LintDiagnostic>,
     doc: &graphql_syntax::DocumentRef<'_>,
 ) {
@@ -263,8 +268,20 @@ fn check_selection_set(
                 if let Some(field_name) = field.name() {
                     let field_name_str = field_name.text();
 
-                    if required_fields.contains(&field_name_str.to_string()) {
-                        found_fields.insert(field_name_str.to_string());
+                    // Check both the actual field name and any alias against required
+                    // fields. Upstream explicitly handles `id: name` (alias `id` over
+                    // field `name`) as satisfying the `id` requirement.
+                    let satisfied_name = if required_fields.contains(&field_name_str.to_string()) {
+                        Some(field_name_str.to_string())
+                    } else {
+                        field
+                            .alias()
+                            .and_then(|a| a.name())
+                            .map(|a| a.text().to_string())
+                            .filter(|alias| required_fields.contains(alias))
+                    };
+                    if let Some(name) = satisfied_name {
+                        found_fields.insert(name);
                     }
 
                     // Always recurse into nested selection sets
@@ -283,6 +300,7 @@ fn check_selection_set(
                                 &nested_display_name,
                                 context,
                                 visited_fragments,
+                                checked_fragments,
                                 diagnostics,
                                 doc,
                             );
@@ -291,10 +309,13 @@ fn check_selection_set(
                 }
             }
             cst::Selection::FragmentSpread(fragment_spread) => {
-                if !required_fields.is_empty() {
-                    if let Some(fragment_name) = fragment_spread.fragment_name() {
-                        if let Some(name) = fragment_name.name() {
-                            let name_str = name.text().to_string();
+                if let Some(fragment_name) = fragment_spread.fragment_name() {
+                    if let Some(name) = fragment_name.name() {
+                        let name_str = name.text().to_string();
+
+                        // Check whether the fragment provides required fields for
+                        // this level (to avoid a false "missing" diagnostic here).
+                        if !required_fields.is_empty() {
                             for required_field in &required_fields {
                                 let mut visited_clone = visited_fragments.clone();
                                 if fragment_contains_field(
@@ -310,6 +331,17 @@ fn check_selection_set(
                                 }
                             }
                         }
+
+                        // Also recurse into the fragment body to lint its own
+                        // nested selection sets. Upstream graphql-eslint walks
+                        // every node it encounters, including those inside
+                        // spread fragments. We replicate that here.
+                        check_fragment_body_violations(
+                            &name_str,
+                            context,
+                            checked_fragments,
+                            diagnostics,
+                        );
                     }
                 }
             }
@@ -321,17 +353,28 @@ fn check_selection_set(
                         .and_then(|nt| nt.name())
                         .map_or_else(|| parent_type_name.to_string(), |n| n.text().to_string());
 
-                    // Check for required fields in inline fragment's selections
+                    // Scan the inline fragment's selections to:
+                    // 1. Collect fields that satisfy the *parent* type's required fields
+                    // 2. Recurse into nested sub-selection sets
                     for nested_selection in nested_selection_set.selections() {
                         match nested_selection {
                             cst::Selection::Field(nested_field) => {
                                 if let Some(field_name) = nested_field.name() {
                                     let field_name_str = field_name.text();
-                                    if required_fields.contains(&field_name_str.to_string()) {
-                                        found_fields.insert(field_name_str.to_string());
+                                    let satisfied_name =
+                                        if required_fields.contains(&field_name_str.to_string()) {
+                                            Some(field_name_str.to_string())
+                                        } else {
+                                            nested_field
+                                                .alias()
+                                                .and_then(|a| a.name())
+                                                .map(|a| a.text().to_string())
+                                                .filter(|alias| required_fields.contains(alias))
+                                        };
+                                    if let Some(name) = satisfied_name {
+                                        found_fields.insert(name);
                                     }
 
-                                    // Recurse into nested object selections
                                     if let Some(field_selection_set) = nested_field.selection_set()
                                     {
                                         if let Some(field_type) = get_field_type(
@@ -352,6 +395,7 @@ fn check_selection_set(
                                                 &nested_display_name,
                                                 context,
                                                 visited_fragments,
+                                                checked_fragments,
                                                 diagnostics,
                                                 doc,
                                             );
@@ -360,10 +404,11 @@ fn check_selection_set(
                                 }
                             }
                             cst::Selection::FragmentSpread(fragment_spread) => {
-                                if !required_fields.is_empty() {
-                                    if let Some(fragment_name) = fragment_spread.fragment_name() {
-                                        if let Some(name) = fragment_name.name() {
-                                            let name_str = name.text().to_string();
+                                if let Some(fragment_name) = fragment_spread.fragment_name() {
+                                    if let Some(name) = fragment_name.name() {
+                                        let name_str = name.text().to_string();
+
+                                        if !required_fields.is_empty() {
                                             for required_field in &required_fields {
                                                 let mut visited_clone = visited_fragments.clone();
                                                 if fragment_contains_field(
@@ -379,6 +424,13 @@ fn check_selection_set(
                                                 }
                                             }
                                         }
+
+                                        check_fragment_body_violations(
+                                            &name_str,
+                                            context,
+                                            checked_fragments,
+                                            diagnostics,
+                                        );
                                     }
                                 }
                             }
@@ -386,6 +438,30 @@ fn check_selection_set(
                                 // Nested inline fragments handled by recursion
                             }
                         }
+                    }
+
+                    // When the inline fragment narrows to a concrete type (e.g.
+                    // `... on User { title }` inside a union/interface field),
+                    // check that the concrete type's required fields are satisfied.
+                    // The combined view is: parent-level fields already in
+                    // `found_fields` (e.g. `id` selected directly on the interface)
+                    // PLUS the inline fragment's own fields.
+                    //
+                    // We only do this when the type actually narrows — if the
+                    // inline fragment has the same type as the parent
+                    // (a bare `... { ... }`) the parent's own `required_fields`
+                    // check already covers it.
+                    if inline_type != parent_type_name {
+                        check_inline_fragment_type(
+                            &nested_selection_set,
+                            &inline_type,
+                            &found_fields,
+                            context,
+                            visited_fragments,
+                            checked_fragments,
+                            diagnostics,
+                            doc,
+                        );
                     }
                 }
             }
@@ -483,6 +559,228 @@ fn check_selection_set(
     }
 }
 
+/// Check required fields for a type-narrowing inline fragment (`... on ConcreteType { ... }`).
+///
+/// When an inline fragment narrows to a concrete type inside a union/interface
+/// field, we must verify that `ConcreteType`'s required fields are satisfied by the
+/// COMBINED view of: fields already selected at the parent level (`parent_found`)
+/// plus fields inside the inline fragment itself.
+///
+/// This mirrors graphql-eslint's behaviour where `vehicles { id ...on Car { mileage } }`
+/// is valid because `id` — already selected on the `Vehicle` interface — also satisfies
+/// the `Car.id` requirement.
+#[allow(clippy::too_many_arguments)]
+fn check_inline_fragment_type(
+    inline_selection_set: &cst::SelectionSet,
+    inline_type_name: &str,
+    parent_found_fields: &HashSet<String>,
+    context: &CheckContext,
+    visited_fragments: &mut HashSet<String>,
+    checked_fragments: &mut HashSet<String>,
+    diagnostics: &mut Vec<LintDiagnostic>,
+    doc: &graphql_syntax::DocumentRef<'_>,
+) {
+    let required_fields = if context.root_types.is_root_type(inline_type_name) {
+        return; // root types don't need cache keys
+    } else {
+        context
+            .types_with_required_fields
+            .get(inline_type_name)
+            .cloned()
+            .unwrap_or_default()
+    };
+
+    if required_fields.is_empty() {
+        return;
+    }
+
+    // Start with fields already satisfied at the parent selection-set level.
+    let mut found_fields: HashSet<String> = parent_found_fields
+        .iter()
+        .filter(|f| required_fields.contains(*f))
+        .cloned()
+        .collect();
+
+    let mut walked_fragments: Vec<String> = Vec::new();
+    let mut walked_fragments_seen: HashSet<String> = HashSet::new();
+
+    for selection in inline_selection_set.selections() {
+        match selection {
+            cst::Selection::Field(field) => {
+                if let Some(field_name) = field.name() {
+                    let field_name_str = field_name.text();
+                    let satisfied_name =
+                        if required_fields.contains(&field_name_str.to_string()) {
+                            Some(field_name_str.to_string())
+                        } else {
+                            field
+                                .alias()
+                                .and_then(|a| a.name())
+                                .map(|a| a.text().to_string())
+                                .filter(|alias| required_fields.contains(alias))
+                        };
+                    if let Some(name) = satisfied_name {
+                        found_fields.insert(name);
+                    }
+
+                    // Recurse into nested sub-selections
+                    if let Some(nested_selection_set) = field.selection_set() {
+                        if let Some(field_type) = get_field_type(
+                            inline_type_name,
+                            &field_name_str,
+                            context.schema_types,
+                        ) {
+                            let nested_display_name =
+                                field.alias().and_then(|a| a.name()).map_or_else(
+                                    || field_name_str.to_string(),
+                                    |n| n.text().to_string(),
+                                );
+                            check_selection_set(
+                                &nested_selection_set,
+                                &field_type,
+                                &nested_display_name,
+                                context,
+                                visited_fragments,
+                                checked_fragments,
+                                diagnostics,
+                                doc,
+                            );
+                        }
+                    }
+                }
+            }
+            cst::Selection::FragmentSpread(fragment_spread) => {
+                if let Some(fragment_name) = fragment_spread.fragment_name() {
+                    if let Some(name) = fragment_name.name() {
+                        let name_str = name.text().to_string();
+                        for required_field in &required_fields {
+                            let mut visited_clone = visited_fragments.clone();
+                            if fragment_contains_field(
+                                &name_str,
+                                inline_type_name,
+                                required_field,
+                                context,
+                                &mut visited_clone,
+                                &mut walked_fragments,
+                                &mut walked_fragments_seen,
+                            ) {
+                                found_fields.insert(required_field.clone());
+                            }
+                        }
+                    }
+                }
+            }
+            cst::Selection::InlineFragment(nested_inline) => {
+                if let Some(nested_ss) = nested_inline.selection_set() {
+                    let nested_type = nested_inline
+                        .type_condition()
+                        .and_then(|tc| tc.named_type())
+                        .and_then(|nt| nt.name())
+                        .map_or_else(
+                            || inline_type_name.to_string(),
+                            |n| n.text().to_string(),
+                        );
+                    if nested_type == inline_type_name {
+                        // Same type: collect fields for the same required-field check
+                        for nested_sel in nested_ss.selections() {
+                            if let cst::Selection::Field(f) = nested_sel {
+                                if let Some(fn_) = f.name() {
+                                    let fn_str = fn_.text();
+                                    let satisfied = if required_fields
+                                        .contains(&fn_str.to_string())
+                                    {
+                                        Some(fn_str.to_string())
+                                    } else {
+                                        f.alias()
+                                            .and_then(|a| a.name())
+                                            .map(|a| a.text().to_string())
+                                            .filter(|alias| required_fields.contains(alias))
+                                    };
+                                    if let Some(name) = satisfied {
+                                        found_fields.insert(name);
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    let missing_fields: Vec<&String> = required_fields
+        .iter()
+        .filter(|f| !found_fields.contains(*f))
+        .collect();
+
+    if !missing_fields.is_empty() {
+        let selection_set_start: usize =
+            inline_selection_set.syntax().text_range().start().into();
+        let selection_set_source = inline_selection_set.syntax().to_string();
+
+        let (insert_pos, indent) = inline_selection_set.selections().next().map_or_else(
+            || (selection_set_start + 1, "  ".to_string()),
+            |first| {
+                let pos: usize = first.syntax().text_range().start().into();
+                let relative_pos = pos - selection_set_start;
+                let indent = extract_indentation(&selection_set_source, relative_pos);
+                (pos, indent)
+            },
+        );
+
+        let fix_label = if missing_fields.len() == 1 {
+            format!("Add `{}` selection", missing_fields[0])
+        } else {
+            let joined = missing_fields
+                .iter()
+                .map(|f| format!("`{f}`"))
+                .collect::<Vec<_>>()
+                .join(", ");
+            format!("Add {joined} selections")
+        };
+        let mut fix_text = String::new();
+        for f in &missing_fields {
+            fix_text.push_str(f);
+            fix_text.push('\n');
+            fix_text.push_str(&indent);
+        }
+        let fix = CodeFix::new(fix_label, vec![TextEdit::insert(insert_pos, fix_text)]);
+
+        let plural_suffix = if missing_fields.len() > 1 { "s" } else { "" };
+        let joined_field_refs = english_join_words(
+            &missing_fields
+                .iter()
+                .map(|f| format!("`{inline_type_name}.{f}`"))
+                .collect::<Vec<_>>(),
+        );
+
+        let addition = if walked_fragments.is_empty() {
+            String::new()
+        } else {
+            let frag_plural = if walked_fragments.len() > 1 { "s" } else { "" };
+            let joined = english_join_words(
+                &walked_fragments
+                    .iter()
+                    .map(|n| format!("`{n}`"))
+                    .collect::<Vec<_>>(),
+            );
+            format!(" or add to used fragment{frag_plural} {joined}")
+        };
+
+        diagnostics.push(
+            LintDiagnostic::error(
+                doc.span(selection_set_start, selection_set_start),
+                format!(
+                    "Field{plural_suffix} {joined_field_refs} must be selected when it's available on a type.\nInclude it in your selection set{addition}."
+                ),
+                "requireSelections",
+            )
+            .with_message_id("require-selections")
+            .with_fix(fix),
+        );
+    }
+}
+
 /// Format a list of items using English-style disjunction (matching
 /// `Intl.ListFormat("en-US", { type: "disjunction" })` used by graphql-eslint):
 /// `a`, `a or b`, `a, b, or c`.
@@ -532,6 +830,261 @@ fn extract_indentation(source: &str, pos: usize) -> String {
             .collect()
     } else {
         "  ".to_string()
+    }
+}
+
+/// Walk a fragment body and emit diagnostics for nested selection-set violations.
+///
+/// Upstream graphql-eslint processes every `SelectionSet` node it encounters,
+/// including those found by following fragment spreads. The selector fires on
+/// Field-parented selection sets but NOT on FragmentDefinition-parented ones
+/// (the fragment's own selection set is never directly checked for its required
+/// fields — only the sub-selections inside field accesses are).
+///
+/// This function mirrors that: it walks the fragment body, finds Field-parented
+/// sub-selection sets, and calls `check_selection_set` on them. Fragment spreads
+/// within the body are recursed into via another call to this function. Union
+/// fragment spreads are handled by calling `check_selection_set` directly on
+/// the fragment body with the concrete union member type.
+///
+/// `checked_fragments` prevents revisiting the same fragment (cycle guard).
+fn check_fragment_body_violations(
+    fragment_name: &str,
+    context: &CheckContext,
+    checked_fragments: &mut HashSet<String>,
+    diagnostics: &mut Vec<LintDiagnostic>,
+) {
+    if !checked_fragments.insert(fragment_name.to_string()) {
+        return; // already processed
+    }
+
+    let Some(fragment_info) = context.all_fragments.get(fragment_name) else {
+        return;
+    };
+
+    let file_id = fragment_info.file_id;
+
+    let Some((file_content, file_metadata)) =
+        graphql_base_db::file_lookup(context.db, context.project_files, file_id)
+    else {
+        return;
+    };
+
+    let parse = graphql_syntax::parse(context.db, file_content, file_metadata);
+    if parse.has_errors() {
+        return;
+    }
+
+    for doc_ref in parse.documents() {
+        let doc_cst = doc_ref.tree.document();
+        for definition in doc_cst.definitions() {
+            if let cst::Definition::FragmentDefinition(frag) = definition {
+                let is_target = frag
+                    .fragment_name()
+                    .and_then(|n| n.name())
+                    .is_some_and(|n| n.text() == fragment_name);
+                if !is_target {
+                    continue;
+                }
+
+                let type_condition = frag
+                    .type_condition()
+                    .and_then(|tc| tc.named_type())
+                    .and_then(|nt| nt.name())
+                    .map(|n| n.text().to_string());
+                let Some(frag_type) = type_condition else {
+                    continue;
+                };
+
+                if let Some(selection_set) = frag.selection_set() {
+                    lint_fragment_sub_selections(
+                        &selection_set,
+                        &frag_type,
+                        context,
+                        checked_fragments,
+                        diagnostics,
+                        &doc_ref,
+                    );
+                }
+            }
+        }
+    }
+}
+
+/// Walk a selection set and emit diagnostics for any Field-parented sub-selection
+/// sets that are missing required fields.
+///
+/// This intentionally does NOT check the passed `selection_set` itself for
+/// missing required fields at the parent type level — that mirrors the upstream
+/// graphql-eslint selector which skips `FragmentDefinition`-parented selection
+/// sets. Only Field-parented (and transitively, fragment-spread-followed) sub-
+/// selections are checked.
+///
+/// For union types, fragment spreads are handled by calling `check_selection_set`
+/// directly on the spread's body with the resolved concrete member type — matching
+/// upstream's `checkSelections` recursive union handling.
+#[allow(clippy::too_many_arguments)]
+fn lint_fragment_sub_selections(
+    selection_set: &cst::SelectionSet,
+    parent_type_name: &str,
+    context: &CheckContext,
+    checked_fragments: &mut HashSet<String>,
+    diagnostics: &mut Vec<LintDiagnostic>,
+    doc: &graphql_syntax::DocumentRef<'_>,
+) {
+    let parent_type_is_union = context
+        .schema_types
+        .get(parent_type_name)
+        .is_some_and(|t| t.kind == graphql_hir::TypeDefKind::Union);
+
+    for selection in selection_set.selections() {
+        match selection {
+            cst::Selection::Field(field) => {
+                if let Some(field_name) = field.name() {
+                    let field_name_str = field_name.text();
+                    if let Some(nested_ss) = field.selection_set() {
+                        if let Some(field_type) =
+                            get_field_type(parent_type_name, &field_name_str, context.schema_types)
+                        {
+                            let display_name = field
+                                .alias()
+                                .and_then(|a| a.name())
+                                .map_or_else(|| field_name_str.to_string(), |n| n.text().to_string());
+                            let mut visited_frags: HashSet<String> = HashSet::new();
+                            // Field-parented selection set: check it fully.
+                            check_selection_set(
+                                &nested_ss,
+                                &field_type,
+                                &display_name,
+                                context,
+                                &mut visited_frags,
+                                checked_fragments,
+                                diagnostics,
+                                doc,
+                            );
+                        }
+                    }
+                }
+            }
+            cst::Selection::FragmentSpread(spread) => {
+                if let Some(frag_name_node) = spread.fragment_name().and_then(|fn_| fn_.name()) {
+                    let spread_name = frag_name_node.text().to_string();
+
+                    if parent_type_is_union {
+                        // Union context: look up the spread's fragment type and
+                        // call check_selection_set on the fragment body directly
+                        // with the resolved union member type (upstream's union
+                        // handling in checkSelections).
+                        if let Some(frag_info) = context.all_fragments.get(spread_name.as_str()) {
+                            let frag_type = frag_info.type_condition.to_string();
+                            // Only use the concrete union member type if it's in the union.
+                            // If the fragment is on the union type itself, use the union type.
+                            let resolved_type = if frag_type == parent_type_name {
+                                frag_type.clone()
+                            } else {
+                                // Verify it's actually a member of the union.
+                                let in_union = context
+                                    .schema_types
+                                    .get(parent_type_name)
+                                    .is_some_and(|t| {
+                                        t.kind == graphql_hir::TypeDefKind::Union
+                                            && t.union_members
+                                                .iter()
+                                                .any(|m| m.as_ref() == frag_type)
+                                    });
+                                if in_union { frag_type.clone() } else { continue }
+                            };
+
+                            // For a union fragment, call check_selection_set on the
+                            // fragment's body with the resolved type. This is how upstream
+                            // handles union + fragment spread: it calls checkSelections
+                            // recursively on the fragment's selectionSet.
+                            let file_id = frag_info.file_id;
+                            if let Some((fc, fm)) =
+                                graphql_base_db::file_lookup(context.db, context.project_files, file_id)
+                            {
+                                let parse = graphql_syntax::parse(context.db, fc, fm);
+                                if !parse.has_errors() {
+                                    for frag_doc_ref in parse.documents() {
+                                        for frag_def in frag_doc_ref.tree.document().definitions() {
+                                            if let cst::Definition::FragmentDefinition(fd) = frag_def {
+                                                let matches = fd
+                                                    .fragment_name()
+                                                    .and_then(|n| n.name())
+                                                    .is_some_and(|n| n.text() == spread_name);
+                                                if matches {
+                                                    if let Some(frag_ss) = fd.selection_set() {
+                                                        let frag_display = fd
+                                                            .fragment_name()
+                                                            .and_then(|n| n.name())
+                                                            .map_or_else(|| resolved_type.clone(), |n| n.text().to_string());
+                                                        let mut visited_frags: HashSet<String> = HashSet::new();
+                                                        check_selection_set(
+                                                            &frag_ss,
+                                                            &resolved_type,
+                                                            &frag_display,
+                                                            context,
+                                                            &mut visited_frags,
+                                                            checked_fragments,
+                                                            diagnostics,
+                                                            &frag_doc_ref,
+                                                        );
+                                                    }
+                                                }
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    } else {
+                        // Non-union: recurse into the fragment body for sub-selection violations.
+                        check_fragment_body_violations(
+                            &spread_name,
+                            context,
+                            checked_fragments,
+                            diagnostics,
+                        );
+                    }
+                }
+            }
+            cst::Selection::InlineFragment(inline_frag) => {
+                if let Some(nested_ss) = inline_frag.selection_set() {
+                    let inline_type = inline_frag
+                        .type_condition()
+                        .and_then(|tc| tc.named_type())
+                        .and_then(|nt| nt.name())
+                        .map_or_else(|| parent_type_name.to_string(), |n| n.text().to_string());
+
+                    if inline_type == parent_type_name {
+                        // Same-type bare inline fragment: recurse without a new type check.
+                        lint_fragment_sub_selections(
+                            &nested_ss,
+                            inline_type.as_str(),
+                            context,
+                            checked_fragments,
+                            diagnostics,
+                            doc,
+                        );
+                    } else {
+                        // Type-narrowing inline fragment: check required fields on the
+                        // concrete type via check_selection_set directly.
+                        let display_name = inline_type.clone();
+                        let mut visited_frags: HashSet<String> = HashSet::new();
+                        check_selection_set(
+                            &nested_ss,
+                            &inline_type,
+                            &display_name,
+                            context,
+                            &mut visited_frags,
+                            checked_fragments,
+                            diagnostics,
+                            doc,
+                        );
+                    }
+                }
+            }
+        }
     }
 }
 
@@ -624,6 +1177,12 @@ fn check_fragment_selection_for_field(
                 if let Some(field_name) = field.name() {
                     if field_name.text() == target_field {
                         return true;
+                    }
+                    // An alias like `id: name` satisfies the `id` requirement.
+                    if let Some(alias) = field.alias().and_then(|a| a.name()) {
+                        if alias.text() == target_field {
+                            return true;
+                        }
                     }
                 }
             }
