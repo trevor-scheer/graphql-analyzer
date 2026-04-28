@@ -9,10 +9,9 @@ use crate::rules::no_anonymous_operations::NoAnonymousOperationsRuleImpl;
 /// <https://github.com/dimaMachina/graphql-eslint/blob/f0f200ef0b030cb8a905bbcb32fe346b87cc2e24/packages/plugin/src/rules/no-anonymous-operations/index.test.ts#L5>
 #[test]
 fn valid_l5_named_query() {
-    Case::valid(concat!(
-        "https://github.com/dimaMachina/graphql-eslint/blob/",
-        "f0f200ef0b030cb8a905bbcb32fe346b87cc2e24",
-        "/packages/plugin/src/rules/no-anonymous-operations/index.test.ts#L5",
+    Case::valid(format!(
+        "https://github.com/dimaMachina/graphql-eslint/blob/{}/packages/plugin/src/rules/no-anonymous-operations/index.test.ts#L5",
+        super::UPSTREAM_SHA,
     ))
     .code("query myQuery { a }")
     .run_against_standalone_document(NoAnonymousOperationsRuleImpl);
@@ -21,10 +20,9 @@ fn valid_l5_named_query() {
 /// <https://github.com/dimaMachina/graphql-eslint/blob/f0f200ef0b030cb8a905bbcb32fe346b87cc2e24/packages/plugin/src/rules/no-anonymous-operations/index.test.ts#L5>
 #[test]
 fn valid_l5_named_mutation() {
-    Case::valid(concat!(
-        "https://github.com/dimaMachina/graphql-eslint/blob/",
-        "f0f200ef0b030cb8a905bbcb32fe346b87cc2e24",
-        "/packages/plugin/src/rules/no-anonymous-operations/index.test.ts#L5",
+    Case::valid(format!(
+        "https://github.com/dimaMachina/graphql-eslint/blob/{}/packages/plugin/src/rules/no-anonymous-operations/index.test.ts#L5",
+        super::UPSTREAM_SHA,
     ))
     .code("mutation doSomething { a }")
     .run_against_standalone_document(NoAnonymousOperationsRuleImpl);
@@ -33,10 +31,9 @@ fn valid_l5_named_mutation() {
 /// <https://github.com/dimaMachina/graphql-eslint/blob/f0f200ef0b030cb8a905bbcb32fe346b87cc2e24/packages/plugin/src/rules/no-anonymous-operations/index.test.ts#L5>
 #[test]
 fn valid_l5_named_subscription() {
-    Case::valid(concat!(
-        "https://github.com/dimaMachina/graphql-eslint/blob/",
-        "f0f200ef0b030cb8a905bbcb32fe346b87cc2e24",
-        "/packages/plugin/src/rules/no-anonymous-operations/index.test.ts#L5",
+    Case::valid(format!(
+        "https://github.com/dimaMachina/graphql-eslint/blob/{}/packages/plugin/src/rules/no-anonymous-operations/index.test.ts#L5",
+        super::UPSTREAM_SHA,
     ))
     .code("subscription myData { a }")
     .run_against_standalone_document(NoAnonymousOperationsRuleImpl);
@@ -45,10 +42,9 @@ fn valid_l5_named_subscription() {
 /// <https://github.com/dimaMachina/graphql-eslint/blob/f0f200ef0b030cb8a905bbcb32fe346b87cc2e24/packages/plugin/src/rules/no-anonymous-operations/index.test.ts#L7>
 #[test]
 fn invalid_l7_anonymous_query() {
-    Case::invalid(concat!(
-        "https://github.com/dimaMachina/graphql-eslint/blob/",
-        "f0f200ef0b030cb8a905bbcb32fe346b87cc2e24",
-        "/packages/plugin/src/rules/no-anonymous-operations/index.test.ts#L7",
+    Case::invalid(format!(
+        "https://github.com/dimaMachina/graphql-eslint/blob/{}/packages/plugin/src/rules/no-anonymous-operations/index.test.ts#L7",
+        super::UPSTREAM_SHA,
     ))
     .code("query { a }")
     .errors(vec![ExpectedError::new()
@@ -63,10 +59,9 @@ fn invalid_l7_anonymous_query() {
 /// <https://github.com/dimaMachina/graphql-eslint/blob/f0f200ef0b030cb8a905bbcb32fe346b87cc2e24/packages/plugin/src/rules/no-anonymous-operations/index.test.ts#L8>
 #[test]
 fn invalid_l8_anonymous_mutation_with_alias() {
-    Case::invalid(concat!(
-        "https://github.com/dimaMachina/graphql-eslint/blob/",
-        "f0f200ef0b030cb8a905bbcb32fe346b87cc2e24",
-        "/packages/plugin/src/rules/no-anonymous-operations/index.test.ts#L8",
+    Case::invalid(format!(
+        "https://github.com/dimaMachina/graphql-eslint/blob/{}/packages/plugin/src/rules/no-anonymous-operations/index.test.ts#L8",
+        super::UPSTREAM_SHA,
     ))
     .code("mutation { renamed: a }")
     .errors(vec![ExpectedError::new()
@@ -81,10 +76,9 @@ fn invalid_l8_anonymous_mutation_with_alias() {
 /// <https://github.com/dimaMachina/graphql-eslint/blob/f0f200ef0b030cb8a905bbcb32fe346b87cc2e24/packages/plugin/src/rules/no-anonymous-operations/index.test.ts#L9>
 #[test]
 fn invalid_l9_anonymous_subscription_with_spread() {
-    Case::invalid(concat!(
-        "https://github.com/dimaMachina/graphql-eslint/blob/",
-        "f0f200ef0b030cb8a905bbcb32fe346b87cc2e24",
-        "/packages/plugin/src/rules/no-anonymous-operations/index.test.ts#L9",
+    Case::invalid(format!(
+        "https://github.com/dimaMachina/graphql-eslint/blob/{}/packages/plugin/src/rules/no-anonymous-operations/index.test.ts#L9",
+        super::UPSTREAM_SHA,
     ))
     .code("subscription { ...someFragmentSpread }")
     .errors(vec![ExpectedError::new()

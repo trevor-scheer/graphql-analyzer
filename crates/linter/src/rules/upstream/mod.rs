@@ -13,9 +13,7 @@
 
 /// Upstream `dimaMachina/graphql-eslint` SHA all ported cases pin to.
 /// Recorded once at start of port; never refreshed (see spec).
-// No rule submodules exist yet; they'll reference this once ported.
-#[allow(dead_code)]
 pub(crate) const UPSTREAM_SHA: &str = "f0f200ef0b030cb8a905bbcb32fe346b87cc2e24";
 
 pub(crate) mod harness;
-pub(crate) mod no_anonymous_operations;
+mod no_anonymous_operations;
