@@ -37,3 +37,4 @@ mod relay_connection_types;
 mod relay_edge_types;
 mod relay_page_info;
 mod require_deprecation_date;
+mod require_deprecation_reason;
