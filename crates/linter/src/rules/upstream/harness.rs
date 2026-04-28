@@ -42,6 +42,11 @@ pub(crate) struct Case {
     /// produced, the harness applies the autofix (`LintDiagnostic.fix`) to
     /// the input code and asserts the result equals this string.
     pub(super) expected_output: Option<String>,
+    /// Override the document filename (upstream's `filename:` option).
+    /// Affects the URI embedded in `FileMetadata` for document-side rules that
+    /// inspect filenames (e.g. `match-document-filename`). When `None` the
+    /// default `"query.graphql"` is used.
+    pub(super) filename: Option<String>,
 }
 
 /// One expected error in upstream's `errors: [{...}]`. Fields are optional
@@ -83,6 +88,7 @@ impl Case {
             options: None,
             expected_errors: Vec::new(),
             expected_output: None,
+            filename: None,
         }
     }
 
@@ -96,6 +102,7 @@ impl Case {
             options: None,
             expected_errors: Vec::new(),
             expected_output: None,
+            filename: None,
         }
     }
 
@@ -126,6 +133,11 @@ impl Case {
 
     pub(crate) fn output(mut self, out: impl Into<String>) -> Self {
         self.expected_output = Some(out.into());
+        self
+    }
+
+    pub(crate) fn filename(mut self, f: impl Into<String>) -> Self {
+        self.filename = Some(f.into());
         self
     }
 }
@@ -206,9 +218,12 @@ impl Case {
             }
             CodePlacement::Document => {
                 let schema = self.schema.as_deref().unwrap_or(PLACEHOLDER_SCHEMA);
+                // Use caller-supplied filename (upstream `filename:`) when set;
+                // otherwise fall back to the generic `"query.graphql"`.
+                let doc_name = self.filename.as_deref().unwrap_or("query.graphql");
                 builder = builder
                     .with_schema("schema.graphql", schema)
-                    .with_document("query.graphql", &self.code);
+                    .with_document(doc_name, &self.code);
             }
         }
         for (name, content) in &self.extra_documents {
