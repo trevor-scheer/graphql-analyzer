@@ -39,3 +39,4 @@ mod relay_page_info;
 mod require_deprecation_date;
 mod require_deprecation_reason;
 mod require_description;
+mod require_field_of_type_query_in_mutation_result;
