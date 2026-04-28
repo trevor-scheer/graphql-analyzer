@@ -51,7 +51,7 @@ fn is_camel_case(s: &str) -> bool {
     if s.is_empty() {
         return true;
     }
-    let first = s.chars().next().unwrap();
+    let first = s.chars().next().expect("non-empty string has a first char");
     first.is_lowercase() && !s.contains('_')
 }
 
@@ -59,7 +59,7 @@ fn is_pascal_case(s: &str) -> bool {
     if s.is_empty() {
         return true;
     }
-    let first = s.chars().next().unwrap();
+    let first = s.chars().next().expect("non-empty string has a first char");
     first.is_uppercase() && !s.contains('_')
 }
 
@@ -558,7 +558,10 @@ fn check_name(rule: &NormalizedRule<'_>, name: &str) -> Option<CheckFailure> {
                     // After named groups pass, compute the remainder by removing the matched
                     // portion (mirrors upstream's `name.replace(requiredPattern, () => '')` which
                     // replaces the match with the empty string from the callback return).
-                    let mat = re.find(stripped).unwrap(); // guaranteed because caps succeeded
+                    // `caps` above already matched `stripped`, so `find` cannot return None.
+                    let mat = re
+                        .find(stripped)
+                        .expect("regex matched via caps, so find must also match");
                     let remainder =
                         format!("{}{}", &stripped[..mat.start()], &stripped[mat.end()..]);
                     // Run the outer style check on the remainder (may be empty string, which

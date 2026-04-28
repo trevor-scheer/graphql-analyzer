@@ -68,7 +68,7 @@ const BUILTIN_SCALARS: &[&str] = &["Int", "Float", "String", "Boolean", "ID"];
 /// Mirrors graphql-eslint's `isAllowedNonNullType` check: unwraps a single
 /// `NonNull` wrapper, rejects `List` types, then verifies the named type matches
 /// the expected kind. For `StringOrScalar`, any `Scalar` type is accepted
-/// (including built-in scalars like `Float` that may not appear in schema_types).
+/// (including built-in scalars like `Float` that may not appear in `schema_types`).
 fn is_allowed_arg_type(
     type_ref: &graphql_hir::TypeRef,
     expected: ExpectedType,

@@ -609,27 +609,24 @@ fn check_inline_fragment_type(
             cst::Selection::Field(field) => {
                 if let Some(field_name) = field.name() {
                     let field_name_str = field_name.text();
-                    let satisfied_name =
-                        if required_fields.contains(&field_name_str.to_string()) {
-                            Some(field_name_str.to_string())
-                        } else {
-                            field
-                                .alias()
-                                .and_then(|a| a.name())
-                                .map(|a| a.text().to_string())
-                                .filter(|alias| required_fields.contains(alias))
-                        };
+                    let satisfied_name = if required_fields.contains(&field_name_str.to_string()) {
+                        Some(field_name_str.to_string())
+                    } else {
+                        field
+                            .alias()
+                            .and_then(|a| a.name())
+                            .map(|a| a.text().to_string())
+                            .filter(|alias| required_fields.contains(alias))
+                    };
                     if let Some(name) = satisfied_name {
                         found_fields.insert(name);
                     }
 
                     // Recurse into nested sub-selections
                     if let Some(nested_selection_set) = field.selection_set() {
-                        if let Some(field_type) = get_field_type(
-                            inline_type_name,
-                            &field_name_str,
-                            context.schema_types,
-                        ) {
+                        if let Some(field_type) =
+                            get_field_type(inline_type_name, &field_name_str, context.schema_types)
+                        {
                             let nested_display_name =
                                 field.alias().and_then(|a| a.name()).map_or_else(
                                     || field_name_str.to_string(),
@@ -676,18 +673,14 @@ fn check_inline_fragment_type(
                         .type_condition()
                         .and_then(|tc| tc.named_type())
                         .and_then(|nt| nt.name())
-                        .map_or_else(
-                            || inline_type_name.to_string(),
-                            |n| n.text().to_string(),
-                        );
+                        .map_or_else(|| inline_type_name.to_string(), |n| n.text().to_string());
                     if nested_type == inline_type_name {
                         // Same type: collect fields for the same required-field check
                         for nested_sel in nested_ss.selections() {
                             if let cst::Selection::Field(f) = nested_sel {
                                 if let Some(fn_) = f.name() {
                                     let fn_str = fn_.text();
-                                    let satisfied = if required_fields
-                                        .contains(&fn_str.to_string())
+                                    let satisfied = if required_fields.contains(&fn_str.to_string())
                                     {
                                         Some(fn_str.to_string())
                                     } else {
@@ -714,8 +707,7 @@ fn check_inline_fragment_type(
         .collect();
 
     if !missing_fields.is_empty() {
-        let selection_set_start: usize =
-            inline_selection_set.syntax().text_range().start().into();
+        let selection_set_start: usize = inline_selection_set.syntax().text_range().start().into();
         let selection_set_source = inline_selection_set.syntax().to_string();
 
         let (insert_pos, indent) = inline_selection_set.selections().next().map_or_else(
@@ -790,7 +782,7 @@ fn english_join_words(words: &[String]) -> String {
         1 => words[0].clone(),
         2 => format!("{} or {}", words[0], words[1]),
         _ => {
-            let (last, rest) = words.split_last().unwrap();
+            let (last, rest) = words.split_last().expect("match arm guarantees len >= 3");
             format!("{}, or {last}", rest.join(", "))
         }
     }
@@ -946,10 +938,10 @@ fn lint_fragment_sub_selections(
                         if let Some(field_type) =
                             get_field_type(parent_type_name, &field_name_str, context.schema_types)
                         {
-                            let display_name = field
-                                .alias()
-                                .and_then(|a| a.name())
-                                .map_or_else(|| field_name_str.to_string(), |n| n.text().to_string());
+                            let display_name = field.alias().and_then(|a| a.name()).map_or_else(
+                                || field_name_str.to_string(),
+                                |n| n.text().to_string(),
+                            );
                             let mut visited_frags: HashSet<String> = HashSet::new();
                             // Field-parented selection set: check it fully.
                             check_selection_set(
@@ -983,16 +975,18 @@ fn lint_fragment_sub_selections(
                                 frag_type.clone()
                             } else {
                                 // Verify it's actually a member of the union.
-                                let in_union = context
-                                    .schema_types
-                                    .get(parent_type_name)
-                                    .is_some_and(|t| {
+                                let in_union =
+                                    context.schema_types.get(parent_type_name).is_some_and(|t| {
                                         t.kind == graphql_hir::TypeDefKind::Union
                                             && t.union_members
                                                 .iter()
                                                 .any(|m| m.as_ref() == frag_type)
                                     });
-                                if in_union { frag_type.clone() } else { continue }
+                                if in_union {
+                                    frag_type.clone()
+                                } else {
+                                    continue;
+                                }
                             };
 
                             // For a union fragment, call check_selection_set on the
@@ -1000,14 +994,18 @@ fn lint_fragment_sub_selections(
                             // handles union + fragment spread: it calls checkSelections
                             // recursively on the fragment's selectionSet.
                             let file_id = frag_info.file_id;
-                            if let Some((fc, fm)) =
-                                graphql_base_db::file_lookup(context.db, context.project_files, file_id)
-                            {
+                            if let Some((fc, fm)) = graphql_base_db::file_lookup(
+                                context.db,
+                                context.project_files,
+                                file_id,
+                            ) {
                                 let parse = graphql_syntax::parse(context.db, fc, fm);
                                 if !parse.has_errors() {
                                     for frag_doc_ref in parse.documents() {
                                         for frag_def in frag_doc_ref.tree.document().definitions() {
-                                            if let cst::Definition::FragmentDefinition(fd) = frag_def {
+                                            if let cst::Definition::FragmentDefinition(fd) =
+                                                frag_def
+                                            {
                                                 let matches = fd
                                                     .fragment_name()
                                                     .and_then(|n| n.name())
@@ -1017,8 +1015,12 @@ fn lint_fragment_sub_selections(
                                                         let frag_display = fd
                                                             .fragment_name()
                                                             .and_then(|n| n.name())
-                                                            .map_or_else(|| resolved_type.clone(), |n| n.text().to_string());
-                                                        let mut visited_frags: HashSet<String> = HashSet::new();
+                                                            .map_or_else(
+                                                                || resolved_type.clone(),
+                                                                |n| n.text().to_string(),
+                                                            );
+                                                        let mut visited_frags: HashSet<String> =
+                                                            HashSet::new();
                                                         check_selection_set(
                                                             &frag_ss,
                                                             &resolved_type,
