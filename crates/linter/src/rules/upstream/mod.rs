@@ -24,4 +24,8 @@ mod no_anonymous_operations;
 mod no_deprecated;
 mod no_duplicate_fields;
 mod no_hashtag_description;
+mod no_one_place_fragments;
+mod no_root_type;
+mod no_scalar_result_type_on_mutation;
+mod no_typename_prefix;
 mod no_unused_fields;
