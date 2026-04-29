@@ -6,23 +6,15 @@
 //! # Option mapping
 //!
 //! Upstream's rule option is `{ fieldName: string | string[], requireAllFields?: boolean }`.
-//! Our rule uses `{ fields: string[] }` and always requires **all** listed fields that
-//! exist on the type (equivalent to upstream's `requireAllFields: true`).
+//! Our rule mirrors this: `fieldName` is the primary key with OR semantics (any one of the
+//! listed names satisfies the check); `requireAllFields: true` switches to AND semantics
+//! with one diagnostic per missing field. The `fields` key is accepted as a deprecated
+//! alias for `fieldName`.
 //!
-//! Upstream `{ fieldName: 'x' }` maps to our `{ "fields": ["x"] }`.
-//! Upstream `{ fieldName: ['a', 'b'] }` without `requireAllFields` is an OR check
-//! (any one suffices); we always apply an AND check, so those cases diverge when
-//! the selection contains only one of the listed fields.
-//!
-//! # Divergences
-//!
-//! - Upstream `fieldName` becomes our `fields` key.
-//! - Cases using upstream's "any one of" OR semantics for `fieldName: [...]` diverge
-//!   because our rule requires ALL listed fields that exist on the type.
-//! - Cases using `requireAllFields: true` align with our default behavior because
-//!   we always require all listed fields.
-//! - The `OperationDefinition` check note: upstream explicitly says it's redundant to
-//!   check selections on the `OperationDefinition` itself; our rule agrees and skips it.
+//! Upstream `{ fieldName: 'x' }` maps to our `{ "fieldName": ["x"] }`.
+//! Upstream `{ fieldName: ['a', 'b'] }` uses OR semantics — any one of the listed
+//! names satisfies the requirement. Upstream `{ requireAllFields: true, fieldName: [...] }`
+//! requires every listed field and emits one error per missing field.
 
 use super::harness::{Case, ExpectedError};
 use crate::rules::require_selections::RequireSelectionsRuleImpl;
@@ -210,20 +202,16 @@ fn valid_l96_vehicles_id_via_inline_no_direct_id() {
 
 /// <https://github.com/dimaMachina/graphql-eslint/blob/f0f200ef0b030cb8a905bbcb32fe346b87cc2e24/packages/plugin/src/rules/require-selections/index.test.ts#L100>
 #[test]
-fn valid_l100_multiple_id_field_names_any_one_sufficient_divergence() {
-    // Upstream: `{ fieldName: ['id', '_id'] }` satisfies the rule when `_id` is
-    // selected (any one of the listed names is enough).
-    // DIVERGENCE: our `fields` option requires ALL listed fields that exist on the
-    // type. `HasId` has both `id` and `_id`, so selecting only `_id` leaves `id`
-    // missing and we fire 1 error. We assert the divergent (invalid) behaviour.
-    Case::invalid(format!(
+fn valid_l100_multiple_id_field_names_any_one_sufficient() {
+    // `{ fieldName: ['id', '_id'] }` with OR semantics — selecting `_id`
+    // satisfies the requirement because any one candidate is sufficient.
+    Case::valid(format!(
         "https://github.com/dimaMachina/graphql-eslint/blob/{}/packages/plugin/src/rules/require-selections/index.test.ts#L100",
         super::UPSTREAM_SHA,
     ))
     .schema(TEST_SCHEMA)
     .code("{ hasId { _id } }")
-    .options(serde_json::json!({ "fields": ["id", "_id"] }))
-    .errors(vec![ExpectedError::new()])
+    .options(serde_json::json!({ "fieldName": ["id", "_id"] }))
     .run_against_document_schema(RequireSelectionsRuleImpl);
 }
 
@@ -386,21 +374,16 @@ fn invalid_l266_custom_field_name_missing() {
 
 /// <https://github.com/dimaMachina/graphql-eslint/blob/f0f200ef0b030cb8a905bbcb32fe346b87cc2e24/packages/plugin/src/rules/require-selections/index.test.ts#L272>
 #[test]
-fn invalid_l272_multiple_id_field_names_none_selected_divergence() {
-    // Upstream: `{ fieldName: ['id', '_id'] }` on `{ hasId { name } }` → 1 error
-    // (neither `id` nor `_id` was selected; the "any one" OR check fails).
-    // Our rule: `{ "fields": ["id", "_id"] }` requires ALL listed fields that
-    // exist on the type; both `id` and `_id` exist on `HasId` and neither is
-    // selected → 1 error (our rule emits one combined diagnostic per selection set).
-    // The error count matches, but the reason differs — we annotate the DIVERGENCE.
-    // DIVERGENCE: upstream's error is "select id OR _id"; ours is "select id AND _id".
+fn invalid_l272_multiple_id_field_names_none_selected() {
+    // `{ fieldName: ['id', '_id'] }` on `{ hasId { name } }` → 1 error because
+    // neither `id` nor `_id` was selected (OR check: none of the candidates present).
     Case::invalid(format!(
         "https://github.com/dimaMachina/graphql-eslint/blob/{}/packages/plugin/src/rules/require-selections/index.test.ts#L272",
         super::UPSTREAM_SHA,
     ))
     .schema(TEST_SCHEMA)
     .code("{ hasId { name } }")
-    .options(serde_json::json!({ "fields": ["id", "_id"] }))
+    .options(serde_json::json!({ "fieldName": ["id", "_id"] }))
     .errors(vec![
         ExpectedError::new().message_id("require-selections"),
     ])
@@ -555,22 +538,18 @@ fn invalid_l388_fragment_definition_missing_id() {
 
 /// <https://github.com/dimaMachina/graphql-eslint/blob/f0f200ef0b030cb8a905bbcb32fe346b87cc2e24/packages/plugin/src/rules/require-selections/index.test.ts#L399>
 #[test]
-fn invalid_l399_require_all_fields_option_divergence() {
-    // Upstream: `{ requireAllFields: true, fieldName: ['name', '_id'] }` on
-    // `{ hasId { id } }` → 2 errors (both `name` and `_id` missing).
-    // Our rule has no `requireAllFields` concept; we always require ALL listed
-    // fields that exist on the type. `HasId` has `name` and `_id`; neither is
-    // selected, so we emit 1 error (combined diagnostic for both missing fields).
-    // DIVERGENCE: upstream emits 2 errors (one per missing field); we emit 1
-    // (we group all missing fields into a single diagnostic per selection set).
+fn invalid_l399_require_all_fields_option() {
+    // `{ requireAllFields: true, fieldName: ['name', '_id'] }` on
+    // `{ hasId { id } }` → 2 errors (both `name` and `_id` missing, one per field).
     Case::invalid(format!(
         "https://github.com/dimaMachina/graphql-eslint/blob/{}/packages/plugin/src/rules/require-selections/index.test.ts#L399",
         super::UPSTREAM_SHA,
     ))
     .schema(TEST_SCHEMA)
     .code("{ hasId { id } }")
-    .options(serde_json::json!({ "fields": ["name", "_id"] }))
+    .options(serde_json::json!({ "fieldName": ["name", "_id"], "requireAllFields": true }))
     .errors(vec![
+        ExpectedError::new().message_id("require-selections"),
         ExpectedError::new().message_id("require-selections"),
     ])
     .run_against_document_schema(RequireSelectionsRuleImpl);
@@ -578,21 +557,16 @@ fn invalid_l399_require_all_fields_option_divergence() {
 
 /// <https://github.com/dimaMachina/graphql-eslint/blob/f0f200ef0b030cb8a905bbcb32fe346b87cc2e24/packages/plugin/src/rules/require-selections/index.test.ts#L407>
 #[test]
-fn invalid_l407_require_all_fields_partial_selection_divergence() {
-    // Upstream: `{ requireAllFields: true, fieldName: ['name', '_id'] }` on
-    // `{ hasId { _id } }` → 1 error (`name` missing).
-    // Our rule: `{ "fields": ["name", "_id"] }` on `{ hasId { _id } }` — `HasId`
-    // has both `name` and `_id`; `_id` is selected but `name` is missing → 1 error.
-    // Counts match; underlying semantics differ slightly (ours: ALL required vs
-    // upstream's requireAllFields mode), but outcome is the same here.
-    // DIVERGENCE: semantics differ, but error count agrees.
+fn invalid_l407_require_all_fields_partial_selection() {
+    // `{ requireAllFields: true, fieldName: ['name', '_id'] }` on `{ hasId { _id } }` →
+    // 1 error (`name` missing; `_id` is present so only `name` fires).
     Case::invalid(format!(
         "https://github.com/dimaMachina/graphql-eslint/blob/{}/packages/plugin/src/rules/require-selections/index.test.ts#L407",
         super::UPSTREAM_SHA,
     ))
     .schema(TEST_SCHEMA)
     .code("{ hasId { _id } }")
-    .options(serde_json::json!({ "fields": ["name", "_id"] }))
+    .options(serde_json::json!({ "fieldName": ["name", "_id"], "requireAllFields": true }))
     .errors(vec![
         ExpectedError::new().message_id("require-selections"),
     ])
