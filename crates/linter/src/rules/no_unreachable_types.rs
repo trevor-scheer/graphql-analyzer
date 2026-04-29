@@ -202,6 +202,62 @@ impl StandaloneSchemaLintRule for NoUnreachableTypesRuleImpl {
             }
         }
 
+        // Also fire on extension declarations of unreachable types.  Upstream's
+        // rule walks per-AST-node, so `extend type SuperUser { ... }` produces its
+        // own diagnostic when `SuperUser` is unreachable.  Our merged HIR omits this
+        // entry from `schema_types`, so we check raw defs for extension entries whose
+        // base type is known-unreachable.
+        let raw_defs = crate::schema_utils::raw_schema_type_defs(db, project_files);
+        for (_, type_def) in &raw_defs {
+            if !type_def.is_extension {
+                continue;
+            }
+            if reachable.contains(type_def.name.as_ref()) {
+                continue;
+            }
+
+            let start: usize = type_def.name_range.start().into();
+            let end: usize = type_def.name_range.end().into();
+            let span = graphql_syntax::SourceSpan {
+                start,
+                end,
+                line_offset: 0,
+                byte_offset: 0,
+                source: None,
+            };
+
+            let kind_name = match type_def.kind {
+                TypeDefKind::Object => "Object type",
+                TypeDefKind::Interface => "Interface type",
+                TypeDefKind::Union => "Union type",
+                TypeDefKind::Enum => "Enum type",
+                TypeDefKind::InputObject => "Input object type",
+                TypeDefKind::Scalar => "Scalar type",
+                _ => "Type",
+            };
+
+            let def_start: usize = type_def.definition_range.start().into();
+            let def_end: usize = type_def.definition_range.end().into();
+            let suggestion =
+                CodeSuggestion::delete(format!("Remove `{}`", type_def.name), def_start, def_end);
+
+            diagnostics_by_file
+                .entry(type_def.file_id)
+                .or_default()
+                .push(
+                    LintDiagnostic::new(
+                        span,
+                        LintSeverity::Warning,
+                        format!("{kind_name} `{}` is unreachable.", type_def.name),
+                        "noUnreachableTypes",
+                    )
+                    .with_message_id("no-unreachable-types")
+                    .with_suggestion(suggestion)
+                    .with_help("Remove the unreachable type, or reference it from a reachable type")
+                    .with_tag(crate::diagnostics::DiagnosticTag::Unnecessary),
+                );
+        }
+
         // Sort diagnostics within each file by span start so callers see a
         // deterministic, source-order output regardless of HashMap iteration order.
         for diags in diagnostics_by_file.values_mut() {
