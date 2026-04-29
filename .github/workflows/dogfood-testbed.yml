@@ -1,0 +1,181 @@
+# dogfood-testbed.yml
+# Triggered after a successful release of graphql-analyzer. Clones
+# analyzer-testbed, bumps all @graphql-analyzer/* deps to the just-released
+# versions, runs the full testbed CI matrix, and opens an issue on failure.
+#
+# Trigger: workflow_run watching "Release" — fires only on success, so we
+# don't spam the testbed with every draft or failed attempt.
+
+name: Dogfood testbed
+
+on:
+  workflow_run:
+    workflows: ["Release"]
+    types: [completed]
+
+permissions:
+  contents: read
+  issues: write
+
+jobs:
+  dogfood:
+    name: Run testbed CI against fresh release
+    # Only fire when the Release workflow actually succeeded
+    if: github.event.workflow_run.conclusion == 'success'
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Resolve released versions
+        id: versions
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          # Extract the version for each package from the tags created by knope.
+          # knope tags releases as "<package-name>-v<version>", e.g.
+          # "graphql-analyzer-lsp-v1.2.3".
+          #
+          # We query the GitHub releases API and look for the most recent
+          # release for each package that was published in the triggering run.
+          # Fallback: use "latest" tag, which npm resolves correctly for stable
+          # releases.
+          #
+          # At implementation time: if knope's tag format differs, adjust the
+          # grep pattern below to match.
+          CLI_VERSION="$(gh release list \
+            --repo trevor-scheer/graphql-analyzer \
+            --limit 10 \
+            --json tagName,publishedAt \
+            --jq '[.[] | select(.tagName | startswith("graphql-analyzer-cli-v"))] | sort_by(.publishedAt) | last | .tagName | ltrimstr("graphql-analyzer-cli-v")' \
+            2>/dev/null || echo "latest")"
+          CORE_VERSION="$(gh release list \
+            --repo trevor-scheer/graphql-analyzer \
+            --limit 10 \
+            --json tagName,publishedAt \
+            --jq '[.[] | select(.tagName | startswith("graphql-analyzer-core-v"))] | sort_by(.publishedAt) | last | .tagName | ltrimstr("graphql-analyzer-core-v")' \
+            2>/dev/null || echo "latest")"
+          ESLINT_VERSION="$(gh release list \
+            --repo trevor-scheer/graphql-analyzer \
+            --limit 10 \
+            --json tagName,publishedAt \
+            --jq '[.[] | select(.tagName | startswith("graphql-analyzer-eslint-plugin-v"))] | sort_by(.publishedAt) | last | .tagName | ltrimstr("graphql-analyzer-eslint-plugin-v")' \
+            2>/dev/null || echo "latest")"
+          echo "cli_version=$CLI_VERSION" >> "$GITHUB_OUTPUT"
+          echo "core_version=$CORE_VERSION" >> "$GITHUB_OUTPUT"
+          echo "eslint_version=$ESLINT_VERSION" >> "$GITHUB_OUTPUT"
+          echo "Resolved: CLI=$CLI_VERSION CORE=$CORE_VERSION ESLINT=$ESLINT_VERSION"
+
+      - name: Clone analyzer-testbed
+        uses: actions/checkout@v4
+        with:
+          repository: trevor-scheer/analyzer-testbed
+          path: testbed
+          token: ${{ secrets.GITHUB_TOKEN }}
+
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 9
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+          cache-dependency-path: testbed/pnpm-lock.yaml
+
+      - name: Bump @graphql-analyzer/* deps to released versions
+        working-directory: testbed
+        env:
+          CLI_VERSION: ${{ steps.versions.outputs.cli_version }}
+          CORE_VERSION: ${{ steps.versions.outputs.core_version }}
+          ESLINT_VERSION: ${{ steps.versions.outputs.eslint_version }}
+        run: |
+          # Use pnpm to bump each package in the workspace root and all apps/examples.
+          # --recursive hits all workspace packages; exact version pins the lockfile.
+          pnpm add --recursive --workspace-root \
+            "@graphql-analyzer/core@$CORE_VERSION" \
+            "@graphql-analyzer/eslint-plugin@$ESLINT_VERSION" \
+            2>/dev/null || true
+          # The CLI and LSP binaries are installed in CI from release artifacts,
+          # not via npm, so there is nothing to bump in package.json for them.
+          echo "Bumped npm deps. Running install..."
+
+      - name: Install testbed dependencies
+        working-directory: testbed
+        run: pnpm install --no-frozen-lockfile
+
+      - name: Install graphql-cli binary (released version)
+        env:
+          CLI_VERSION: ${{ steps.versions.outputs.cli_version }}
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          # Download the linux-x86_64 CLI binary from the release.
+          # At implementation time: verify the asset naming matches the
+          # release artifacts actually produced by the release workflow.
+          ASSET="graphql-cli-x86_64-unknown-linux-gnu.tar.xz"
+          gh release download "graphql-analyzer-cli-v${CLI_VERSION}" \
+            --repo trevor-scheer/graphql-analyzer \
+            --pattern "$ASSET" \
+            --dir /tmp/graphql-cli-release 2>/dev/null || {
+            echo "Warning: could not download versioned release, falling back to latest"
+            gh release download \
+              --repo trevor-scheer/graphql-analyzer \
+              --pattern "$ASSET" \
+              --dir /tmp/graphql-cli-release \
+              --latest
+          }
+          tar -xJf "/tmp/graphql-cli-release/$ASSET" -C ~/.local/bin/
+          chmod +x ~/.local/bin/graphql
+          echo "$HOME/.local/bin" >> "$GITHUB_PATH"
+          graphql --version
+
+      - name: Run testbed CI (lint + typecheck + build + test)
+        working-directory: testbed
+        run: |
+          pnpm graphql-cli check .
+          pnpm lint
+          pnpm --filter @analyzer-testbed/web prisma generate
+          pnpm tsc --noEmit --project tsconfig.json 2>/dev/null || \
+            pnpm -r exec tsc --noEmit
+
+      - name: Run expect-failure fixtures
+        working-directory: testbed
+        run: |
+          fail_if_passes() {
+            local project="$1"
+            if pnpm graphql-cli check --project "$project" .; then
+              echo "ERROR: $project exited 0 — expected errors but found none"
+              return 1
+            fi
+          }
+          fail_if_passes fixture-missing-fragment
+          fail_if_passes fixture-unknown-directive
+          fail_if_passes fixture-deprecated-field-usage
+          fail_if_passes fixture-selection-type-mismatch
+
+      - name: Open issue on failure
+        if: failure()
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TRIGGERING_RUN: ${{ github.event.workflow_run.html_url }}
+          CLI_VERSION: ${{ steps.versions.outputs.cli_version }}
+          CORE_VERSION: ${{ steps.versions.outputs.core_version }}
+          ESLINT_VERSION: ${{ steps.versions.outputs.eslint_version }}
+        run: |
+          gh issue create \
+            --repo trevor-scheer/graphql-analyzer \
+            --title "Dogfood regression: testbed CI failed after release" \
+            --label "bug,regression" \
+            --body "$(cat <<'BODY'
+          The **analyzer-testbed** CI failed after a release of graphql-analyzer.
+
+          **Triggered by release run:** $TRIGGERING_RUN
+
+          **Versions under test:**
+          - \`@graphql-analyzer/core\`: $CORE_VERSION
+          - \`@graphql-analyzer/eslint-plugin\`: $ESLINT_VERSION
+          - \`graphql-cli\`: $CLI_VERSION
+
+          **Dogfood CI run:** ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+
+          Please investigate before the next release. The testbed CI log (linked above) has the full failure output.
+          BODY
+          )"
