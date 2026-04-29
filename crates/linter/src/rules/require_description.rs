@@ -15,19 +15,37 @@ use std::collections::HashMap;
 #[allow(clippy::struct_excessive_bools)]
 #[derive(Debug, Clone, Deserialize)]
 pub struct RequireDescriptionOptions {
-    /// Enable description requirement for type kinds: `ObjectTypeDefinition`,
-    /// `InterfaceTypeDefinition`, `EnumTypeDefinition`, `ScalarTypeDefinition`,
-    /// `InputObjectTypeDefinition`, `UnionTypeDefinition`.
+    /// Umbrella — enables description requirement for all type definition kinds:
+    /// `ObjectTypeDefinition`, `InterfaceTypeDefinition`, `EnumTypeDefinition`,
+    /// `ScalarTypeDefinition`, `InputObjectTypeDefinition`, `UnionTypeDefinition`.
+    /// Per-kind booleans below take precedence when explicitly set.
     #[serde(default)]
     pub types: bool,
-    /// Description requirement for fields on root types (`Query`, `Mutation`,
-    /// `Subscription`). Accepted for parity with graphql-eslint's schema but
-    /// not yet implemented separately — folded into `field_definition`.
+
+    /// Per-kind overrides. `Some(true)` opts that kind in (overrides `types:
+    /// false`); `Some(false)` explicitly opts it out (overrides `types: true`).
+    /// `None` defers to the `types` umbrella.
+    #[serde(default, rename = "ObjectTypeDefinition")]
+    pub object_type_definition: Option<bool>,
+    #[serde(default, rename = "InterfaceTypeDefinition")]
+    pub interface_type_definition: Option<bool>,
+    #[serde(default, rename = "EnumTypeDefinition")]
+    pub enum_type_definition: Option<bool>,
+    #[serde(default, rename = "ScalarTypeDefinition")]
+    pub scalar_type_definition: Option<bool>,
+    #[serde(default, rename = "InputObjectTypeDefinition")]
+    pub input_object_type_definition: Option<bool>,
+    #[serde(default, rename = "UnionTypeDefinition")]
+    pub union_type_definition: Option<bool>,
+
+    /// Require descriptions on fields of the root operation types (Query /
+    /// Mutation / Subscription). Root types are resolved via the schema
+    /// definition or by convention (a type named `Query`, `Mutation`, or
+    /// `Subscription` with no explicit `schema` block).
     #[serde(default, rename = "rootField")]
-    #[allow(dead_code)]
     pub root_field: bool,
-    /// Per-kind opt-ins. graphql-eslint accepts each `Kind.*` constant as a
-    /// boolean property. We keep the same camel/Pascal names users supply.
+
+    /// Per-kind opt-ins for non-type-system nodes.
     #[serde(default, rename = "FieldDefinition")]
     pub field_definition: bool,
     #[serde(default, rename = "InputValueDefinition")]
@@ -38,6 +56,14 @@ pub struct RequireDescriptionOptions {
     pub directive_definition: bool,
     #[serde(default, rename = "OperationDefinition")]
     pub operation_definition: bool,
+
+    /// ESLint-style selectors that suppress description checks on matching
+    /// nodes. Currently supports the `[type=Kind][name.value=X]` form used by
+    /// graphql-eslint's recommended presets; `X` may be a plain identifier or a
+    /// `/regex/` literal. Unrecognised or unsupported selector strings are
+    /// silently skipped with a `tracing::warn!`.
+    #[serde(default, rename = "ignoredSelectors")]
+    pub ignored_selectors: Vec<String>,
 }
 
 impl Default for RequireDescriptionOptions {
@@ -46,12 +72,19 @@ impl Default for RequireDescriptionOptions {
         // historical behaviour of this rule for callers not supplying options.
         Self {
             types: true,
+            object_type_definition: None,
+            interface_type_definition: None,
+            enum_type_definition: None,
+            scalar_type_definition: None,
+            input_object_type_definition: None,
+            union_type_definition: None,
             root_field: true,
             field_definition: true,
             input_value_definition: true,
             enum_value_definition: true,
             directive_definition: true,
             operation_definition: true,
+            ignored_selectors: Vec::new(),
         }
     }
 }
@@ -62,6 +95,153 @@ impl RequireDescriptionOptions {
             .and_then(|v| serde_json::from_value(v.clone()).ok())
             .unwrap_or_default()
     }
+
+    /// Resolve whether description checking is enabled for a specific type-definition kind.
+    /// Per-kind `Some(bool)` wins; falls back to the `types` umbrella.
+    fn kind_enabled(&self, kind: TypeDefKind) -> bool {
+        let per_kind = match kind {
+            TypeDefKind::Object => self.object_type_definition,
+            TypeDefKind::Interface => self.interface_type_definition,
+            TypeDefKind::Enum => self.enum_type_definition,
+            TypeDefKind::Scalar => self.scalar_type_definition,
+            TypeDefKind::InputObject => self.input_object_type_definition,
+            TypeDefKind::Union => self.union_type_definition,
+            _ => None,
+        };
+        per_kind.unwrap_or(self.types)
+    }
+}
+
+/// A parsed form of a single `ignoredSelectors` entry.
+///
+/// Only the subset of ESLint selector syntax used by graphql-eslint's
+/// recommended presets is supported: `[type=Kind][name.value=X]` where `X` is
+/// either a plain identifier or a `/pattern/` JavaScript-style regex.
+/// Anything else is logged and skipped.
+#[derive(Debug, Clone)]
+enum IgnoredSelector {
+    /// Match `[type=<ast_kind>][name.value=<literal>]`
+    ExactName { ast_kind: String, name: String },
+    /// Match `[type=<ast_kind>][name.value=/<pattern>/]`
+    Regex {
+        ast_kind: String,
+        pattern: regex::Regex,
+    },
+}
+
+impl IgnoredSelector {
+    fn parse(raw: &str) -> Option<Self> {
+        // Expected form: `[type=ObjectTypeDefinition][name.value=PageInfo]`
+        // or `[type=ObjectTypeDefinition][name.value=/(Connection|Edge)$/]`
+        let s = raw.trim();
+
+        // Both attributes must be present as `[key=value]` pairs.
+        let (type_attr, rest) = parse_bracketed_attr(s)?;
+        let (name_attr, leftover) = parse_bracketed_attr(rest)?;
+        if !leftover.trim().is_empty() {
+            tracing::warn!(
+                target: "require-description",
+                "ignoredSelectors: unsupported selector (trailing content): {raw}"
+            );
+            return None;
+        }
+
+        let ast_kind = if let Some(kind) = type_attr.strip_prefix("type=") {
+            kind.trim().to_string()
+        } else {
+            tracing::warn!(
+                target: "require-description",
+                "ignoredSelectors: first attribute must be `type=<Kind>`: {raw}"
+            );
+            return None;
+        };
+
+        let name_value = if let Some(v) = name_attr.strip_prefix("name.value=") {
+            v.trim()
+        } else {
+            tracing::warn!(
+                target: "require-description",
+                "ignoredSelectors: second attribute must be `name.value=<X>`: {raw}"
+            );
+            return None;
+        };
+
+        if name_value.starts_with('/') {
+            // JavaScript regex literal — strip leading `/` and trailing `/flags`.
+            let inner = name_value.trim_start_matches('/');
+            // Find the last `/` that ends the pattern (flags after it are
+            // optional and unused since we only care about matching, not
+            // case-insensitivity etc.).
+            let end = inner.rfind('/').unwrap_or(inner.len());
+            let pattern_str = &inner[..end];
+            match regex::Regex::new(pattern_str) {
+                Ok(re) => Some(Self::Regex {
+                    ast_kind,
+                    pattern: re,
+                }),
+                Err(e) => {
+                    tracing::warn!(
+                        target: "require-description",
+                        "ignoredSelectors: invalid regex `{pattern_str}` in `{raw}`: {e}"
+                    );
+                    None
+                }
+            }
+        } else {
+            Some(Self::ExactName {
+                ast_kind,
+                name: name_value.to_string(),
+            })
+        }
+    }
+
+    /// Return true when this selector suppresses checking of a type with the
+    /// given GraphQL AST kind string and name.
+    fn matches(&self, ast_kind: &str, name: &str) -> bool {
+        match self {
+            Self::ExactName {
+                ast_kind: k,
+                name: n,
+            } => k == ast_kind && n == name,
+            Self::Regex {
+                ast_kind: k,
+                pattern,
+            } => k == ast_kind && pattern.is_match(name),
+        }
+    }
+}
+
+/// Extract `[content]` from the start of `s`. Returns `(content, rest_of_s)`.
+fn parse_bracketed_attr(s: &str) -> Option<(&str, &str)> {
+    let s = s.trim_start();
+    if !s.starts_with('[') {
+        return None;
+    }
+    let close = s.find(']')?;
+    Some((&s[1..close], &s[close + 1..]))
+}
+
+/// Convert a `TypeDefKind` to the ESLint AST kind string that graphql-eslint
+/// uses, so `ignoredSelectors` entries (which use ESLint kind names) can be
+/// matched against our HIR type.
+fn type_def_kind_to_ast_kind(kind: TypeDefKind) -> &'static str {
+    match kind {
+        TypeDefKind::Object => "ObjectTypeDefinition",
+        TypeDefKind::Interface => "InterfaceTypeDefinition",
+        TypeDefKind::Enum => "EnumTypeDefinition",
+        TypeDefKind::Scalar => "ScalarTypeDefinition",
+        TypeDefKind::InputObject => "InputObjectTypeDefinition",
+        TypeDefKind::Union => "UnionTypeDefinition",
+        _ => "ObjectTypeDefinition",
+    }
+}
+
+/// Parse the `ignoredSelectors` strings once, logging and dropping any we
+/// can't handle.
+fn parse_ignored_selectors(raw: &[String]) -> Vec<IgnoredSelector> {
+    raw.iter()
+        .filter_map(|s| IgnoredSelector::parse(s))
+        .collect()
 }
 
 /// Lint rule that requires descriptions on schema definitions and operations.
@@ -100,6 +280,7 @@ impl StandaloneSchemaLintRule for RequireDescriptionRuleImpl {
         options: Option<&serde_json::Value>,
     ) -> HashMap<FileId, Vec<LintDiagnostic>> {
         let opts = RequireDescriptionOptions::from_json(options);
+        let ignored = parse_ignored_selectors(&opts.ignored_selectors);
         let mut diagnostics_by_file: HashMap<FileId, Vec<LintDiagnostic>> = HashMap::new();
         let schema_types = graphql_hir::schema_types(db, project_files);
 
@@ -120,6 +301,17 @@ impl StandaloneSchemaLintRule for RequireDescriptionRuleImpl {
             })
             .collect();
 
+        // Resolve root operation type names for the `rootField` check.
+        let root_type_names = if opts.root_field {
+            Some(crate::schema_utils::extract_root_type_names(
+                db,
+                project_files,
+                &schema_types,
+            ))
+        } else {
+            None
+        };
+
         for type_def in schema_types.values() {
             // Skip built-in scalars
             if type_def.kind == TypeDefKind::Scalar
@@ -136,7 +328,13 @@ impl StandaloneSchemaLintRule for RequireDescriptionRuleImpl {
                 continue;
             }
 
-            if opts.types && type_def.description.is_none() {
+            // Suppress checking for this type entirely if it matches an ignoredSelector.
+            let ast_kind = type_def_kind_to_ast_kind(type_def.kind);
+            let is_ignored = ignored
+                .iter()
+                .any(|sel| sel.matches(ast_kind, type_def.name.as_ref()));
+
+            if !is_ignored && opts.kind_enabled(type_def.kind) && type_def.description.is_none() {
                 let kind_name = match type_def.kind {
                     TypeDefKind::Interface => "interface",
                     TypeDefKind::Union => "union",
@@ -161,6 +359,11 @@ impl StandaloneSchemaLintRule for RequireDescriptionRuleImpl {
                 _ => format!("type \"{}\"", type_def.name),
             };
 
+            // Whether this type's fields should be checked under `rootField`.
+            let is_root = root_type_names
+                .as_ref()
+                .is_some_and(|rtn| rtn.is_root_type(type_def.name.as_ref()));
+
             // Field definitions (object/interface) and input value definitions (input).
             for field in &type_def.fields {
                 let field_kind = if type_def.kind == TypeDefKind::InputObject {
@@ -177,7 +380,10 @@ impl StandaloneSchemaLintRule for RequireDescriptionRuleImpl {
                 let field_kind_enabled = if type_def.kind == TypeDefKind::InputObject {
                     opts.input_value_definition
                 } else {
-                    opts.field_definition
+                    // A root-type field fires when either `FieldDefinition` or
+                    // `rootField` is enabled; non-root fields only fire for
+                    // `FieldDefinition`.
+                    opts.field_definition || (is_root && opts.root_field)
                 };
 
                 if field_kind_enabled && field.description.is_none() {
