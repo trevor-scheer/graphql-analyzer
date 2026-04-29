@@ -13,30 +13,44 @@ use std::sync::Arc;
 /// ```yaml
 /// lint:
 ///   rules:
-///     # Default: requires 'id' field
+///     # Default: requires 'id' field (OR semantics: any one of the listed names satisfies)
 ///     requireSelections: error
 ///
-///     # Custom fields to require (if they exist on the type)
-///     requireSelections: [error, { fields: ["id", "__typename"] }]
+///     # OR semantics: any one of the listed names satisfies the check
+///     requireSelections: [error, { fieldName: ["id", "__typename"] }]
 ///
-///     # Object style
+///     # AND semantics: all listed names must be present (one error per missing)
 ///     requireSelections:
 ///       severity: error
 ///       options:
-///         fields: ["id", "__typename"]
+///         fieldName: ["id", "__typename"]
+///         requireAllFields: true
+///
+///     # `fields` is a deprecated alias for `fieldName` (OR semantics)
+///     requireSelections: [error, { fields: ["id", "__typename"] }]
 /// ```
 #[derive(Debug, Clone, Deserialize)]
 #[serde(default)]
 pub struct RequireSelectionsOptions {
-    /// Field names to require if they exist on the type.
+    /// Field name(s) to require. With OR semantics (default), any one of the listed
+    /// names satisfies the check. With `requireAllFields: true`, every listed name
+    /// must be present and each missing field emits its own diagnostic.
+    ///
     /// Defaults to `["id"]`.
-    pub fields: Vec<String>,
+    #[serde(rename = "fieldName", alias = "fields")]
+    pub field_name: Vec<String>,
+
+    /// When `true`, every listed field name must be present (AND semantics) and each
+    /// missing field emits its own diagnostic. Matches upstream's `requireAllFields`.
+    #[serde(rename = "requireAllFields")]
+    pub require_all_fields: bool,
 }
 
 impl Default for RequireSelectionsOptions {
     fn default() -> Self {
         Self {
-            fields: vec!["id".to_string()],
+            field_name: vec!["id".to_string()],
+            require_all_fields: false,
         }
     }
 }
@@ -92,7 +106,7 @@ impl DocumentSchemaLintRule for RequireSelectionsRuleImpl {
         for (type_name, type_def) in schema_types {
             let required_fields: Vec<String> = match type_def.kind {
                 graphql_hir::TypeDefKind::Object | graphql_hir::TypeDefKind::Interface => opts
-                    .fields
+                    .field_name
                     .iter()
                     .filter(|field| {
                         // __typename is implicitly available on all object/interface types
@@ -120,6 +134,7 @@ impl DocumentSchemaLintRule for RequireSelectionsRuleImpl {
             types_with_required_fields: &types_with_required_fields,
             all_fragments,
             root_types: &root_types,
+            require_all_fields: opts.require_all_fields,
         };
 
         for doc in parse.documents() {
@@ -225,6 +240,10 @@ struct CheckContext<'a> {
     types_with_required_fields: &'a HashMap<String, Vec<String>>,
     all_fragments: &'a HashMap<Arc<str>, graphql_hir::FragmentStructure>,
     root_types: &'a crate::schema_utils::RootTypeNames,
+    /// When `true`, each missing field emits its own diagnostic (AND semantics).
+    /// When `false` (default), one grouped diagnostic fires only when none of the
+    /// required fields are present in the selection set (OR semantics).
+    require_all_fields: bool,
 }
 
 #[allow(clippy::only_used_in_recursion, clippy::too_many_arguments)]
@@ -468,31 +487,84 @@ fn check_selection_set(
         }
     }
 
-    // Collect missing fields and emit a single grouped diagnostic per
-    // selection set, matching graphql-eslint's `require-selections` output.
-    let missing_fields: Vec<&String> = required_fields
-        .iter()
-        .filter(|f| !found_fields.contains(*f))
-        .collect();
+    // Determine which fields to report based on semantics mode:
+    // - OR mode (default): fire one grouped diagnostic when none of the candidates
+    //   are selected. Any one being present satisfies the whole group.
+    // - AND mode (requireAllFields): fire one diagnostic per individually missing
+    //   field, matching upstream's `requireAllFields: true` behaviour.
+    let missing_fields: Vec<&String> = if context.require_all_fields {
+        required_fields
+            .iter()
+            .filter(|f| !found_fields.contains(*f))
+            .collect()
+    } else if found_fields.is_empty() {
+        // OR: no candidate was found at all — report all as candidates
+        required_fields.iter().collect()
+    } else {
+        Vec::new()
+    };
 
-    if !missing_fields.is_empty() {
-        // Calculate insertion position and indentation for the fix
-        let selection_set_start: usize = selection_set.syntax().text_range().start().into();
-        let selection_set_source = selection_set.syntax().to_string();
+    if missing_fields.is_empty() {
+        return;
+    }
 
-        let (insert_pos, indent) = selection_set.selections().next().map_or_else(
-            || {
-                // Empty selection set - insert after the opening brace with default indent
-                (selection_set_start + 1, "  ".to_string())
-            },
-            |first| {
-                let pos: usize = first.syntax().text_range().start().into();
-                let relative_pos = pos - selection_set_start;
-                let indent = extract_indentation(&selection_set_source, relative_pos);
-                (pos, indent)
-            },
+    let selection_set_start: usize = selection_set.syntax().text_range().start().into();
+    let selection_set_source = selection_set.syntax().to_string();
+
+    let (insert_pos, indent) = selection_set.selections().next().map_or_else(
+        || {
+            // Empty selection set - insert after the opening brace with default indent
+            (selection_set_start + 1, "  ".to_string())
+        },
+        |first| {
+            let pos: usize = first.syntax().text_range().start().into();
+            let relative_pos = pos - selection_set_start;
+            let indent = extract_indentation(&selection_set_source, relative_pos);
+            (pos, indent)
+        },
+    );
+
+    // graphql-eslint appends ` or add to used fragment(s) X` when the
+    // missing field is reachable through fragment(s) walked above that
+    // didn't ultimately satisfy it. We only get here when no walked
+    // fragment contained the field, so listing all walked fragments
+    // mirrors upstream's `checkedFragmentSpreads` set behavior exactly.
+    let addition = if walked_fragments.is_empty() {
+        String::new()
+    } else {
+        let frag_plural = if walked_fragments.len() > 1 { "s" } else { "" };
+        let joined = english_join_words(
+            &walked_fragments
+                .iter()
+                .map(|n| format!("`{n}`"))
+                .collect::<Vec<_>>(),
         );
+        format!(" or add to used fragment{frag_plural} {joined}")
+    };
 
+    if context.require_all_fields {
+        // AND mode: one diagnostic per missing field.
+        for missing_field in &missing_fields {
+            let fix_label = format!("Add `{}` selection", missing_field);
+            let fix_text = format!("{}\n{}", missing_field, indent);
+            let fix = CodeFix::new(fix_label, vec![TextEdit::insert(insert_pos, fix_text)]);
+            let field_ref = format!("`{parent_display_name}.{missing_field}`");
+            // Mirror graphql-eslint: diagnostic points at the SelectionSet's
+            // opening `{` with a start-only `loc` (no end position).
+            diagnostics.push(
+                LintDiagnostic::error(
+                    doc.span(selection_set_start, selection_set_start),
+                    format!(
+                        "Field {field_ref} must be selected when it's available on a type.\nInclude it in your selection set{addition}."
+                    ),
+                    "requireSelections",
+                )
+                .with_message_id("require-selections")
+                .with_fix(fix),
+            );
+        }
+    } else {
+        // OR mode: one grouped diagnostic listing all candidates.
         let fix_label = if missing_fields.len() == 1 {
             format!("Add `{}` selection", missing_fields[0])
         } else {
@@ -512,7 +584,6 @@ fn check_selection_set(
             fix_text.push('\n');
             fix_text.push_str(&indent);
         }
-
         let fix = CodeFix::new(fix_label, vec![TextEdit::insert(insert_pos, fix_text)]);
 
         let plural_suffix = if missing_fields.len() > 1 { "s" } else { "" };
@@ -522,24 +593,6 @@ fn check_selection_set(
                 .map(|f| format!("`{parent_display_name}.{f}`"))
                 .collect::<Vec<_>>(),
         );
-
-        // graphql-eslint appends ` or add to used fragment(s) X` when the
-        // missing field is reachable through fragment(s) walked above that
-        // didn't ultimately satisfy it. We only get here when no walked
-        // fragment contained the field, so listing all walked fragments
-        // mirrors upstream's `checkedFragmentSpreads` set behavior exactly.
-        let addition = if walked_fragments.is_empty() {
-            String::new()
-        } else {
-            let frag_plural = if walked_fragments.len() > 1 { "s" } else { "" };
-            let joined = english_join_words(
-                &walked_fragments
-                    .iter()
-                    .map(|n| format!("`{n}`"))
-                    .collect::<Vec<_>>(),
-            );
-            format!(" or add to used fragment{frag_plural} {joined}")
-        };
 
         // Mirror graphql-eslint: diagnostic points at the SelectionSet's
         // opening `{` with a start-only `loc` (no end position). Emit a
@@ -701,25 +754,67 @@ fn check_inline_fragment_type(
         }
     }
 
-    let missing_fields: Vec<&String> = required_fields
-        .iter()
-        .filter(|f| !found_fields.contains(*f))
-        .collect();
+    // Same OR/AND semantics as check_selection_set above.
+    let missing_fields: Vec<&String> = if context.require_all_fields {
+        required_fields
+            .iter()
+            .filter(|f| !found_fields.contains(*f))
+            .collect()
+    } else if found_fields.is_empty() {
+        required_fields.iter().collect()
+    } else {
+        Vec::new()
+    };
 
-    if !missing_fields.is_empty() {
-        let selection_set_start: usize = inline_selection_set.syntax().text_range().start().into();
-        let selection_set_source = inline_selection_set.syntax().to_string();
+    if missing_fields.is_empty() {
+        return;
+    }
 
-        let (insert_pos, indent) = inline_selection_set.selections().next().map_or_else(
-            || (selection_set_start + 1, "  ".to_string()),
-            |first| {
-                let pos: usize = first.syntax().text_range().start().into();
-                let relative_pos = pos - selection_set_start;
-                let indent = extract_indentation(&selection_set_source, relative_pos);
-                (pos, indent)
-            },
+    let selection_set_start: usize = inline_selection_set.syntax().text_range().start().into();
+    let selection_set_source = inline_selection_set.syntax().to_string();
+
+    let (insert_pos, indent) = inline_selection_set.selections().next().map_or_else(
+        || (selection_set_start + 1, "  ".to_string()),
+        |first| {
+            let pos: usize = first.syntax().text_range().start().into();
+            let relative_pos = pos - selection_set_start;
+            let indent = extract_indentation(&selection_set_source, relative_pos);
+            (pos, indent)
+        },
+    );
+
+    let addition = if walked_fragments.is_empty() {
+        String::new()
+    } else {
+        let frag_plural = if walked_fragments.len() > 1 { "s" } else { "" };
+        let joined = english_join_words(
+            &walked_fragments
+                .iter()
+                .map(|n| format!("`{n}`"))
+                .collect::<Vec<_>>(),
         );
+        format!(" or add to used fragment{frag_plural} {joined}")
+    };
 
+    if context.require_all_fields {
+        for missing_field in &missing_fields {
+            let fix_label = format!("Add `{}` selection", missing_field);
+            let fix_text = format!("{}\n{}", missing_field, indent);
+            let fix = CodeFix::new(fix_label, vec![TextEdit::insert(insert_pos, fix_text)]);
+            let field_ref = format!("`{inline_type_name}.{missing_field}`");
+            diagnostics.push(
+                LintDiagnostic::error(
+                    doc.span(selection_set_start, selection_set_start),
+                    format!(
+                        "Field {field_ref} must be selected when it's available on a type.\nInclude it in your selection set{addition}."
+                    ),
+                    "requireSelections",
+                )
+                .with_message_id("require-selections")
+                .with_fix(fix),
+            );
+        }
+    } else {
         let fix_label = if missing_fields.len() == 1 {
             format!("Add `{}` selection", missing_fields[0])
         } else {
@@ -745,19 +840,6 @@ fn check_inline_fragment_type(
                 .map(|f| format!("`{inline_type_name}.{f}`"))
                 .collect::<Vec<_>>(),
         );
-
-        let addition = if walked_fragments.is_empty() {
-            String::new()
-        } else {
-            let frag_plural = if walked_fragments.len() > 1 { "s" } else { "" };
-            let joined = english_join_words(
-                &walked_fragments
-                    .iter()
-                    .map(|n| format!("`{n}`"))
-                    .collect::<Vec<_>>(),
-            );
-            format!(" or add to used fragment{frag_plural} {joined}")
-        };
 
         diagnostics.push(
             LintDiagnostic::error(
@@ -1506,7 +1588,10 @@ query GetUser {
     }
 }
 ";
-        let options = serde_json::json!({ "fields": ["id", "__typename"] });
+        // requireAllFields: true means both must be present; `id` being present
+        // doesn't satisfy the requirement for `__typename` in AND mode.
+        let options =
+            serde_json::json!({ "fieldName": ["id", "__typename"], "requireAllFields": true });
 
         let (file_id, content, metadata, project_files) =
             create_test_project(&db, TEST_SCHEMA, source);
