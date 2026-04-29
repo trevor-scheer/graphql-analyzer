@@ -217,23 +217,50 @@ fn english_join(words: &[String]) -> String {
     }
 }
 
+/// Predicate operator for attribute selectors.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum PredicateOp {
+    Eq,
+    NotEq,
+}
+
 /// Parsed form of an ESLint-style selector key in the `naming-convention`
 /// options object. We support only the small subset that upstream's
 /// `flat/schema-recommended` and `flat/operations-recommended` presets use.
 ///
 /// Unsupported forms (descendant combinators, `:has`, attribute matching
-/// beyond `parent.name.value`, multiple predicates, etc.) are rejected at
-/// parse time with a `tracing::warn!` so a typo doesn't silently disable
-/// the rule.
+/// beyond `parent.name.value` and `gqlType.*.name.value`, multiple predicates,
+/// etc.) are rejected at parse time with a `tracing::warn!` so a typo doesn't
+/// silently disable the rule.
 #[derive(Debug, Clone, PartialEq, Eq)]
 enum Selector {
     /// `"EnumTypeDefinition,EnumTypeExtension"` — matches any node whose
     /// kind is in the comma-separated list. Whitespace around the commas
     /// is allowed and trimmed.
     Kinds(Vec<String>),
-    /// `"FieldDefinition[parent.name.value=Query]"` — matches a node of
-    /// `kind` whose immediate parent has `name.value == parent_name`.
-    KindWithParent { kind: String, parent_name: String },
+    /// `"FieldDefinition[parent.name.value=Query]"` or the `!=` form —
+    /// matches a node of `kind` whose immediate parent's name satisfies
+    /// the predicate.
+    KindWithParent {
+        kind: String,
+        op: PredicateOp,
+        parent_name: String,
+    },
+    /// `"FieldDefinition[gqlType.name.value=Snake]"` or
+    /// `"FieldDefinition[gqlType.gqlType.name.value=Boolean]"` —
+    /// matches a field whose inner named type satisfies the predicate, at
+    /// a specific wrapper depth.
+    ///
+    /// `depth=0` means `gqlType.name.value` (bare named type, no wrappers).
+    /// `depth=1` means `gqlType.gqlType.name.value` (one wrapper: NonNull or List).
+    /// This maps directly to the number of `gqlType.` prefixes before `name.value`
+    /// in the upstream JS AST chain.
+    KindWithGqlType {
+        kind: String,
+        op: PredicateOp,
+        type_name: String,
+        depth: u8,
+    },
 }
 
 impl Selector {
@@ -250,18 +277,46 @@ impl Selector {
             }
             let kind = trimmed[..open].trim().to_string();
             let predicate = &trimmed[open + 1..trimmed.len() - 1];
-            // Only `parent.name.value=<Name>` is supported.
-            if let Some((lhs, rhs)) = predicate.split_once('=') {
-                let lhs = lhs.trim();
-                let rhs = rhs.trim();
-                if lhs == "parent.name.value" && !kind.is_empty() && !rhs.is_empty() {
-                    return Some(Selector::KindWithParent {
-                        kind,
-                        parent_name: rhs.to_string(),
-                    });
-                }
+
+            // Split on `!=` first (must come before `=` split to avoid
+            // accidentally treating `!=` as `=` with a leading `!`).
+            let (lhs_raw, op, rhs_raw) = if let Some((l, r)) = predicate.split_once("!=") {
+                (l, PredicateOp::NotEq, r)
+            } else if let Some((l, r)) = predicate.split_once('=') {
+                (l, PredicateOp::Eq, r)
+            } else {
+                warn!(selector = %raw, "naming-convention: unsupported selector predicate (no `=` or `!=` operator); ignoring");
+                return None;
+            };
+
+            let lhs = lhs_raw.trim();
+            let rhs = rhs_raw.trim();
+
+            if kind.is_empty() || rhs.is_empty() {
+                warn!(selector = %raw, "naming-convention: malformed selector (empty kind or value); ignoring");
+                return None;
             }
-            warn!(selector = %raw, "naming-convention: unsupported selector predicate (only `parent.name.value=<Name>` is supported); ignoring");
+
+            if lhs == "parent.name.value" {
+                return Some(Selector::KindWithParent {
+                    kind,
+                    op,
+                    parent_name: rhs.to_string(),
+                });
+            }
+
+            // `gqlType.name.value` (depth=0) or `gqlType.gqlType.name.value` (depth=1).
+            // Count leading `gqlType.` segments before `name.value`.
+            if let Some(depth) = parse_gql_type_depth(lhs) {
+                return Some(Selector::KindWithGqlType {
+                    kind,
+                    op,
+                    type_name: rhs.to_string(),
+                    depth,
+                });
+            }
+
+            warn!(selector = %raw, "naming-convention: unsupported selector predicate (only `parent.name.value` and `gqlType.*.name.value` are supported); ignoring");
             return None;
         }
 
@@ -286,20 +341,77 @@ impl Selector {
     }
 }
 
-/// `(eslint_kind, parent_name_if_any)` for the node we're about to lint.
-/// `None` for `parent_name` means "no enclosing named scope" (e.g. type
-/// definitions themselves). Used by `Selector::matches`.
+/// Parse a `gqlType.(gqlType.)*name.value` path and return the depth (number of
+/// `gqlType.` hops before `name.value`). Returns `None` for unrecognized paths.
+///
+/// Examples:
+/// - `"gqlType.name.value"` → `Some(0)`
+/// - `"gqlType.gqlType.name.value"` → `Some(1)`
+fn parse_gql_type_depth(lhs: &str) -> Option<u8> {
+    // Must start with at least one `gqlType.` and end with `name.value`.
+    let mut rest = lhs.strip_prefix("gqlType.")?;
+    let mut depth: u8 = 0;
+    loop {
+        if rest == "name.value" {
+            return Some(depth);
+        }
+        rest = rest.strip_prefix("gqlType.")?;
+        depth = depth.checked_add(1)?;
+    }
+}
+
+/// `(eslint_kind, parent_name_if_any, type_ref_if_any)` for the node we're about
+/// to lint. Fields are `None` when not applicable for the node type. Used by
+/// `Selector::matches`.
 struct NodeContext<'a> {
     kind: &'a str,
     parent_name: Option<&'a str>,
+    /// Inner named type name (from `TypeRef::name`) for field-like nodes.
+    type_name: Option<&'a str>,
+    /// Number of type wrappers (NonNull / List) on the field's type. Matches
+    /// the number of `gqlType.` hops in the upstream JS AST selector chain
+    /// before `name.value`.
+    wrapper_depth: u8,
 }
 
 impl Selector {
     fn matches(&self, ctx: &NodeContext<'_>) -> bool {
         match self {
             Selector::Kinds(list) => list.iter().any(|k| k == ctx.kind),
-            Selector::KindWithParent { kind, parent_name } => {
-                ctx.kind == kind && ctx.parent_name == Some(parent_name.as_str())
+            Selector::KindWithParent {
+                kind,
+                op,
+                parent_name,
+            } => {
+                if ctx.kind != kind {
+                    return false;
+                }
+                let actual = ctx.parent_name;
+                match op {
+                    PredicateOp::Eq => actual == Some(parent_name.as_str()),
+                    PredicateOp::NotEq => actual != Some(parent_name.as_str()),
+                }
+            }
+            Selector::KindWithGqlType {
+                kind,
+                op,
+                type_name,
+                depth,
+            } => {
+                if ctx.kind != kind {
+                    return false;
+                }
+                let Some(actual_type) = ctx.type_name else {
+                    return false;
+                };
+                let depth_matches = ctx.wrapper_depth == *depth;
+                if !depth_matches {
+                    return false;
+                }
+                match op {
+                    PredicateOp::Eq => actual_type == type_name.as_str(),
+                    PredicateOp::NotEq => actual_type != type_name.as_str(),
+                }
             }
         }
     }
@@ -428,16 +540,24 @@ impl NamingConventionOptions {
     /// selector matches. Callers should fall back to the per-kind override
     /// (and then the `types` umbrella) when this returns `None`. Selectors
     /// take precedence over per-kind overrides per upstream's specificity.
-    /// `parent_name` is the enclosing type/operation name used for
+    ///
+    /// `parent_name` is the enclosing type/operation name for
     /// `[parent.name.value=Foo]` predicates; pass `None` for top-level nodes.
+    /// `type_name` and `wrapper_depth` are the field's inner named type and
+    /// wrapper count for `[gqlType.*.name.value=Foo]` predicates; pass
+    /// `(None, 0)` for nodes that have no type reference.
     fn rule_for_node(
         node_kind: &str,
         parent_name: Option<&str>,
+        type_name: Option<&str>,
+        wrapper_depth: u8,
         selectors: &[(Selector, NamingRule)],
     ) -> Option<NamingRule> {
         let ctx = NodeContext {
             kind: node_kind,
             parent_name,
+            type_name,
+            wrapper_depth,
         };
         for (sel, rule) in selectors {
             if sel.matches(&ctx) {
@@ -986,6 +1106,21 @@ fn check_selection_aliases(
     }
 }
 
+/// Compute the wrapper depth of a `TypeRef` for `gqlType.*` selector matching.
+///
+/// This mirrors the depth of the upstream JS AST chain: a bare named type
+/// has depth 0 (`gqlType.name.value`), a singly-wrapped type (NonNull or List)
+/// has depth 1 (`gqlType.gqlType.name.value`), and so on.
+fn wrapper_depth_of(type_ref: &graphql_hir::TypeRef) -> u8 {
+    match (type_ref.is_non_null, type_ref.is_list) {
+        (false, false) => 0,
+        // NonNull only, or List only — one wrapper level.
+        (true, false) | (false, true) => 1,
+        // NonNull + List — two wrapper levels.
+        (true, true) => 2,
+    }
+}
+
 /// Schema-side enforcement. Walks every type definition (object, interface,
 /// union, enum, scalar, input object), every field/input value, every
 /// argument, every enum value, and every directive definition, applying the
@@ -1057,8 +1192,9 @@ impl StandaloneSchemaLintRule for NamingConventionRuleImpl {
                 TypeDefKind::InputObject => "InputObjectTypeDefinition",
                 TypeDefKind::Object | _ => "ObjectTypeDefinition",
             };
-            let type_rule = NamingConventionOptions::rule_for_node(type_kind_str, None, &selectors)
-                .or_else(|| opts.rule_for_type_kind(type_def.kind).cloned());
+            let type_rule =
+                NamingConventionOptions::rule_for_node(type_kind_str, None, None, 0, &selectors)
+                    .or_else(|| opts.rule_for_type_kind(type_def.kind).cloned());
             if let Some(rule) = type_rule {
                 let normalized = NormalizedRule::from_rule_with_global(
                     &rule,
@@ -1112,13 +1248,16 @@ impl StandaloneSchemaLintRule for NamingConventionRuleImpl {
                         (opts.field_definition.as_ref(), "FieldDefinition", "field")
                     };
 
-                // Selector resolution: `FieldDefinition[parent.name.value=Query]`
-                // and similar; `parent_name` is the enclosing type's name so
-                // these per-root-type predicates from upstream's recommended
-                // preset work.
+                // Selector resolution: `FieldDefinition[parent.name.value=Query]`,
+                // `FieldDefinition[gqlType.name.value=Snake]`, and similar.
+                // `parent_name` is the enclosing type's name; `type_name` and
+                // `wrapper_depth` come from the field's own type reference so
+                // that `gqlType.*` predicates match correctly.
                 let field_rule = NamingConventionOptions::rule_for_node(
                     kind_str,
                     Some(&type_def.name),
+                    Some(field.type_ref.name.as_ref()),
+                    wrapper_depth_of(&field.type_ref),
                     &selectors,
                 )
                 .or_else(|| per_kind_rule.cloned());
@@ -1160,6 +1299,8 @@ impl StandaloneSchemaLintRule for NamingConventionRuleImpl {
                     let arg_rule = NamingConventionOptions::rule_for_node(
                         "Argument",
                         Some(&field.name),
+                        None,
+                        0,
                         &selectors,
                     )
                     .or_else(|| opts.argument.clone());
@@ -1216,6 +1357,8 @@ impl StandaloneSchemaLintRule for NamingConventionRuleImpl {
                 let value_rule = NamingConventionOptions::rule_for_node(
                     "EnumValueDefinition",
                     Some(&type_def.name),
+                    None,
+                    0,
                     &selectors,
                 )
                 .or_else(|| opts.enum_value_definition.clone());
@@ -1267,7 +1410,7 @@ impl StandaloneSchemaLintRule for NamingConventionRuleImpl {
                 continue;
             }
             let dir_rule =
-                NamingConventionOptions::rule_for_node("DirectiveDefinition", None, &selectors)
+                NamingConventionOptions::rule_for_node("DirectiveDefinition", None, None, 0, &selectors)
                     .or_else(|| opts.directive_definition.clone());
             if let Some(rule) = dir_rule {
                 let normalized = NormalizedRule::from_rule_with_global(
@@ -1294,7 +1437,7 @@ impl StandaloneSchemaLintRule for NamingConventionRuleImpl {
                 dir_def.name_range,
             );
             let dir_arg_rule =
-                NamingConventionOptions::rule_for_node("Argument", Some(&dir_def.name), &selectors)
+                NamingConventionOptions::rule_for_node("Argument", Some(&dir_def.name), None, 0, &selectors)
                     .or_else(|| opts.argument.clone());
             if let Some(rule) = dir_arg_rule {
                 let normalized = NormalizedRule::from_rule_with_global(
