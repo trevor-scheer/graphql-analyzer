@@ -60,6 +60,13 @@ impl StandaloneSchemaLintRule for RequireNullableFieldsWithOneofRuleImpl {
                 TypeDefKind::InputObject => "input",
                 _ => "type",
             };
+            // Upstream's `displayNodeName` calls input-object fields "input
+            // value" (kind `INPUT_VALUE_DEFINITION`) and object-type fields
+            // "field" (kind `FIELD_DEFINITION`). Mirror that here.
+            let field_kind_label = match type_def.kind {
+                TypeDefKind::InputObject => "input value",
+                _ => "field",
+            };
 
             for field in &type_def.fields {
                 if field.type_ref.is_non_null {
@@ -81,8 +88,8 @@ impl StandaloneSchemaLintRule for RequireNullableFieldsWithOneofRuleImpl {
                                 span,
                                 LintSeverity::Error,
                                 format!(
-                                    "field \"{}\" in {} \"{}\" must be nullable when \"@oneOf\" is in use",
-                                    field.name, type_kind_label, type_def.name
+                                    "{} \"{}\" in {} \"{}\" must be nullable when \"@oneOf\" is in use",
+                                    field_kind_label, field.name, type_kind_label, type_def.name
                                 ),
                                 "requireNullableFieldsWithOneof",
                             )
