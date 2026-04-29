@@ -55,18 +55,14 @@ fn valid_l12_deprecated_with_various_reason_types() {
 /// <https://github.com/dimaMachina/graphql-eslint/blob/f0f200ef0b030cb8a905bbcb32fe346b87cc2e24/packages/plugin/src/rules/require-deprecation-reason/index.test.ts#L28>
 #[test]
 fn invalid_l28_mixed_deprecated_fields() {
-    // Upstream expects 7 errors. We produce 4:
+    // Upstream expects 7 errors:
     //   1. `deprecatedWithoutReason` field — no reason
     //   2. `item1` enum value — no reason
     //   3. `item1` interface field — no reason
-    //   4. `foo` input field — no reason
-    //
-    // DIVERGENCE: upstream also fires on
-    //   - `item4 @deprecated(reason: "")` and `item5 @deprecated(reason: "  ")`
-    //     (empty/whitespace reasons) — our HIR stores these as Some("") / Some("  "),
-    //     so `deprecation_reason.is_none()` is false and we don't fire.
-    //   - `type MyQuery @deprecated` — our rule does not check type-level
-    //     @deprecated, only field/enum-value/argument deprecations.
+    //   4. `item4` interface field — reason: "" (empty string)
+    //   5. `item5` interface field — reason: "  " (whitespace-only)
+    //   6. `type MyQuery @deprecated` — type-level @deprecated without reason
+    //   7. `foo` input field — no reason
     Case::invalid(format!(
         "https://github.com/dimaMachina/graphql-eslint/blob/{}/packages/plugin/src/rules/require-deprecation-reason/index.test.ts#L28",
         super::UPSTREAM_SHA,
@@ -100,6 +96,9 @@ fn invalid_l28_mixed_deprecated_fields() {
         "#,
     )
     .errors(vec![
+        ExpectedError::new(),
+        ExpectedError::new(),
+        ExpectedError::new(),
         ExpectedError::new(),
         ExpectedError::new(),
         ExpectedError::new(),
