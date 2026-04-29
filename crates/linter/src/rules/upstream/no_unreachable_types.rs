@@ -411,20 +411,12 @@ fn invalid_l261_scalar_unreachable() {
     .run_against_standalone_schema(NoUnreachableTypesRuleImpl);
 }
 
-// DIVERGENCE: upstream invalid L284 tests `ObjectTypeExtension`
-// (`extend type SuperUser { detail: String }`). Upstream emits three errors:
-// `User` (unreachable interface), `SuperUser` (base definition), and
-// `SuperUser` (extension definition — each AST node is checked separately).
-// Our HIR merges `extend type` declarations into the base TypeDef, so the
-// extension does not appear as a separate reportable entry. We get only 2
-// errors (`User` + `SuperUser` base). This is a genuine HIR-level divergence;
-// we assert what we do produce rather than upstream's count.
 /// <https://github.com/dimaMachina/graphql-eslint/blob/f0f200ef0b030cb8a905bbcb32fe346b87cc2e24/packages/plugin/src/rules/no-unreachable-types/index.test.ts#L284>
 #[test]
-fn invalid_l284_type_extension_unreachable_divergence() {
-    // DIVERGENCE: upstream expects 3 errors (base + extension each get their
-    // own diagnostic). We merge extensions into the base type in the HIR, so
-    // we emit only 2.
+fn invalid_l284_type_extension_unreachable() {
+    // Upstream emits 3 errors: `User` (unreachable interface), `SuperUser`
+    // (base definition), and `SuperUser` (extension — each AST node is checked
+    // separately).  We now also fire on extension declarations, matching upstream.
     Case::invalid(format!(
         "https://github.com/dimaMachina/graphql-eslint/blob/{}/packages/plugin/src/rules/no-unreachable-types/index.test.ts#L284",
         super::UPSTREAM_SHA,
@@ -455,6 +447,7 @@ fn invalid_l284_type_extension_unreachable_divergence() {
     )
     .errors(vec![
         ExpectedError::new().message("Interface type `User` is unreachable."),
+        ExpectedError::new().message("Object type `SuperUser` is unreachable."),
         ExpectedError::new().message("Object type `SuperUser` is unreachable."),
     ])
     .run_against_standalone_schema(NoUnreachableTypesRuleImpl);

@@ -100,10 +100,9 @@ fn invalid_l50_non_object_types_with_connection_suffix() {
     // Non-Object types (scalar, union, input, enum, interface) whose names end
     // in `Connection` all violate the rule.
     //
-    // DIVERGENCE: upstream counts `errors: 9` because it treats each `extend`
-    // as a separate violation (1 per base + 1 per extension = 9). Our HIR
-    // merges type extensions into the base type, so we see 5 merged types and
-    // produce 5 errors.
+    // Upstream counts `errors: 9` because it treats each `extend` as a separate
+    // violation (1 per base + 1 per extension = 9). We now iterate raw declarations
+    // and also produce 9.
     Case::invalid(format!(
         "https://github.com/dimaMachina/graphql-eslint/blob/{}/packages/plugin/src/rules/relay-connection-types/index.test.ts#L50",
         super::UPSTREAM_SHA,
@@ -130,6 +129,10 @@ fn invalid_l50_non_object_types_with_connection_suffix() {
       ",
     )
     .errors(vec![
+        ExpectedError::new(),
+        ExpectedError::new(),
+        ExpectedError::new(),
+        ExpectedError::new(),
         ExpectedError::new(),
         ExpectedError::new(),
         ExpectedError::new(),

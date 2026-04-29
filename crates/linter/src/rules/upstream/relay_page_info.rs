@@ -64,11 +64,7 @@ fn invalid_l32_scalar_page_info() {
 #[test]
 fn invalid_l37_union_page_info() {
     // Upstream sees `union PageInfo` and `extend union PageInfo` as 2 separate
-    // violations → `errors: 2`. Our HIR merges type extensions, so we see a
-    // single merged `PageInfo` union → 1 error.
-    //
-    // DIVERGENCE: extension merging collapses two upstream violations into one.
-    // We assert 1 error, which is what our implementation produces.
+    // violations → `errors: 2`. We now fire per raw declaration, matching upstream.
     Case::invalid(format!(
         "https://github.com/dimaMachina/graphql-eslint/blob/{}/packages/plugin/src/rules/relay-page-info/index.test.ts#L37",
         super::UPSTREAM_SHA,
@@ -86,15 +82,14 @@ fn invalid_l37_union_page_info() {
         type UserEdge
       ",
     )
-    .errors(vec![ExpectedError::new()])
+    .errors(vec![ExpectedError::new(), ExpectedError::new()])
     .run_against_standalone_schema(RelayPageInfoRuleImpl);
 }
 
 /// <https://github.com/dimaMachina/graphql-eslint/blob/f0f200ef0b030cb8a905bbcb32fe346b87cc2e24/packages/plugin/src/rules/relay-page-info/index.test.ts#L51>
 #[test]
 fn invalid_l51_input_page_info() {
-    // DIVERGENCE: same extension-merge issue as the union case. Upstream says
-    // 2 (base + extension), we see the merged input and emit 1.
+    // Upstream says 2 (base + extension); we now fire per raw declaration.
     Case::invalid(format!(
         "https://github.com/dimaMachina/graphql-eslint/blob/{}/packages/plugin/src/rules/relay-page-info/index.test.ts#L51",
         super::UPSTREAM_SHA,
@@ -110,14 +105,14 @@ fn invalid_l51_input_page_info() {
         }
       ",
     )
-    .errors(vec![ExpectedError::new()])
+    .errors(vec![ExpectedError::new(), ExpectedError::new()])
     .run_against_standalone_schema(RelayPageInfoRuleImpl);
 }
 
 /// <https://github.com/dimaMachina/graphql-eslint/blob/f0f200ef0b030cb8a905bbcb32fe346b87cc2e24/packages/plugin/src/rules/relay-page-info/index.test.ts#L63>
 #[test]
 fn invalid_l63_enum_page_info() {
-    // DIVERGENCE: extension-merge collapse. Upstream 2, we produce 1.
+    // Upstream 2 (base + extension); we now fire per raw declaration.
     Case::invalid(format!(
         "https://github.com/dimaMachina/graphql-eslint/blob/{}/packages/plugin/src/rules/relay-page-info/index.test.ts#L63",
         super::UPSTREAM_SHA,
@@ -133,14 +128,14 @@ fn invalid_l63_enum_page_info() {
         }
       ",
     )
-    .errors(vec![ExpectedError::new()])
+    .errors(vec![ExpectedError::new(), ExpectedError::new()])
     .run_against_standalone_schema(RelayPageInfoRuleImpl);
 }
 
 /// <https://github.com/dimaMachina/graphql-eslint/blob/f0f200ef0b030cb8a905bbcb32fe346b87cc2e24/packages/plugin/src/rules/relay-page-info/index.test.ts#L75>
 #[test]
 fn invalid_l75_interface_page_info() {
-    // DIVERGENCE: extension-merge collapse. Upstream 2, we produce 1.
+    // Upstream 2 (base + extension); we now fire per raw declaration.
     Case::invalid(format!(
         "https://github.com/dimaMachina/graphql-eslint/blob/{}/packages/plugin/src/rules/relay-page-info/index.test.ts#L75",
         super::UPSTREAM_SHA,
@@ -156,7 +151,7 @@ fn invalid_l75_interface_page_info() {
         }
       ",
     )
-    .errors(vec![ExpectedError::new()])
+    .errors(vec![ExpectedError::new(), ExpectedError::new()])
     .run_against_standalone_schema(RelayPageInfoRuleImpl);
 }
 
@@ -164,11 +159,10 @@ fn invalid_l75_interface_page_info() {
 #[test]
 fn invalid_l87_extend_type_page_info() {
     // Upstream: `type PageInfo` (no fields → 4 missing) + `extend type PageInfo`
-    // (4 fields correct → 0) → `errors: 4`.
-    //
-    // DIVERGENCE: our HIR merges base + extension into one `PageInfo` with all
-    // 4 correct fields → 0 errors from the field-check logic. We assert 0.
-    Case::valid(format!(
+    // (4 fields correct → 0) → `errors: 4`.  We now check each raw declaration
+    // independently: the base `type PageInfo {}` fires 4 missing-field errors;
+    // the extension with all correct fields fires 0.
+    Case::invalid(format!(
         "https://github.com/dimaMachina/graphql-eslint/blob/{}/packages/plugin/src/rules/relay-page-info/index.test.ts#L87",
         super::UPSTREAM_SHA,
     ))
@@ -183,6 +177,12 @@ fn invalid_l87_extend_type_page_info() {
         }
       ",
     )
+    .errors(vec![
+        ExpectedError::new(),
+        ExpectedError::new(),
+        ExpectedError::new(),
+        ExpectedError::new(),
+    ])
     .run_against_standalone_schema(RelayPageInfoRuleImpl);
 }
 
