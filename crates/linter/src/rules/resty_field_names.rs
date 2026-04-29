@@ -1,4 +1,4 @@
-use crate::diagnostics::{LintDiagnostic, LintSeverity};
+use crate::diagnostics::{rule_doc_url, CodeSuggestion, LintDiagnostic, LintSeverity};
 use crate::traits::{LintRule, StandaloneSchemaLintRule};
 use graphql_base_db::{FileId, ProjectFiles};
 use graphql_hir::TypeDefKind;
@@ -140,24 +140,44 @@ impl StandaloneSchemaLintRule for RestyFieldNamesRuleImpl {
                             source: None,
                         };
 
-                        let message = if *field.name == *suggestion {
-                            format!("Field '{}' uses REST-style naming", field.name,)
+                        let exact_match = *field.name == *suggestion;
+                        let message = if exact_match {
+                            format!("Field \"{}\" uses REST-style naming", field.name)
                         } else {
                             format!(
-                                "Field '{}' uses REST-style naming \u{2014} consider '{}' instead",
+                                "Field \"{}\" uses REST-style naming \u{2014} consider \"{}\" instead",
                                 field.name, suggestion,
                             )
                         };
 
+                        let mut diag = LintDiagnostic::new(
+                            span,
+                            LintSeverity::Warning,
+                            message,
+                            "restyFieldNames",
+                        )
+                        .with_message_id("resty-field-names")
+                        .with_help(format!(
+                            "Drop the `{prefix}` prefix and use a noun-style name."
+                        ))
+                        .with_url(rule_doc_url("restyFieldNames"));
+
+                        // Offer the noun-style rename as a suggestion (manual
+                        // quick-fix). Renames are semantic, so they should not
+                        // run via `--fix` automatically.
+                        if !exact_match {
+                            diag = diag.with_suggestion(CodeSuggestion::replace(
+                                format!("Rename to `{suggestion}`"),
+                                start,
+                                end,
+                                suggestion,
+                            ));
+                        }
+
                         diagnostics_by_file
                             .entry(type_def.file_id)
                             .or_default()
-                            .push(LintDiagnostic::new(
-                                span,
-                                LintSeverity::Warning,
-                                message,
-                                "restyFieldNames",
-                            ));
+                            .push(diag);
                         break; // only report once per field
                     }
                 }
@@ -195,7 +215,18 @@ mod tests {
         let schema_file_ids = SchemaFileIds::new(db, Arc::new(vec![file_id]));
         let document_file_ids = DocumentFileIds::new(db, Arc::new(vec![]));
         let file_entry_map = FileEntryMap::new(db, Arc::new(entries));
-        ProjectFiles::new(db, schema_file_ids, document_file_ids, file_entry_map)
+        ProjectFiles::new(
+            db,
+            schema_file_ids,
+            document_file_ids,
+            graphql_base_db::ResolvedSchemaFileIds::new(db, Arc::new(vec![])),
+            file_entry_map,
+            graphql_base_db::FilePathMap::new(
+                db,
+                Arc::new(std::collections::HashMap::new()),
+                Arc::new(std::collections::HashMap::new()),
+            ),
+        )
     }
 
     fn count_diagnostics(diagnostics: &HashMap<FileId, Vec<LintDiagnostic>>) -> usize {
@@ -367,7 +398,12 @@ mod tests {
         assert_eq!(all.len(), 1);
         assert!(all[0]
             .message
-            .contains("Field 'getUser' uses REST-style naming"));
-        assert!(all[0].message.contains("consider 'user' instead"));
+            .contains("Field \"getUser\" uses REST-style naming"));
+        assert!(all[0].message.contains("consider \"user\" instead"));
+        assert_eq!(all[0].message_id.as_deref(), Some("resty-field-names"));
+        assert!(all[0].help.is_some());
+        assert!(all[0].url.is_some());
+        assert_eq!(all[0].suggestions.len(), 1);
+        assert_eq!(all[0].suggestions[0].fix.edits[0].new_text, "user");
     }
 }
