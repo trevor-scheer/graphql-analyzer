@@ -4,8 +4,7 @@ use graphql_base_db::{FileId, ProjectFiles};
 use graphql_hir::TypeDefKind;
 use std::collections::{HashMap, HashSet, VecDeque};
 
-const BUILTIN_DIRECTIVES: &[&str] =
-    &["deprecated", "skip", "include", "specifiedBy", "defer"];
+const BUILTIN_DIRECTIVES: &[&str] = &["deprecated", "skip", "include", "specifiedBy", "defer"];
 
 /// Lint rule that detects unreachable types in the schema
 ///

@@ -590,8 +590,7 @@ fn filter_suppressed_diagnostics(
     let file_text = content.text(db);
     let file_line_index = graphql_syntax::line_index(db, content);
     let file_ignores = graphql_linter::ignore::parse_ignore_directives(&file_text);
-    let file_suppressions =
-        graphql_linter::eslint_disable::Suppressions::from_source(&file_text);
+    let file_suppressions = graphql_linter::eslint_disable::Suppressions::from_source(&file_text);
 
     diagnostics
         .into_iter()
@@ -636,8 +635,7 @@ fn convert_lint_diagnostics(
     let file_text = content.text(db);
     let file_line_index = graphql_syntax::line_index(db, content);
     let file_ignores = graphql_linter::ignore::parse_ignore_directives(&file_text);
-    let file_suppressions =
-        graphql_linter::eslint_disable::Suppressions::from_source(&file_text);
+    let file_suppressions = graphql_linter::eslint_disable::Suppressions::from_source(&file_text);
 
     lint_diags
         .into_iter()
