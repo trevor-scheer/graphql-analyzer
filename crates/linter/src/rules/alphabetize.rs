@@ -712,6 +712,12 @@ fn push_alphabetize_diagnostic(
 enum SelectionKind {
     Field,
     FragmentSpread,
+    /// Inline fragments have no name; they participate in ordering as a
+    /// sentinel using `lowerCase(node.kind)` = `"inline fragment"` for both
+    /// the sort key and the message. This mirrors upstream's `checkNodes`
+    /// path where `prevName` is empty and the message is formed with
+    /// `lowerCase(prevNode.kind)` instead of `displayNodeName`.
+    InlineFragment,
 }
 
 impl SelectionKind {
@@ -719,6 +725,7 @@ impl SelectionKind {
         match self {
             SelectionKind::Field => "field",
             SelectionKind::FragmentSpread => "fragment spread",
+            SelectionKind::InlineFragment => "inline fragment",
         }
     }
 }
@@ -726,6 +733,8 @@ impl SelectionKind {
 /// One selection's ordering metadata, tracking enough info for group-aware
 /// comparison.
 struct SelectionInfo {
+    /// Empty string for inline fragments — signals the "no name → always
+    /// report next named item" path from upstream's `checkNodes`.
     name: String,
     kind: SelectionKind,
     /// True when the selection is a `Field` that has a sub-selection set (`{`
@@ -733,6 +742,7 @@ struct SelectionInfo {
     has_selection_set: bool,
     full_range: (usize, usize),
     /// Byte range of the name/alias node itself (used as the diagnostic anchor).
+    /// For inline fragments this is the start of the `...` token.
     name_range: (usize, usize),
 }
 
@@ -781,87 +791,49 @@ fn check_selection_set_order(
     doc: &graphql_syntax::DocumentRef<'_>,
     diagnostics: &mut Vec<LintDiagnostic>,
 ) {
-    if scan_selections {
-        let mut last: Option<SelectionInfo> = None;
+    // Single-pass walk: check ordering inline, then descend immediately.
+    // This mirrors upstream's ESTree visitor where each SelectionSet node
+    // fires in document order (outer before inner), but within one SelectionSet
+    // the walk descends into a nested set before processing later siblings.
+    // The net effect is that errors inside an inline fragment appear before
+    // errors on fields that follow the inline fragment in the parent set.
+    let mut last: Option<SelectionInfo> = None;
 
-        for selection in selection_set.selections() {
-            let info: Option<SelectionInfo> = match &selection {
-                cst::Selection::Field(field) => {
-                    let name_node = field
-                        .alias()
-                        .and_then(|a| a.name())
-                        .or_else(|| field.name());
-                    name_node.map(|n| {
-                        let full_range = {
-                            let r = selection.syntax().text_range();
-                            (r.start().into(), r.end().into())
-                        };
-                        SelectionInfo {
-                            name: n.text().to_string(),
-                            kind: SelectionKind::Field,
-                            has_selection_set: field.selection_set().is_some(),
-                            full_range,
-                            name_range: (
-                                n.syntax().text_range().start().into(),
-                                n.syntax().text_range().end().into(),
-                            ),
-                        }
-                    })
-                }
-                cst::Selection::FragmentSpread(spread) => {
-                    let name_node = spread.fragment_name().and_then(|fn_| fn_.name());
-                    name_node.map(|n| {
-                        let full_range = {
-                            let r = selection.syntax().text_range();
-                            (r.start().into(), r.end().into())
-                        };
-                        SelectionInfo {
-                            name: n.text().to_string(),
-                            kind: SelectionKind::FragmentSpread,
-                            has_selection_set: false,
-                            full_range,
-                            name_range: (
-                                n.syntax().text_range().start().into(),
-                                n.syntax().text_range().end().into(),
-                            ),
-                        }
-                    })
-                }
-                cst::Selection::InlineFragment(_) => None,
-            };
+    for selection in selection_set.selections() {
+        match &selection {
+            cst::Selection::Field(field) => {
+                let name_node = field
+                    .alias()
+                    .and_then(|a| a.name())
+                    .or_else(|| field.name());
+                let Some(n) = name_node else {
+                    continue;
+                };
 
-            if let Some(curr_info) = info {
-                if let Some(ref prev_info) = last {
-                    if selection_is_misordered(&curr_info, prev_info, &opts.groups) {
-                        let fix = swap_fix(doc.source, prev_info.full_range, curr_info.full_range);
-                        diagnostics.push(
-                            LintDiagnostic::new(
-                                doc.span(curr_info.name_range.0, curr_info.name_range.1),
-                                LintSeverity::Warning,
-                                format!(
-                                    "{curr_label} \"{name}\" should be before {prev_label} \"{prev_name}\"",
-                                    curr_label = curr_info.kind.label(),
-                                    name = curr_info.name,
-                                    prev_label = prev_info.kind.label(),
-                                    prev_name = prev_info.name,
-                                ),
-                                "alphabetize",
-                            )
-                            .with_message_id("alphabetize")
-                            .with_fix(fix)
-                            .with_help("Reorder selections alphabetically by their response name"),
-                        );
+                let full_range = {
+                    let r = selection.syntax().text_range();
+                    (r.start().into(), r.end().into())
+                };
+                let curr_info = SelectionInfo {
+                    name: n.text().to_string(),
+                    kind: SelectionKind::Field,
+                    has_selection_set: field.selection_set().is_some(),
+                    full_range,
+                    name_range: (
+                        n.syntax().text_range().start().into(),
+                        n.syntax().text_range().end().into(),
+                    ),
+                };
+
+                if scan_selections {
+                    if let Some(ref prev_info) = last {
+                        report_if_misordered(&curr_info, prev_info, opts, doc, diagnostics);
                     }
                 }
                 last = Some(curr_info);
-            }
-        }
-    }
 
-    // Recurse into nested selection sets
-    for selection in selection_set.selections() {
-        match selection {
-            cst::Selection::Field(field) => {
+                // Descend into nested selection set before moving to the next
+                // sibling — matches upstream's depth-first ESTree walk order.
                 if opts.arguments.enabled() {
                     if let Some(arguments) = field.arguments() {
                         check_argument_order(&arguments, doc, diagnostics);
@@ -871,14 +843,112 @@ fn check_selection_set_order(
                     check_selection_set_order(&nested, opts, scan_selections, doc, diagnostics);
                 }
             }
+            cst::Selection::FragmentSpread(spread) => {
+                let name_node = spread.fragment_name().and_then(|fn_| fn_.name());
+                let Some(n) = name_node else {
+                    continue;
+                };
+
+                let full_range = {
+                    let r = selection.syntax().text_range();
+                    (r.start().into(), r.end().into())
+                };
+                let curr_info = SelectionInfo {
+                    name: n.text().to_string(),
+                    kind: SelectionKind::FragmentSpread,
+                    has_selection_set: false,
+                    full_range,
+                    name_range: (
+                        n.syntax().text_range().start().into(),
+                        n.syntax().text_range().end().into(),
+                    ),
+                };
+
+                if scan_selections {
+                    if let Some(ref prev_info) = last {
+                        report_if_misordered(&curr_info, prev_info, opts, doc, diagnostics);
+                    }
+                }
+                last = Some(curr_info);
+            }
             cst::Selection::InlineFragment(inline) => {
+                // Inline fragments are sentinels in the ordering sequence.
+                // Descend first so inner errors precede errors on fields that
+                // follow this fragment in the parent set. Then update `last`
+                // to the sentinel — any subsequent named field fires when it
+                // alphabetically precedes "inline fragment".
                 if let Some(nested) = inline.selection_set() {
                     check_selection_set_order(&nested, opts, scan_selections, doc, diagnostics);
                 }
+
+                if scan_selections {
+                    let full_range = {
+                        let r = selection.syntax().text_range();
+                        (r.start().into(), r.end().into())
+                    };
+                    // Empty name signals upstream's "no prevName → always
+                    // report next named curr" path in checkNodes.
+                    last = Some(SelectionInfo {
+                        name: String::new(),
+                        kind: SelectionKind::InlineFragment,
+                        has_selection_set: true,
+                        full_range,
+                        name_range: (full_range.0, full_range.0),
+                    });
+                }
             }
-            cst::Selection::FragmentSpread(_) => {}
         }
     }
+}
+
+fn report_if_misordered(
+    curr_info: &SelectionInfo,
+    prev_info: &SelectionInfo,
+    opts: &AlphabetizeOptions,
+    doc: &graphql_syntax::DocumentRef<'_>,
+    diagnostics: &mut Vec<LintDiagnostic>,
+) {
+    // When the previous selection is an inline fragment sentinel (empty name),
+    // always report — mirrors upstream's `if (!prevName) → always report` path
+    // in checkNodes, which skips the alphabetical comparison entirely.
+    let should_report = if prev_info.name.is_empty() {
+        true
+    } else {
+        selection_is_misordered(curr_info, prev_info, &opts.groups)
+    };
+
+    if !should_report {
+        return;
+    }
+
+    let fix = swap_fix(doc.source, prev_info.full_range, curr_info.full_range);
+    let message = if prev_info.name.is_empty() {
+        format!(
+            "{curr_label} \"{name}\" should be before {prev_label}",
+            curr_label = curr_info.kind.label(),
+            name = curr_info.name,
+            prev_label = prev_info.kind.label(),
+        )
+    } else {
+        format!(
+            "{curr_label} \"{name}\" should be before {prev_label} \"{prev_name}\"",
+            curr_label = curr_info.kind.label(),
+            name = curr_info.name,
+            prev_label = prev_info.kind.label(),
+            prev_name = prev_info.name,
+        )
+    };
+    diagnostics.push(
+        LintDiagnostic::new(
+            doc.span(curr_info.name_range.0, curr_info.name_range.1),
+            LintSeverity::Warning,
+            message,
+            "alphabetize",
+        )
+        .with_message_id("alphabetize")
+        .with_fix(fix)
+        .with_help("Reorder selections alphabetically by their response name"),
+    );
 }
 
 /// Locale-aware case-insensitive compare matching JS `String.prototype.localeCompare`.

@@ -249,18 +249,6 @@ fn invalid_l188_selections_fragment_definition() {
 }
 
 /// <https://github.com/dimaMachina/graphql-eslint/blob/f0f200ef0b030cb8a905bbcb32fe346b87cc2e24/packages/plugin/src/rules/alphabetize/index.test.ts#L202>
-// DIVERGENCE (two differences from upstream):
-//
-// 1. Diagnostic order: our rule uses two passes over each selection set (first
-//    the ordering scan, then recursion into nested sets). So the outer-level
-//    `bb/aa` errors fire BEFORE the inner inline-fragment `bbb/aaa` errors,
-//    while upstream processes the inner set first because it walks the ESTree
-//    recursively in a single pass.
-//
-// 2. Message for `bb`: upstream tracks inline fragments as sentinels in the
-//    ordering sequence and emits `field "bb" should be before inline fragment`.
-//    Our rule skips inline fragments, so `last` remains `cc` and the message
-//    reads `field "bb" should be before field "cc"`.
 #[test]
 fn invalid_l202_selections_operation_definition_with_inline_fragment() {
     Case::invalid(format!(
@@ -271,13 +259,11 @@ fn invalid_l202_selections_operation_definition_with_inline_fragment() {
     .code(
         "        query {\n          test {\n            cc\n            ... on Test {\n              ccc\n              bbb\n              aaa\n            }\n            bb\n            aa\n          }\n        }\n",
     )
-    // DIVERGENCE: outer errors fire before inner errors (two-pass iteration), and
-    // `bb` compares against `cc` (not `inline fragment`).
     .errors(vec![
-        ExpectedError::new().message(r#"field "bb" should be before field "cc""#),
-        ExpectedError::new().message(r#"field "aa" should be before field "bb""#),
         ExpectedError::new().message(r#"field "bbb" should be before field "ccc""#),
         ExpectedError::new().message(r#"field "aaa" should be before field "bbb""#),
+        ExpectedError::new().message(r#"field "bb" should be before inline fragment"#),
+        ExpectedError::new().message(r#"field "aa" should be before field "bb""#),
     ])
     .run_against_standalone_document(AlphabetizeRuleImpl);
 }
