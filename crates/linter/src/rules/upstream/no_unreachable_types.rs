@@ -143,13 +143,34 @@ fn valid_l81_input_type_in_argument() {
     .run_against_standalone_schema(NoUnreachableTypesRuleImpl);
 }
 
-// DIVERGENCE: upstream valid L93 (`DirectiveDefinition` with `Role` enum via
-// `@auth` directive used on a field) expects no errors. Our rule does not
-// traverse directive argument types for reachability — `Role` would be
-// reported as unreachable. Upstream's rule treats types referenced in
-// directive arguments as reachable; ours only walks field arguments and
-// union/interface/implement relationships. Skipping this case rather than
-// asserting a false divergence.
+/// <https://github.com/dimaMachina/graphql-eslint/blob/f0f200ef0b030cb8a905bbcb32fe346b87cc2e24/packages/plugin/src/rules/no-unreachable-types/index.test.ts#L83>
+#[test]
+fn valid_l83_directive_arg_type_reachable_via_field_usage() {
+    // `Role` is only referenced as an argument type of `@auth`, which is applied
+    // to a reachable field. Upstream marks arg types of applied directives
+    // reachable when it visits `Directive` nodes during the AST walk.
+    Case::valid(format!(
+        "https://github.com/dimaMachina/graphql-eslint/blob/{}/packages/plugin/src/rules/no-unreachable-types/index.test.ts#L83",
+        super::UPSTREAM_SHA,
+    ))
+    .code(
+        r"
+        # DirectiveDefinition
+        directive @auth(role: [Role!]!) on FIELD_DEFINITION
+
+        enum Role {
+          ADMIN
+          USER
+        }
+
+        type Query {
+          # Directive
+          user: ID @auth(role: [ADMIN])
+        }
+      ",
+    )
+    .run_against_standalone_schema(NoUnreachableTypesRuleImpl);
+}
 
 /// <https://github.com/dimaMachina/graphql-eslint/blob/f0f200ef0b030cb8a905bbcb32fe346b87cc2e24/packages/plugin/src/rules/no-unreachable-types/index.test.ts#L112>
 #[test]
@@ -204,26 +225,107 @@ fn valid_l124_interface_implementing_interface() {
     .run_against_standalone_schema(NoUnreachableTypesRuleImpl);
 }
 
-// DIVERGENCE: upstream valid L145 (`directive @good on SCHEMA`) expects
-// `directive @good` to be considered reachable because it appears on the
-// `schema` definition. Our rule does not index directives (it handles types,
-// not directive definitions) and would report nothing for directives anyway —
-// they're already excluded. This case would pass vacuously, but the schema
-// text `type Query` (empty object type) causes a parse error in our HIR.
-// Skipping.
+/// <https://github.com/dimaMachina/graphql-eslint/blob/f0f200ef0b030cb8a905bbcb32fe346b87cc2e24/packages/plugin/src/rules/no-unreachable-types/index.test.ts#L132>
+#[test]
+fn valid_l132_directive_on_schema_reachable() {
+    // `@good` is applied on the schema definition. Upstream marks it reachable
+    // via the `Directive` visitor when walking the schema AST node. We don't
+    // report directives (only named types), so this passes vacuously: `Query`
+    // is the only named type and it is the root, so no errors.
+    Case::valid(format!(
+        "https://github.com/dimaMachina/graphql-eslint/blob/{}/packages/plugin/src/rules/no-unreachable-types/index.test.ts#L132",
+        super::UPSTREAM_SHA,
+    ))
+    .code(
+        r"
+        type Query
 
-// DIVERGENCE: upstream valid L157 (`directive @q on QUERY`, etc.) expects
-// directives with request locations to be ignored. Our rule already ignores
-// directives (doesn't report them), but the schema `type Query` with no
-// braces causes a parse issue. Skipping.
+        schema @good {
+          query: Query
+        }
 
-// DIVERGENCE: upstream valid L172 (enum used in directive argument with
-// request location) — same directive-argument reachability gap as L93.
-// Skipping.
+        directive @good on SCHEMA
+      ",
+    )
+    .run_against_standalone_schema(NoUnreachableTypesRuleImpl);
+}
 
-// DIVERGENCE: upstream valid L180 (scalars used in directive arguments
-// with request locations). Same issue: our rule doesn't walk directive
-// argument types. Skipping.
+/// <https://github.com/dimaMachina/graphql-eslint/blob/f0f200ef0b030cb8a905bbcb32fe346b87cc2e24/packages/plugin/src/rules/no-unreachable-types/index.test.ts#L144>
+#[test]
+fn valid_l144_directives_with_request_locations_ignored() {
+    // Directives with request-side locations are not named types, so our rule
+    // never reports them. The only named type here is `Query` (root). No errors.
+    Case::valid(format!(
+        "https://github.com/dimaMachina/graphql-eslint/blob/{}/packages/plugin/src/rules/no-unreachable-types/index.test.ts#L144",
+        super::UPSTREAM_SHA,
+    ))
+    .code(
+        r"
+        directive @q on QUERY
+        directive @w on MUTATION
+        directive @e on SUBSCRIPTION
+        directive @r on FIELD
+        directive @t on FRAGMENT_DEFINITION
+        directive @y on FRAGMENT_SPREAD
+        directive @u on INLINE_FRAGMENT
+        directive @i on VARIABLE_DEFINITION
+        type Query
+      ",
+    )
+    .run_against_standalone_schema(NoUnreachableTypesRuleImpl);
+}
+
+/// <https://github.com/dimaMachina/graphql-eslint/blob/f0f200ef0b030cb8a905bbcb32fe346b87cc2e24/packages/plugin/src/rules/no-unreachable-types/index.test.ts#L158>
+#[test]
+fn valid_l158_enum_in_directive_arg_with_request_location() {
+    // `Enum` is only used as an argument type of `@q`, which has location QUERY
+    // (executable). Upstream's request-location pass marks arg types of such
+    // directives reachable. `type Query` (no fields) is valid SDL.
+    Case::valid(format!(
+        "https://github.com/dimaMachina/graphql-eslint/blob/{}/packages/plugin/src/rules/no-unreachable-types/index.test.ts#L158",
+        super::UPSTREAM_SHA,
+    ))
+    .code(
+        r"
+        enum Enum {
+          A
+          B
+        }
+        directive @q(arg: Enum = A) on QUERY
+        type Query
+      ",
+    )
+    .run_against_standalone_schema(NoUnreachableTypesRuleImpl);
+}
+
+/// <https://github.com/dimaMachina/graphql-eslint/blob/f0f200ef0b030cb8a905bbcb32fe346b87cc2e24/packages/plugin/src/rules/no-unreachable-types/index.test.ts#L169>
+#[test]
+fn valid_l169_scalars_in_directive_args_with_request_locations() {
+    // Scalars used only as directive argument types are reachable when the
+    // directive has an executable location. Upstream's request-location pass
+    // marks them reachable without needing a path from the root.
+    Case::valid(format!(
+        "https://github.com/dimaMachina/graphql-eslint/blob/{}/packages/plugin/src/rules/no-unreachable-types/index.test.ts#L169",
+        super::UPSTREAM_SHA,
+    ))
+    .code(
+        r"
+        scalar Scalar1
+        scalar Scalar2
+        scalar Scalar3
+        scalar Scalar4
+        scalar Scalar5
+        scalar Scalar6
+        directive @q(arg: Scalar1) on QUERY
+        directive @w(arg: Scalar2!) on QUERY
+        directive @e(arg: [Scalar3]) on QUERY
+        directive @r(arg: [Scalar4!]) on QUERY
+        directive @t(arg: [Scalar5]!) on QUERY
+        directive @y(arg: [Scalar6!]!) on QUERY
+      ",
+    )
+    .run_against_standalone_schema(NoUnreachableTypesRuleImpl);
+}
 
 /// <https://github.com/dimaMachina/graphql-eslint/blob/f0f200ef0b030cb8a905bbcb32fe346b87cc2e24/packages/plugin/src/rules/no-unreachable-types/index.test.ts#L188>
 #[test]
