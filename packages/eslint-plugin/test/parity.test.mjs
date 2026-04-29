@@ -51,6 +51,7 @@ const KNOWN_EXTRA = new Set([
   "operation-name-suffix",
   "redundant-fields",
   "require-id-field",
+  "resty-field-names",
   "unique-names",
 ]);
 
