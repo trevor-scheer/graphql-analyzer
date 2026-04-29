@@ -2,6 +2,8 @@ mod config;
 
 // New Salsa-based architecture
 mod diagnostics;
+#[cfg(test)]
+mod eslint_disable;
 pub mod ignore;
 mod registry;
 mod rules;

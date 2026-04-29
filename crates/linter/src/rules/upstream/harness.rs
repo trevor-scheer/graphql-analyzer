@@ -7,6 +7,7 @@ use graphql_test_utils::{TestProject, TestProjectBuilder};
 use serde_json::Value;
 
 use crate::diagnostics::LintDiagnostic;
+use crate::eslint_disable::Suppressions;
 use crate::traits::{
     DocumentSchemaLintRule, ProjectLintRule, StandaloneDocumentLintRule, StandaloneSchemaLintRule,
 };
@@ -355,6 +356,18 @@ fn apply_fix(source: &str, fix: &crate::diagnostics::CodeFix) -> String {
 #[allow(dead_code)]
 impl Case {
     fn assert_outcome(&self, diagnostics: &[LintDiagnostic], source: &str) {
+        // Filter out diagnostics that are covered by eslint-disable directives
+        // in the source, matching upstream's framework-level suppression.
+        let suppressions = Suppressions::from_source(source);
+        let diagnostics: Vec<&LintDiagnostic> = diagnostics
+            .iter()
+            .filter(|d| {
+                let (line, _) = byte_to_line_col(source, d.span.start);
+                !suppressions.is_suppressed(&d.rule, line)
+            })
+            .collect();
+        let diagnostics: &[&LintDiagnostic] = &diagnostics;
+
         if self.is_valid {
             assert!(
                 diagnostics.is_empty(),
