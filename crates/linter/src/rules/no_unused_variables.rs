@@ -1,7 +1,9 @@
 use crate::diagnostics::{CodeFix, LintDiagnostic, LintSeverity, TextEdit};
 use crate::traits::{LintRule, StandaloneDocumentLintRule};
 use apollo_parser::cst;
-use graphql_apollo_ext::{walk_operation, CstVisitor, DocumentExt, NameExt, RangeExt};
+use graphql_apollo_ext::{
+    walk_fragment_definition, walk_operation, CstVisitor, DocumentExt, NameExt, RangeExt,
+};
 use graphql_base_db::{FileContent, FileId, FileMetadata, ProjectFiles};
 use std::collections::HashSet;
 
@@ -42,7 +44,7 @@ impl StandaloneDocumentLintRule for NoUnusedVariablesRuleImpl {
         _file_id: FileId,
         content: FileContent,
         metadata: FileMetadata,
-        _project_files: ProjectFiles,
+        project_files: ProjectFiles,
         _options: Option<&serde_json::Value>,
     ) -> Vec<LintDiagnostic> {
         let mut diagnostics = Vec::new();
@@ -52,15 +54,49 @@ impl StandaloneDocumentLintRule for NoUnusedVariablesRuleImpl {
             return diagnostics;
         }
 
+        // Build the project-wide fragment source index once. This lets us
+        // resolve fragment spreads across files, mirroring how graphql-js
+        // validates the merged document (all sibling operations and fragments).
+        let fragment_sources = build_fragment_source_map(db, project_files);
+
         // Unified: check all documents (works for both pure GraphQL and TS/JS)
         for doc in parse.documents() {
             for operation in doc.tree.operations() {
-                check_operation_for_unused_variables(&operation, &doc, &mut diagnostics);
+                check_operation_for_unused_variables(
+                    &operation,
+                    &doc,
+                    &fragment_sources,
+                    &mut diagnostics,
+                );
             }
         }
 
         diagnostics
     }
+}
+
+/// Maps fragment name → source text for all fragments in the project.
+///
+/// This enables cross-file variable usage tracking: when an operation spreads
+/// a fragment defined in another file, we can walk that fragment's body to
+/// find variable references it contains.
+fn build_fragment_source_map(
+    db: &dyn graphql_hir::GraphQLHirDatabase,
+    project_files: ProjectFiles,
+) -> std::collections::HashMap<String, std::sync::Arc<str>> {
+    let all = graphql_hir::all_fragments(db, project_files);
+    let mut map = std::collections::HashMap::new();
+
+    for (name, frag_struct) in all {
+        let Some((content, _metadata)) =
+            graphql_base_db::file_lookup(db, project_files, frag_struct.file_id)
+        else {
+            continue;
+        };
+        map.insert(name.to_string(), content.text(db));
+    }
+
+    map
 }
 
 /// Information about a declared variable for fix computation
@@ -73,11 +109,15 @@ struct DeclaredVariable {
     def_end: usize,
 }
 
-/// Visitor that collects all variable references (excluding definitions)
+/// Visitor that collects all variable references (excluding definitions) and
+/// all fragment spread names encountered during traversal.
 struct VariableCollector {
     /// Track when we're inside a variable definition (to skip those)
     in_variable_definition: bool,
     variables: HashSet<String>,
+    /// Fragment spread names encountered — caller uses these to recursively
+    /// walk cross-file fragment bodies for more variable references.
+    spread_names: Vec<String>,
 }
 
 impl VariableCollector {
@@ -85,6 +125,7 @@ impl VariableCollector {
         Self {
             in_variable_definition: false,
             variables: HashSet::new(),
+            spread_names: Vec::new(),
         }
     }
 }
@@ -107,12 +148,71 @@ impl CstVisitor for VariableCollector {
             self.variables.insert(name);
         }
     }
+
+    fn visit_fragment_spread(&mut self, spread: &cst::FragmentSpread) {
+        if let Some(name) = spread.fragment_name().and_then(|fn_| fn_.name()) {
+            self.spread_names.push(name.text().to_string());
+        }
+    }
+}
+
+/// Collect all variable names referenced inside a fragment and any fragments
+/// it transitively spreads, looking up bodies from `fragment_sources`.
+///
+/// `visited` prevents infinite recursion through cyclic fragment references.
+fn collect_variables_from_fragment(
+    fragment_name: &str,
+    fragment_sources: &std::collections::HashMap<String, std::sync::Arc<str>>,
+    used_variables: &mut HashSet<String>,
+    visited: &mut HashSet<String>,
+) {
+    if visited.contains(fragment_name) {
+        return;
+    }
+    visited.insert(fragment_name.to_string());
+
+    let Some(source) = fragment_sources.get(fragment_name) else {
+        return;
+    };
+
+    let parse_result = apollo_parser::Parser::new(source).parse();
+    let cst = parse_result.document();
+
+    for definition in cst.definitions() {
+        if let cst::Definition::FragmentDefinition(frag) = definition {
+            let is_target = frag
+                .fragment_name()
+                .and_then(|fn_| fn_.name())
+                .is_some_and(|n| n.text() == fragment_name);
+            if !is_target {
+                continue;
+            }
+
+            let mut collector = VariableCollector::new();
+            walk_fragment_definition(&mut collector, &frag);
+
+            used_variables.extend(collector.variables);
+
+            // Recurse into any spreads this fragment uses.
+            for nested_name in collector.spread_names {
+                collect_variables_from_fragment(
+                    &nested_name,
+                    fragment_sources,
+                    used_variables,
+                    visited,
+                );
+            }
+
+            return;
+        }
+    }
 }
 
 /// Check a single operation for unused variables
 fn check_operation_for_unused_variables(
     operation: &cst::OperationDefinition,
     doc: &graphql_syntax::DocumentRef<'_>,
+    fragment_sources: &std::collections::HashMap<String, std::sync::Arc<str>>,
     diagnostics: &mut Vec<LintDiagnostic>,
 ) {
     // Step 1: Collect all declared variables with their ranges
@@ -139,22 +239,38 @@ fn check_operation_for_unused_variables(
         return;
     }
 
-    // Step 2: Collect all used variables using the visitor
+    // Step 2: Collect all used variables from the operation body.
     let mut collector = VariableCollector::new();
     walk_operation(&mut collector, operation);
+
+    let mut used_variables = collector.variables;
+    let direct_spreads = collector.spread_names;
+
+    // Step 3: Transitively walk all fragment spreads from the operation,
+    // including those in fragments that live in other files. This matches
+    // graphql-js's behaviour of validating the merged document.
+    let mut visited_fragments = HashSet::new();
+    for spread_name in direct_spreads {
+        collect_variables_from_fragment(
+            &spread_name,
+            fragment_sources,
+            &mut used_variables,
+            &mut visited_fragments,
+        );
+    }
 
     // Pull the operation name once for graphql-eslint message parity. When
     // the operation is anonymous, the message drops the `in operation "X"`
     // suffix verbatim like graphql-js's `NoUnusedVariablesRule`.
     let operation_name = operation.name().and_then(|n| n.text().to_string().into());
 
-    // Step 3: Report unused variables with fixes. Mirror graphql-eslint's
+    // Step 4: Report unused variables with fixes. Mirror graphql-eslint's
     // location and message exactly: graphql-eslint's `validationToRule`
     // re-anchors the diagnostic to the first token of the variable
     // definition (the `$` sigil), and the text comes from graphql-js's
     // `NoUnusedVariablesRule` verbatim.
     for var in declared_variables {
-        if !collector.variables.contains(&var.name) {
+        if !used_variables.contains(&var.name) {
             let message = match &operation_name {
                 Some(name) => format!(
                     "Variable \"${}\" is never used in operation \"{name}\".",

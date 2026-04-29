@@ -64,6 +64,9 @@ mod strict_id_in_types;
 mod unique_enum_value_names;
 mod unique_names;
 
+#[cfg(test)]
+mod upstream;
+
 pub use alphabetize::AlphabetizeRuleImpl;
 pub use description_style::DescriptionStyleRuleImpl;
 pub use input_name::InputNameRuleImpl;

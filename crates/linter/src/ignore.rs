@@ -55,6 +55,9 @@ const IGNORE_PREFIX: &str = "graphql-analyzer-ignore";
 /// Scans each line for comments matching `# graphql-analyzer-ignore`
 /// or `# graphql-analyzer-ignore: rule1, rule2`.
 #[must_use]
+// The expect calls below are all provably safe: each is guarded by a prior
+// parse step (strip_prefix) that guarantees the substring exists.
+#[allow(clippy::expect_used)]
 pub fn parse_ignore_directives(source: &str) -> Vec<IgnoreDirective> {
     let mut directives = Vec::new();
     let mut byte_pos = 0;
@@ -92,10 +95,17 @@ pub fn parse_ignore_directives(source: &str) -> Vec<IgnoreDirective> {
             // colon after the ignore prefix — rule_list starts immediately
             // after it. We search from the ignore prefix onward to avoid
             // matching an unrelated colon earlier in the line.
-            let prefix_pos = line.find(IGNORE_PREFIX).unwrap();
+            // Both finds are infallible: we already parsed `rest` out of `line`
+            // (so IGNORE_PREFIX is present), and we're in the strip_prefix(':') branch
+            // (so the colon after the prefix is present).
+            let prefix_pos = line
+                .find(IGNORE_PREFIX)
+                .expect("IGNORE_PREFIX was found when parsing rest");
             let colon_pos = prefix_pos
                 + IGNORE_PREFIX.len()
-                + line[prefix_pos + IGNORE_PREFIX.len()..].find(':').unwrap()
+                + line[prefix_pos + IGNORE_PREFIX.len()..]
+                    .find(':')
+                    .expect("colon exists: guarded by strip_prefix(':') branch")
                 + 1;
             let rule_list_file_offset = line_start + colon_pos;
 
@@ -104,7 +114,10 @@ pub fn parse_ignore_directives(source: &str) -> Vec<IgnoreDirective> {
             for segment in rule_list.split(',') {
                 let trimmed = segment.trim();
                 if !trimmed.is_empty() {
-                    let trim_start = segment.find(trimmed).unwrap();
+                    // `trimmed` is `segment.trim()`, so it's always a substring of `segment`.
+                    let trim_start = segment
+                        .find(trimmed)
+                        .expect("trimmed is a substring of segment");
                     let name_start = rule_list_file_offset + pos + trim_start;
                     let name_end = name_start + trimmed.len();
                     rules.push(RuleSpan {

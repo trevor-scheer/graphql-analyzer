@@ -39,6 +39,45 @@ impl StandaloneSchemaLintRule for RelayConnectionTypesRuleImpl {
         let mut diagnostics_by_file: HashMap<FileId, Vec<LintDiagnostic>> = HashMap::new();
         let schema_types = graphql_hir::schema_types(db, project_files);
 
+        // Non-Object Connection types: iterate raw declarations so that each
+        // `extend union/enum/interface/input/scalar Foo` produces its own diagnostic,
+        // matching upstream's per-AST-node behavior.  Object Connection types use the
+        // merged schema_types view so that fields contributed by extensions are visible
+        // during the edges/pageInfo completeness checks (see second loop below).
+        let raw_defs = crate::schema_utils::raw_schema_type_defs(db, project_files);
+        for (_, type_def) in &raw_defs {
+            if type_def.kind == TypeDefKind::Object {
+                continue;
+            }
+            if !type_def.name.ends_with("Connection") {
+                continue;
+            }
+            let start: usize = type_def.name_range.start().into();
+            let end: usize = type_def.name_range.end().into();
+            let type_span = graphql_syntax::SourceSpan {
+                start,
+                end,
+                line_offset: 0,
+                byte_offset: 0,
+                source: None,
+            };
+            diagnostics_by_file
+                .entry(type_def.file_id)
+                .or_default()
+                .push(
+                    LintDiagnostic::new(
+                        type_span,
+                        LintSeverity::Warning,
+                        "Connection type must be an Object type.".to_string(),
+                        RULE_NAME,
+                    )
+                    .with_message_id("MUST_BE_OBJECT_TYPE")
+                    .with_help(
+                        "Relay connection types must be object types with `edges` and `pageInfo` fields",
+                    ),
+                );
+        }
+
         for type_def in schema_types.values() {
             let type_span = || {
                 let start: usize = type_def.name_range.start().into();
@@ -83,23 +122,8 @@ impl StandaloneSchemaLintRule for RelayConnectionTypesRuleImpl {
                 continue;
             }
 
-            // Connection types must be object types
+            // Non-Object types already reported by the raw_defs loop above.
             if type_def.kind != TypeDefKind::Object {
-                diagnostics_by_file
-                    .entry(type_def.file_id)
-                    .or_default()
-                    .push(
-                        LintDiagnostic::new(
-                            type_span(),
-                            LintSeverity::Warning,
-                            "Connection type must be an Object type.".to_string(),
-                            RULE_NAME,
-                        )
-                        .with_message_id("MUST_BE_OBJECT_TYPE")
-                        .with_help(
-                            "Relay connection types must be object types with `edges` and `pageInfo` fields",
-                        ),
-                    );
                 continue;
             }
 
@@ -176,7 +200,9 @@ impl StandaloneSchemaLintRule for RelayConnectionTypesRuleImpl {
                 }
                 Some(field) => {
                     let is_wrong_type = field.type_ref.name.as_ref() != "PageInfo";
-                    let is_nullable = !field.type_ref.is_non_null;
+                    // `pageInfo` must be non-null and a named (non-list) type:
+                    // `PageInfo!` is valid, `[PageInfo]!` is not.
+                    let is_nullable = !field.type_ref.is_non_null || field.type_ref.is_list;
                     if is_wrong_type || is_nullable {
                         let field_start: usize = field.type_ref.name_range.start().into();
                         let field_end: usize = field.type_ref.name_range.end().into();

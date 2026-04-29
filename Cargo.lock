@@ -1377,6 +1377,7 @@ dependencies = [
  "graphql-hir",
  "graphql-ide-db",
  "graphql-syntax",
+ "graphql-test-utils",
  "insta",
  "regex",
  "serde",

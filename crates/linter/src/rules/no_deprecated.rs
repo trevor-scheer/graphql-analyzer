@@ -144,7 +144,11 @@ fn check_selection_set(
                         .iter()
                         .find(|f| f.name.as_ref() == field_name.as_ref())
                     {
-                        if let Some(reason) = field_def.deprecation_reason.as_ref() {
+                        if field_def.is_deprecated {
+                            let reason = field_def
+                                .deprecation_reason
+                                .as_deref()
+                                .unwrap_or("No longer supported");
                             let syntax_node = field_name_node.syntax();
                             let offset: usize = syntax_node.text_range().start().into();
 
@@ -198,7 +202,11 @@ fn check_selection_set(
                                         .iter()
                                         .find(|a| a.name.as_ref() == arg_name.as_ref())
                                     {
-                                        if let Some(reason) = arg_def.deprecation_reason.as_ref() {
+                                        if arg_def.is_deprecated {
+                                            let reason = arg_def
+                                                .deprecation_reason
+                                                .as_deref()
+                                                .unwrap_or("No longer supported");
                                             let syntax_node = arg_name_node.syntax();
                                             let offset: usize =
                                                 syntax_node.text_range().start().into();
@@ -238,16 +246,29 @@ fn check_selection_set(
                                                 .with_tag(crate::diagnostics::DiagnosticTag::Deprecated),
                                             );
                                         }
-                                    }
 
-                                    // Check if argument value is a deprecated enum value
-                                    if let Some(value) = arg.value() {
-                                        check_value_for_deprecated_enum(
-                                            &value,
-                                            schema_types,
-                                            diagnostics,
-                                            doc,
-                                        );
+                                        // Check value: enum values (best-effort) and
+                                        // input object fields (type-aware via arg type).
+                                        if let Some(value) = arg.value() {
+                                            check_value_for_deprecated(
+                                                &value,
+                                                Some(arg_def.type_ref.name.as_ref()),
+                                                schema_types,
+                                                diagnostics,
+                                                doc,
+                                            );
+                                        }
+                                    } else {
+                                        // Arg not in schema — still check enum/input values
+                                        if let Some(value) = arg.value() {
+                                            check_value_for_deprecated(
+                                                &value,
+                                                None,
+                                                schema_types,
+                                                diagnostics,
+                                                doc,
+                                            );
+                                        }
                                     }
                                 }
                             }
@@ -296,9 +317,15 @@ fn check_selection_set(
     }
 }
 
-/// Check a value for deprecated enum values
-fn check_value_for_deprecated_enum(
+/// Check a value for deprecated enum values and deprecated input object fields.
+///
+/// `expected_type_name` is the named type of this value position (e.g. the
+/// input type for an object literal). When present and the type is an input
+/// object, we use it for precise field-level deprecation checks rather than
+/// falling back to schema-wide enum scanning.
+fn check_value_for_deprecated(
     value: &cst::Value,
+    expected_type_name: Option<&str>,
     schema_types: &HashMap<Arc<str>, graphql_hir::TypeDef>,
     diagnostics: &mut Vec<LintDiagnostic>,
     doc: &graphql_syntax::DocumentRef<'_>,
@@ -308,8 +335,9 @@ fn check_value_for_deprecated_enum(
             if let Some(enum_name_node) = enum_value.name() {
                 let enum_name = enum_name_node.text();
 
-                // Try to find which enum type this value belongs to
-                // This is a best-effort check since we don't have full type information
+                // Try to find which enum type this value belongs to.
+                // Best-effort across all enum types since we may not have
+                // full type context at this call site.
                 for type_def in schema_types.values() {
                     if type_def.kind == graphql_hir::TypeDefKind::Enum {
                         if let Some(enum_val) = type_def
@@ -317,7 +345,11 @@ fn check_value_for_deprecated_enum(
                             .iter()
                             .find(|v| v.name.as_ref() == enum_name.as_ref())
                         {
-                            if let Some(reason) = enum_val.deprecation_reason.as_ref() {
+                            if enum_val.is_deprecated {
+                                let reason = enum_val
+                                    .deprecation_reason
+                                    .as_deref()
+                                    .unwrap_or("No longer supported");
                                 let syntax_node = enum_name_node.syntax();
                                 let offset: usize = syntax_node.text_range().start().into();
 
@@ -352,7 +384,7 @@ fn check_value_for_deprecated_enum(
                                     .with_suggestion(suggestion)
                                     .with_tag(crate::diagnostics::DiagnosticTag::Deprecated),
                                 );
-                                // Found the enum, no need to check other types
+                                // Found the enum; no need to scan remaining types.
                                 break;
                             }
                         }
@@ -361,21 +393,94 @@ fn check_value_for_deprecated_enum(
             }
         }
         cst::Value::ListValue(list) => {
-            // Recursively check list elements
             for item in list.values() {
-                check_value_for_deprecated_enum(&item, schema_types, diagnostics, doc);
+                check_value_for_deprecated(
+                    &item,
+                    expected_type_name,
+                    schema_types,
+                    diagnostics,
+                    doc,
+                );
             }
         }
         cst::Value::ObjectValue(obj) => {
-            // Recursively check object field values
-            for field in obj.object_fields() {
-                if let Some(field_value) = field.value() {
-                    check_value_for_deprecated_enum(&field_value, schema_types, diagnostics, doc);
+            // When we know the input type, check each field for deprecation and
+            // recurse with its nested type. Without a type, recurse with None.
+            let input_type_def = expected_type_name.and_then(|name| schema_types.get(name));
+
+            for obj_field in obj.object_fields() {
+                let Some(field_name_node) = obj_field.name() else {
+                    continue;
+                };
+                let field_name = field_name_node.text();
+
+                // If we have the input type, check this field for deprecation.
+                let nested_type_name: Option<&str> = if let Some(type_def) = input_type_def {
+                    if let Some(field_sig) = type_def
+                        .fields
+                        .iter()
+                        .find(|f| f.name.as_ref() == field_name.as_ref())
+                    {
+                        if field_sig.is_deprecated {
+                            let reason = field_sig
+                                .deprecation_reason
+                                .as_deref()
+                                .unwrap_or("No longer supported");
+                            let syntax_node = field_name_node.syntax();
+                            let offset: usize = syntax_node.text_range().start().into();
+
+                            let message = format!(
+                                "Object field \"{}\" is marked as deprecated in your GraphQL schema (reason: {})",
+                                field_name.as_ref(),
+                                reason
+                            );
+
+                            let field_range = obj_field.syntax().text_range();
+                            let field_start: usize = field_range.start().into();
+                            let field_end: usize = field_range.end().into();
+                            let suggestion = CodeSuggestion::delete(
+                                format!("Remove field \"{}\"", field_name.as_ref()),
+                                field_start,
+                                field_end,
+                            );
+
+                            diagnostics.push(
+                                LintDiagnostic::new(
+                                    doc.span(offset, offset + field_name.as_ref().len()),
+                                    LintSeverity::Warning,
+                                    message,
+                                    "noDeprecated",
+                                )
+                                .with_message_id("no-deprecated")
+                                .with_help(
+                                    "Use the replacement field if one is specified in the deprecation reason",
+                                )
+                                .with_suggestion(suggestion)
+                                .with_tag(crate::diagnostics::DiagnosticTag::Deprecated),
+                            );
+                        }
+                        // Pass the nested field's type down for further recursion.
+                        Some(field_sig.type_ref.name.as_ref())
+                    } else {
+                        None
+                    }
+                } else {
+                    None
+                };
+
+                if let Some(field_value) = obj_field.value() {
+                    check_value_for_deprecated(
+                        &field_value,
+                        nested_type_name,
+                        schema_types,
+                        diagnostics,
+                        doc,
+                    );
                 }
             }
         }
         _ => {
-            // Other value types (String, Int, Float, BooleanValue, Variable, NullValue) don't use enums
+            // String, Int, Float, BooleanValue, Variable, NullValue — no deprecation to check.
         }
     }
 }
@@ -658,8 +763,7 @@ query GetUser {
         let db = RootDatabase::default();
         let rule = NoDeprecatedRuleImpl;
 
-        // graphql-eslint only fires when @deprecated has an explicit reason; a
-        // bare @deprecated must not produce a diagnostic.
+        // A field with an explicit deprecation reason should produce a diagnostic.
         let schema = r#"
 type Query {
     user: User
@@ -779,8 +883,8 @@ query GetNode {
         let db = RootDatabase::default();
         let rule = NoDeprecatedRuleImpl;
 
-        // Match graphql-eslint: @deprecated without an explicit `reason` argument
-        // does not trigger the rule.
+        // Bare @deprecated (no explicit reason) uses the GraphQL spec default
+        // reason "No longer supported", matching graphql-eslint upstream behavior.
         let schema = r"
 type Query {
     user: User
@@ -804,6 +908,10 @@ query GetUser {
 
         let diagnostics = rule.check(&db, file_id, content, metadata, project_files, None);
 
-        assert_eq!(diagnostics.len(), 0);
+        assert_eq!(diagnostics.len(), 1);
+        assert_eq!(
+            diagnostics[0].message,
+            "Field \"legacyField\" is marked as deprecated in your GraphQL schema (reason: No longer supported)"
+        );
     }
 }

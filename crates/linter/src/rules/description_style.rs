@@ -275,6 +275,7 @@ impl DescriptionVisitor<'_> {
                 format!("Unexpected {unexpected} description for {parent_label}"),
                 "descriptionStyle",
             )
+            .with_message_id("description-style")
             .with_help(format!("Change to {suggested} style description"))
             .with_suggestion(suggestion),
         );

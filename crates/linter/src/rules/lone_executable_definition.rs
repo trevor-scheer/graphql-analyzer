@@ -1,3 +1,5 @@
+use std::collections::HashSet;
+
 use crate::diagnostics::{LintDiagnostic, LintSeverity};
 use crate::traits::{LintRule, StandaloneDocumentLintRule};
 use apollo_parser::cst::{self, CstNode};
@@ -10,6 +12,20 @@ use super::{get_operation_kind, OperationKind};
 /// Having one operation or fragment per file improves code organization and
 /// makes it easier to find and maintain GraphQL operations.
 pub struct LoneExecutableDefinitionRuleImpl;
+
+/// Parse the `ignore` array from options. Accepts the same values as upstream:
+/// `"fragment"`, `"query"`, `"mutation"`, `"subscription"`.
+fn parse_ignore(options: Option<&serde_json::Value>) -> HashSet<String> {
+    options
+        .and_then(|v| v.get("ignore"))
+        .and_then(|v| v.as_array())
+        .map(|arr| {
+            arr.iter()
+                .filter_map(|s| s.as_str().map(str::to_owned))
+                .collect()
+        })
+        .unwrap_or_default()
+}
 
 impl LintRule for LoneExecutableDefinitionRuleImpl {
     fn name(&self) -> &'static str {
@@ -33,9 +49,10 @@ impl StandaloneDocumentLintRule for LoneExecutableDefinitionRuleImpl {
         content: FileContent,
         metadata: FileMetadata,
         _project_files: ProjectFiles,
-        _options: Option<&serde_json::Value>,
+        options: Option<&serde_json::Value>,
     ) -> Vec<LintDiagnostic> {
         let mut diagnostics = Vec::new();
+        let ignore = parse_ignore(options);
 
         let parse = graphql_syntax::parse(db, content, metadata);
         if parse.has_errors() {
@@ -59,7 +76,27 @@ impl StandaloneDocumentLintRule for LoneExecutableDefinitionRuleImpl {
                 }
             }
 
-            let total_defs = operations.len() + fragments.len();
+            // Definitions that are in the ignore set don't participate in the
+            // "lone definition" count or reporting — they're invisible to the rule.
+            let counted_ops: Vec<_> = operations
+                .iter()
+                .filter(|op| {
+                    let kind_key = op.operation_type().map_or("query", |op_type| {
+                        match get_operation_kind(&op_type) {
+                            OperationKind::Query => "query",
+                            OperationKind::Mutation => "mutation",
+                            OperationKind::Subscription => "subscription",
+                        }
+                    });
+                    !ignore.contains(kind_key)
+                })
+                .collect();
+            let counted_frags: Vec<_> = fragments
+                .iter()
+                .filter(|_| !ignore.contains("fragment"))
+                .collect();
+
+            let total_defs = counted_ops.len() + counted_frags.len();
             if total_defs <= 1 {
                 continue;
             }
@@ -69,7 +106,7 @@ impl StandaloneDocumentLintRule for LoneExecutableDefinitionRuleImpl {
             // message wording.
             let mut all_defs: Vec<(&'static str, Option<String>, usize, usize)> = Vec::new();
 
-            for op in &operations {
+            for op in &counted_ops {
                 let kind = op
                     .operation_type()
                     .map_or("Query", |op_type| match get_operation_kind(&op_type) {
@@ -104,7 +141,7 @@ impl StandaloneDocumentLintRule for LoneExecutableDefinitionRuleImpl {
                 }
             }
 
-            for frag in &fragments {
+            for frag in &counted_frags {
                 let name = frag
                     .fragment_name()
                     .and_then(|fn_| fn_.name())

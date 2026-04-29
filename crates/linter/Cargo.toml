@@ -37,6 +37,7 @@ native = ["graphql-syntax/native", "graphql-hir/native"]
 serde-saphyr = { workspace = true }
 insta = { workspace = true }
 graphql-ide-db = { path = "../ide-db" }
+graphql-test-utils = { path = "../test-utils" }
 
 [lints]
 workspace = true

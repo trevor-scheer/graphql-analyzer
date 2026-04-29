@@ -128,7 +128,10 @@ impl ProjectLintRule for NoUnusedFragmentsRuleImpl {
 
                 let (diag_span, fix) =
                     if frag_info.block_def_count == 1 && frag_info.declaration_range.is_some() {
-                        let (decl_start, decl_end) = frag_info.declaration_range.unwrap();
+                        #[allow(clippy::expect_used)] // safe: guarded by is_some() above
+                        let (decl_start, decl_end) = frag_info
+                            .declaration_range
+                            .expect("guarded by is_some() above");
                         let byte_offset = frag_info.name_span.byte_offset;
 
                         // File-level keyword span for the diagnostic underline.

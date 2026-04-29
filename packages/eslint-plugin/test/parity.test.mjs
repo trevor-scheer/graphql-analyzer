@@ -831,7 +831,10 @@ function canonical(diagnostics, span, skipFix = false, compareSuggest = false) {
       return {
         ...pos,
         message: d.message,
-        messageId: d.messageId ?? null,
+        // messageId is metadata our shim emits for rule-level assertion in
+        // the Rust unit-test layer; upstream's runtime ESLint output may
+        // omit it. Don't compare it here — the unit-test layer pins it.
+        messageId: null,
         ...(skipFix ? {} : { fix: d.fix ? { range: d.fix.range, text: d.fix.text } : null }),
         ...(compareSuggest
           ? {

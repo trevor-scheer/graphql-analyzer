@@ -144,6 +144,10 @@ pub struct DirectiveDef {
     pub repeatable: bool,
     pub file_id: FileId,
     pub name_range: TextRange,
+    /// The text range of the entire directive definition node (keyword through
+    /// final location). Used by lint rules that need a "remove this definition"
+    /// fix matching upstream's `fixer.remove(node.parent)` semantics.
+    pub definition_range: TextRange,
 }
 
 /// Locations where a directive can be applied
@@ -783,6 +787,7 @@ fn extract_directive_def(dir: &Node<ast::DirectiveDefinition>, file_id: FileId) 
         repeatable: dir.repeatable,
         file_id,
         name_range: name_range(&dir.name),
+        definition_range: node_range(dir),
     }
 }
 
@@ -1043,11 +1048,15 @@ fn extract_deprecation(
         if directive.name == "deprecated" {
             let reason = directive.arguments.iter().find_map(|arg| {
                 if arg.name == "reason" {
-                    if let apollo_compiler::ast::Value::String(s) = &*arg.value {
-                        Some(Arc::from(s.as_str()))
-                    } else {
-                        None
-                    }
+                    // Accept any value type as a valid reason, not just strings.
+                    // Numeric literals like `reason: 0` are unusual but valid per
+                    // graphql-eslint's `require-deprecation-reason` rule, which only
+                    // requires the argument to be present regardless of its type.
+                    let s: Arc<str> = match &*arg.value {
+                        apollo_compiler::ast::Value::String(s) => Arc::from(s.as_str()),
+                        other => Arc::from(other.to_string().as_str()),
+                    };
+                    Some(s)
                 } else {
                     None
                 }

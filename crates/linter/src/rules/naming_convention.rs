@@ -47,19 +47,21 @@ impl NamingCase {
     }
 }
 
+#[allow(clippy::expect_used)] // safe: empty check above guarantees chars().next() is Some
 fn is_camel_case(s: &str) -> bool {
     if s.is_empty() {
         return true;
     }
-    let first = s.chars().next().unwrap();
+    let first = s.chars().next().expect("non-empty string has a first char");
     first.is_lowercase() && !s.contains('_')
 }
 
+#[allow(clippy::expect_used)] // safe: empty check above guarantees chars().next() is Some
 fn is_pascal_case(s: &str) -> bool {
     if s.is_empty() {
         return true;
     }
-    let first = s.chars().next().unwrap();
+    let first = s.chars().next().expect("non-empty string has a first char");
     first.is_uppercase() && !s.contains('_')
 }
 
@@ -134,7 +136,16 @@ struct NormalizedRule<'a> {
 }
 
 impl<'a> NormalizedRule<'a> {
-    fn from_rule(rule: &'a NamingRule) -> Self {
+    /// Create a normalized rule, merging in the top-level global underscore
+    /// options from `NamingConventionOptions`. The global options win over the
+    /// per-kind defaults (per upstream: the global flags are destructured at
+    /// the top of `create()` and used by `getError` for all nodes regardless
+    /// of which per-kind rule they fall under).
+    fn from_rule_with_global(
+        rule: &'a NamingRule,
+        global_allow_leading: bool,
+        global_allow_trailing: bool,
+    ) -> Self {
         match rule {
             NamingRule::Case(c) => Self {
                 style: Some(*c),
@@ -147,8 +158,8 @@ impl<'a> NormalizedRule<'a> {
                 required_pattern: None,
                 forbidden_patterns: &[],
                 ignore_pattern: None,
-                allow_leading_underscore: false,
-                allow_trailing_underscore: false,
+                allow_leading_underscore: global_allow_leading,
+                allow_trailing_underscore: global_allow_trailing,
             },
             NamingRule::Detailed {
                 style,
@@ -174,8 +185,9 @@ impl<'a> NormalizedRule<'a> {
                 required_pattern: required_pattern.as_deref(),
                 forbidden_patterns,
                 ignore_pattern: ignore_pattern.as_deref(),
-                allow_leading_underscore: *allow_leading_underscore,
-                allow_trailing_underscore: *allow_trailing_underscore,
+                // The global option wins if `true`; otherwise fall back to the per-kind setting.
+                allow_leading_underscore: global_allow_leading || *allow_leading_underscore,
+                allow_trailing_underscore: global_allow_trailing || *allow_trailing_underscore,
             },
         }
     }
@@ -207,23 +219,50 @@ fn english_join(words: &[String]) -> String {
     }
 }
 
+/// Predicate operator for attribute selectors.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum PredicateOp {
+    Eq,
+    NotEq,
+}
+
 /// Parsed form of an ESLint-style selector key in the `naming-convention`
 /// options object. We support only the small subset that upstream's
 /// `flat/schema-recommended` and `flat/operations-recommended` presets use.
 ///
 /// Unsupported forms (descendant combinators, `:has`, attribute matching
-/// beyond `parent.name.value`, multiple predicates, etc.) are rejected at
-/// parse time with a `tracing::warn!` so a typo doesn't silently disable
-/// the rule.
+/// beyond `parent.name.value` and `gqlType.*.name.value`, multiple predicates,
+/// etc.) are rejected at parse time with a `tracing::warn!` so a typo doesn't
+/// silently disable the rule.
 #[derive(Debug, Clone, PartialEq, Eq)]
 enum Selector {
     /// `"EnumTypeDefinition,EnumTypeExtension"` — matches any node whose
     /// kind is in the comma-separated list. Whitespace around the commas
     /// is allowed and trimmed.
     Kinds(Vec<String>),
-    /// `"FieldDefinition[parent.name.value=Query]"` — matches a node of
-    /// `kind` whose immediate parent has `name.value == parent_name`.
-    KindWithParent { kind: String, parent_name: String },
+    /// `"FieldDefinition[parent.name.value=Query]"` or the `!=` form —
+    /// matches a node of `kind` whose immediate parent's name satisfies
+    /// the predicate.
+    KindWithParent {
+        kind: String,
+        op: PredicateOp,
+        parent_name: String,
+    },
+    /// `"FieldDefinition[gqlType.name.value=Snake]"` or
+    /// `"FieldDefinition[gqlType.gqlType.name.value=Boolean]"` —
+    /// matches a field whose inner named type satisfies the predicate, at
+    /// a specific wrapper depth.
+    ///
+    /// `depth=0` means `gqlType.name.value` (bare named type, no wrappers).
+    /// `depth=1` means `gqlType.gqlType.name.value` (one wrapper: `NonNull` or `List`).
+    /// This maps directly to the number of `gqlType.` prefixes before `name.value`
+    /// in the upstream JS AST chain.
+    KindWithGqlType {
+        kind: String,
+        op: PredicateOp,
+        type_name: String,
+        depth: u8,
+    },
 }
 
 impl Selector {
@@ -240,18 +279,46 @@ impl Selector {
             }
             let kind = trimmed[..open].trim().to_string();
             let predicate = &trimmed[open + 1..trimmed.len() - 1];
-            // Only `parent.name.value=<Name>` is supported.
-            if let Some((lhs, rhs)) = predicate.split_once('=') {
-                let lhs = lhs.trim();
-                let rhs = rhs.trim();
-                if lhs == "parent.name.value" && !kind.is_empty() && !rhs.is_empty() {
-                    return Some(Selector::KindWithParent {
-                        kind,
-                        parent_name: rhs.to_string(),
-                    });
-                }
+
+            // Split on `!=` first (must come before `=` split to avoid
+            // accidentally treating `!=` as `=` with a leading `!`).
+            let (lhs_raw, op, rhs_raw) = if let Some((l, r)) = predicate.split_once("!=") {
+                (l, PredicateOp::NotEq, r)
+            } else if let Some((l, r)) = predicate.split_once('=') {
+                (l, PredicateOp::Eq, r)
+            } else {
+                warn!(selector = %raw, "naming-convention: unsupported selector predicate (no `=` or `!=` operator); ignoring");
+                return None;
+            };
+
+            let lhs = lhs_raw.trim();
+            let rhs = rhs_raw.trim();
+
+            if kind.is_empty() || rhs.is_empty() {
+                warn!(selector = %raw, "naming-convention: malformed selector (empty kind or value); ignoring");
+                return None;
             }
-            warn!(selector = %raw, "naming-convention: unsupported selector predicate (only `parent.name.value=<Name>` is supported); ignoring");
+
+            if lhs == "parent.name.value" {
+                return Some(Selector::KindWithParent {
+                    kind,
+                    op,
+                    parent_name: rhs.to_string(),
+                });
+            }
+
+            // `gqlType.name.value` (depth=0) or `gqlType.gqlType.name.value` (depth=1).
+            // Count leading `gqlType.` segments before `name.value`.
+            if let Some(depth) = parse_gql_type_depth(lhs) {
+                return Some(Selector::KindWithGqlType {
+                    kind,
+                    op,
+                    type_name: rhs.to_string(),
+                    depth,
+                });
+            }
+
+            warn!(selector = %raw, "naming-convention: unsupported selector predicate (only `parent.name.value` and `gqlType.*.name.value` are supported); ignoring");
             return None;
         }
 
@@ -276,20 +343,77 @@ impl Selector {
     }
 }
 
-/// `(eslint_kind, parent_name_if_any)` for the node we're about to lint.
-/// `None` for `parent_name` means "no enclosing named scope" (e.g. type
-/// definitions themselves). Used by `Selector::matches`.
+/// Parse a `gqlType.(gqlType.)*name.value` path and return the depth (number of
+/// `gqlType.` hops before `name.value`). Returns `None` for unrecognized paths.
+///
+/// Examples:
+/// - `"gqlType.name.value"` → `Some(0)`
+/// - `"gqlType.gqlType.name.value"` → `Some(1)`
+fn parse_gql_type_depth(lhs: &str) -> Option<u8> {
+    // Must start with at least one `gqlType.` and end with `name.value`.
+    let mut rest = lhs.strip_prefix("gqlType.")?;
+    let mut depth: u8 = 0;
+    loop {
+        if rest == "name.value" {
+            return Some(depth);
+        }
+        rest = rest.strip_prefix("gqlType.")?;
+        depth = depth.checked_add(1)?;
+    }
+}
+
+/// `(eslint_kind, parent_name_if_any, type_ref_if_any)` for the node we're about
+/// to lint. Fields are `None` when not applicable for the node type. Used by
+/// `Selector::matches`.
 struct NodeContext<'a> {
     kind: &'a str,
     parent_name: Option<&'a str>,
+    /// Inner named type name (from `TypeRef::name`) for field-like nodes.
+    type_name: Option<&'a str>,
+    /// Number of type wrappers (`NonNull` / `List`) on the field's type. Matches
+    /// the number of `gqlType.` hops in the upstream JS AST selector chain
+    /// before `name.value`.
+    wrapper_depth: u8,
 }
 
 impl Selector {
     fn matches(&self, ctx: &NodeContext<'_>) -> bool {
         match self {
             Selector::Kinds(list) => list.iter().any(|k| k == ctx.kind),
-            Selector::KindWithParent { kind, parent_name } => {
-                ctx.kind == kind && ctx.parent_name == Some(parent_name.as_str())
+            Selector::KindWithParent {
+                kind,
+                op,
+                parent_name,
+            } => {
+                if ctx.kind != kind {
+                    return false;
+                }
+                let actual = ctx.parent_name;
+                match op {
+                    PredicateOp::Eq => actual == Some(parent_name.as_str()),
+                    PredicateOp::NotEq => actual != Some(parent_name.as_str()),
+                }
+            }
+            Selector::KindWithGqlType {
+                kind,
+                op,
+                type_name,
+                depth,
+            } => {
+                if ctx.kind != kind {
+                    return false;
+                }
+                let Some(actual_type) = ctx.type_name else {
+                    return false;
+                };
+                let depth_matches = ctx.wrapper_depth == *depth;
+                if !depth_matches {
+                    return false;
+                }
+                match op {
+                    PredicateOp::Eq => actual_type == type_name.as_str(),
+                    PredicateOp::NotEq => actual_type != type_name.as_str(),
+                }
             }
         }
     }
@@ -304,6 +428,11 @@ impl Selector {
 /// `requiredSuffixes`, `requiredPattern`, `forbiddenPatterns`, `ignorePattern`,
 /// `allowLeadingUnderscore`, and `allowTrailingUnderscore`.
 ///
+/// `allowLeadingUnderscore` and `allowTrailingUnderscore` are **top-level**
+/// options (not per-kind). When `false` (the default), any name starting
+/// or ending with `_` fires a diagnostic regardless of which per-kind rule
+/// applies. This matches upstream's global `checkUnderscore` visitor.
+///
 /// ESLint-style selector keys (`"FieldDefinition[parent.name.value=Query]"`,
 /// `"EnumTypeDefinition,EnumTypeExtension"`) are captured into
 /// `selector_overrides` and parsed lazily by `parsed_selectors()`. Selectors
@@ -312,6 +441,14 @@ impl Selector {
 #[derive(Debug, Clone, Default, Deserialize)]
 #[serde(default)]
 pub struct NamingConventionOptions {
+    /// When `false` (the default), any name beginning with `_` triggers a
+    /// diagnostic. Mirrors upstream's top-level `allowLeadingUnderscore` option.
+    #[serde(default, rename = "allowLeadingUnderscore")]
+    pub allow_leading_underscore: bool,
+    /// When `false` (the default), any name ending with `_` triggers a
+    /// diagnostic. Mirrors upstream's top-level `allowTrailingUnderscore` option.
+    #[serde(default, rename = "allowTrailingUnderscore")]
+    pub allow_trailing_underscore: bool,
     /// Convention for operation names (no default; must be set to fire)
     #[serde(rename = "OperationDefinition")]
     pub operation_definition: Option<NamingRule>,
@@ -360,8 +497,15 @@ pub struct NamingConventionOptions {
 
 impl NamingConventionOptions {
     fn from_json(value: Option<&serde_json::Value>) -> Self {
-        value
-            .and_then(|v| serde_json::from_value(v.clone()).ok())
+        // ESLint wraps rule options in an array; accept both `{...}` and `[{...}]`.
+        let obj = value.and_then(|v| {
+            if let serde_json::Value::Array(arr) = v {
+                arr.first()
+            } else {
+                Some(v)
+            }
+        });
+        obj.and_then(|v| serde_json::from_value(v.clone()).ok())
             .unwrap_or_default()
     }
 
@@ -398,16 +542,24 @@ impl NamingConventionOptions {
     /// selector matches. Callers should fall back to the per-kind override
     /// (and then the `types` umbrella) when this returns `None`. Selectors
     /// take precedence over per-kind overrides per upstream's specificity.
-    /// `parent_name` is the enclosing type/operation name used for
+    ///
+    /// `parent_name` is the enclosing type/operation name for
     /// `[parent.name.value=Foo]` predicates; pass `None` for top-level nodes.
+    /// `type_name` and `wrapper_depth` are the field's inner named type and
+    /// wrapper count for `[gqlType.*.name.value=Foo]` predicates; pass
+    /// `(None, 0)` for nodes that have no type reference.
     fn rule_for_node(
         node_kind: &str,
         parent_name: Option<&str>,
+        type_name: Option<&str>,
+        wrapper_depth: u8,
         selectors: &[(Selector, NamingRule)],
     ) -> Option<NamingRule> {
         let ctx = NodeContext {
             kind: node_kind,
             parent_name,
+            type_name,
+            wrapper_depth,
         };
         for (sel, rule) in selectors {
             if sel.matches(&ctx) {
@@ -455,6 +607,9 @@ struct CheckFailure {
 /// 8. `requiredPrefixes` (none-of-them match)
 /// 9. `requiredSuffixes` (none-of-them match)
 /// 10. `style`
+// The expect below is safe: we already captured `caps` with the same regex/string,
+// so `find` on the same input is guaranteed to succeed.
+#[allow(clippy::expect_used)]
 fn check_name(rule: &NormalizedRule<'_>, name: &str) -> Option<CheckFailure> {
     let stripped = rule.strip_underscores(name);
 
@@ -481,38 +636,100 @@ fn check_name(rule: &NormalizedRule<'_>, name: &str) -> Option<CheckFailure> {
 
     if let Some(pat) = rule.required_pattern {
         if let Ok(re) = Regex::new(pat) {
+            let has_named_groups = re.capture_names().any(|n| n.is_some());
+            if has_named_groups {
+                // Named-group path: mirrors upstream's `requiredPattern.source.includes('(?<')`
+                // branch. Each named group's name is itself a case-style name (e.g. `camelCase`,
+                // `PascalCase`, `snake_case`, `UPPER_CASE`). The captured value must match that
+                // style. If a group name isn't a valid style, it's skipped (upstream throws
+                // `Invalid case style in requiredPatterns option` but we degrade gracefully).
+                //
+                // After the named-group check succeeds, the match is replaced with `""` and the
+                // remaining string is used for the outer `style` check (matches upstream's
+                // `String.replace` behaviour that modifies `name` for the subsequent check).
+                if let Some(caps) = re.captures(stripped) {
+                    let mut group_error: Option<CheckFailure> = None;
+                    for group_name in re.capture_names().flatten() {
+                        if let Some(m) = caps.name(group_name) {
+                            // Group name is a style identifier (upstream convention).
+                            // When the group name isn't a recognized style, fall
+                            // back to the outer `rule.style` (original behaviour that
+                            // existing unit tests rely on). This covers patterns like
+                            // `(?<entity>.+)` where `entity` is a semantic name, not
+                            // a style — the outer style then applies to the capture.
+                            let group_style = match group_name {
+                                "camelCase" => Some(NamingCase::Camel),
+                                "PascalCase" => Some(NamingCase::Pascal),
+                                "snake_case" => Some(NamingCase::Snake),
+                                "UPPER_CASE" => Some(NamingCase::Upper),
+                                _ => rule.style, // fall back to outer style
+                            };
+                            if let Some(style) = group_style {
+                                if !style.check(m.as_str()) {
+                                    group_error = Some(CheckFailure {
+                                        message_body: format!(
+                                            "have the named group \"{group_name}\" in {} format",
+                                            style.label()
+                                        ),
+                                    });
+                                    break;
+                                }
+                            }
+                        }
+                    }
+                    if let Some(err) = group_error {
+                        return Some(err);
+                    }
+                    // After named groups pass, compute the remainder by removing the matched
+                    // portion (mirrors upstream's `name.replace(requiredPattern, () => '')` which
+                    // replaces the match with the empty string from the callback return).
+                    // `caps` above already matched `stripped`, so `find` cannot return None.
+                    let mat = re
+                        .find(stripped)
+                        .expect("regex matched via caps, so find must also match");
+                    let remainder =
+                        format!("{}{}", &stripped[..mat.start()], &stripped[mat.end()..]);
+                    // Run the outer style check on the remainder (may be empty string, which
+                    // every style accepts).
+                    if let Some(style) = rule.style {
+                        if !remainder.is_empty() && !style.check(&remainder) {
+                            return Some(CheckFailure {
+                                message_body: format!("be in {} format", style.label()),
+                            });
+                        }
+                    }
+                    // Named-group check succeeded (including any outer style on remainder).
+                    // Skip the outer style check below — it was already handled.
+                    return None;
+                }
+                // Pattern didn't match at all.
+                return Some(CheckFailure {
+                    message_body: format!("contain the required pattern: /{pat}/"),
+                });
+            }
+            // Plain (no named groups) path: pattern must match.
             if !re.is_match(stripped) {
                 return Some(CheckFailure {
                     message_body: format!("contain the required pattern: /{pat}/"),
                 });
             }
-            // Named-capture-group convention check (mirrors upstream): each
-            // named group's captured substring must obey the configured
-            // `style`. Unnamed groups are skipped (they're not part of the
-            // convention contract). When `style` is unset there's nothing
-            // to enforce.
-            if let (Some(style), Some(caps)) = (rule.style, re.captures(stripped)) {
-                for name in re.capture_names().flatten() {
-                    if let Some(m) = caps.name(name) {
-                        if !style.check(m.as_str()) {
-                            return Some(CheckFailure {
-                                message_body: format!(
-                                    "have the named group \"{name}\" in {} format",
-                                    style.label()
-                                ),
-                            });
-                        }
-                    }
-                }
-            }
+            // No early return; outer style check runs below on the original name.
         }
     }
 
     for pat in rule.forbidden_patterns {
         if let Ok(re) = Regex::new(pat) {
             if re.is_match(stripped) {
+                // Format as JS-style `/pattern/flags` for display, matching
+                // upstream's `RegExp.prototype.toString()` output. Rust inline
+                // flags like `(?i)` at the start are hoisted to a trailing `/i`.
+                let display = if let Some(rest) = pat.strip_prefix("(?i)") {
+                    format!("/{rest}/i")
+                } else {
+                    format!("/{pat}/")
+                };
                 return Some(CheckFailure {
-                    message_body: format!("not contain the forbidden pattern \"/{pat}/\""),
+                    message_body: format!("not contain the forbidden pattern \"{display}\""),
                 });
             }
         }
@@ -589,6 +806,69 @@ fn format_message(kind_label: &str, name: &str, body: &str) -> String {
     format!("{first}{rest} \"{name}\" should {body}")
 }
 
+/// Return `true` if the `ignore_pattern` on `rule` (if any) matches `name`.
+/// Mirrors upstream's `ignoredNodes` mechanism: when `ignorePattern` matches,
+/// the node is added to `ignoredNodes` and the global underscore check skips it.
+fn is_ignored_by_rule(name: &str, rule: Option<&NormalizedRule<'_>>) -> bool {
+    let Some(rule) = rule else { return false };
+    let Some(pat) = rule.ignore_pattern else {
+        return false;
+    };
+    Regex::new(pat).is_ok_and(|re| re.is_match(rule.strip_underscores(name)))
+}
+
+/// Emit diagnostics for names that violate the global `allowLeadingUnderscore`
+/// and `allowTrailingUnderscore` options. This mirrors upstream's top-level
+/// `Name[value=/^_/]` / `Name[value=/_$/]` visitors, which fire for every
+/// named node (type names, field names, input value names, argument names,
+/// enum value names, directive names, alias names, operation names, etc.)
+/// when the corresponding global option is `false` (the default).
+///
+/// `applied_rule` is the per-kind `NormalizedRule` that was used for this name,
+/// if any. When that rule has an `ignorePattern` that matches, the underscore
+/// check is also suppressed (mirrors upstream's `ignoredNodes` set).
+fn check_underscores_doc(
+    name: &str,
+    opts: &NamingConventionOptions,
+    applied_rule: Option<&NormalizedRule<'_>>,
+    start: usize,
+    end: usize,
+    doc: &graphql_syntax::DocumentRef<'_>,
+    diagnostics: &mut Vec<LintDiagnostic>,
+) {
+    if is_ignored_by_rule(name, applied_rule) {
+        return;
+    }
+    // Per-kind `allowLeadingUnderscore`/`allowTrailingUnderscore` wins over
+    // the global flag if set to `true`. `NormalizedRule` merges both already.
+    let allow_leading =
+        opts.allow_leading_underscore || applied_rule.is_some_and(|r| r.allow_leading_underscore);
+    let allow_trailing =
+        opts.allow_trailing_underscore || applied_rule.is_some_and(|r| r.allow_trailing_underscore);
+    if !allow_leading && name.starts_with('_') {
+        diagnostics.push(
+            LintDiagnostic::new(
+                doc.span(start, end),
+                LintSeverity::Warning,
+                "Leading underscores are not allowed".to_string(),
+                "namingConvention",
+            )
+            .with_message_id("namingConvention"),
+        );
+    }
+    if !allow_trailing && name.ends_with('_') {
+        diagnostics.push(
+            LintDiagnostic::new(
+                doc.span(start, end),
+                LintSeverity::Warning,
+                "Trailing underscores are not allowed".to_string(),
+                "namingConvention",
+            )
+            .with_message_id("namingConvention"),
+        );
+    }
+}
+
 /// Lint rule that enforces naming conventions for operations, fragments,
 /// variables, and (on the schema side) types, fields, arguments, enum values,
 /// and directives.
@@ -638,78 +918,150 @@ impl StandaloneDocumentLintRule for NamingConventionRuleImpl {
             for definition in doc_cst.definitions() {
                 match definition {
                     cst::Definition::OperationDefinition(op) => {
-                        if let (Some(rule), Some(name_node)) =
-                            (opts.operation_definition.as_ref(), op.name())
-                        {
-                            let normalized = NormalizedRule::from_rule(rule);
+                        if let Some(name_node) = op.name() {
                             let name = name_node.text();
-                            if let Some(failure) = check_name(&normalized, &name) {
-                                let op_kind =
-                                    op.operation_type().map_or(OperationKind::Query, |op_type| {
-                                        get_operation_kind(&op_type)
-                                    });
-                                let op_label = match op_kind {
-                                    OperationKind::Query => "query",
-                                    OperationKind::Mutation => "mutation",
-                                    OperationKind::Subscription => "subscription",
-                                };
-                                let start: usize = name_node.syntax().text_range().start().into();
-                                let end: usize = name_node.syntax().text_range().end().into();
-                                diagnostics.push(LintDiagnostic::new(
-                                    doc.span(start, end),
-                                    LintSeverity::Warning,
-                                    format_message(op_label, &name, &failure.message_body),
-                                    "namingConvention",
-                                ));
+                            let start: usize = name_node.syntax().text_range().start().into();
+                            let end: usize = name_node.syntax().text_range().end().into();
+
+                            let op_normalized = opts.operation_definition.as_ref().map(|rule| {
+                                NormalizedRule::from_rule_with_global(
+                                    rule,
+                                    opts.allow_leading_underscore,
+                                    opts.allow_trailing_underscore,
+                                )
+                            });
+                            if let Some(normalized) = op_normalized.as_ref() {
+                                if let Some(failure) = check_name(normalized, &name) {
+                                    let op_kind = op
+                                        .operation_type()
+                                        .map_or(OperationKind::Query, |op_type| {
+                                            get_operation_kind(&op_type)
+                                        });
+                                    let op_label = match op_kind {
+                                        OperationKind::Query => "query",
+                                        OperationKind::Mutation => "mutation",
+                                        OperationKind::Subscription => "subscription",
+                                    };
+                                    diagnostics.push(
+                                        LintDiagnostic::new(
+                                            doc.span(start, end),
+                                            LintSeverity::Warning,
+                                            format_message(op_label, &name, &failure.message_body),
+                                            "namingConvention",
+                                        )
+                                        .with_message_id("namingConvention"),
+                                    );
+                                }
                             }
+
+                            check_underscores_doc(
+                                &name,
+                                &opts,
+                                op_normalized.as_ref(),
+                                start,
+                                end,
+                                &doc,
+                                &mut diagnostics,
+                            );
                         }
 
                         if let Some(rule) = opts.variable.as_ref() {
-                            let normalized = NormalizedRule::from_rule(rule);
+                            let normalized = NormalizedRule::from_rule_with_global(
+                                rule,
+                                opts.allow_leading_underscore,
+                                opts.allow_trailing_underscore,
+                            );
                             if let Some(var_defs) = op.variable_definitions() {
                                 for var_def in var_defs.variable_definitions() {
                                     if let Some(var) = var_def.variable() {
                                         if let Some(name_node) = var.name() {
                                             let name = name_node.text();
+                                            let start: usize =
+                                                name_node.syntax().text_range().start().into();
+                                            let end: usize =
+                                                name_node.syntax().text_range().end().into();
                                             if let Some(failure) = check_name(&normalized, &name) {
-                                                let start: usize =
-                                                    name_node.syntax().text_range().start().into();
-                                                let end: usize =
-                                                    name_node.syntax().text_range().end().into();
-                                                diagnostics.push(LintDiagnostic::new(
-                                                    doc.span(start, end),
-                                                    LintSeverity::Warning,
-                                                    format_message(
-                                                        "variable",
-                                                        &name,
-                                                        &failure.message_body,
-                                                    ),
-                                                    "namingConvention",
-                                                ));
+                                                diagnostics.push(
+                                                    LintDiagnostic::new(
+                                                        doc.span(start, end),
+                                                        LintSeverity::Warning,
+                                                        format_message(
+                                                            "variable",
+                                                            &name,
+                                                            &failure.message_body,
+                                                        ),
+                                                        "namingConvention",
+                                                    )
+                                                    .with_message_id("namingConvention"),
+                                                );
                                             }
+                                            check_underscores_doc(
+                                                &name,
+                                                &opts,
+                                                Some(&normalized),
+                                                start,
+                                                end,
+                                                &doc,
+                                                &mut diagnostics,
+                                            );
                                         }
                                     }
                                 }
                             }
                         }
+
+                        // Walk selection sets to check aliases for leading/trailing
+                        // underscores. Upstream fires on alias names but NOT bare field
+                        // selection names (the `Name` node for a bare field is skipped
+                        // when there's no alias).
+                        if let Some(sel_set) = op.selection_set() {
+                            check_selection_aliases(&sel_set, &opts, &doc, &mut diagnostics);
+                        }
                     }
                     cst::Definition::FragmentDefinition(frag) => {
-                        if let (Some(rule), Some(frag_name)) = (
-                            opts.fragment_definition.as_ref(),
-                            frag.fragment_name().and_then(|fn_| fn_.name()),
-                        ) {
-                            let normalized = NormalizedRule::from_rule(rule);
+                        if let Some(frag_name) = frag.fragment_name().and_then(|fn_| fn_.name()) {
                             let name = frag_name.text();
-                            if let Some(failure) = check_name(&normalized, &name) {
-                                let start: usize = frag_name.syntax().text_range().start().into();
-                                let end: usize = frag_name.syntax().text_range().end().into();
-                                diagnostics.push(LintDiagnostic::new(
-                                    doc.span(start, end),
-                                    LintSeverity::Warning,
-                                    format_message("fragment", &name, &failure.message_body),
-                                    "namingConvention",
-                                ));
+                            let start: usize = frag_name.syntax().text_range().start().into();
+                            let end: usize = frag_name.syntax().text_range().end().into();
+
+                            let frag_normalized = opts.fragment_definition.as_ref().map(|rule| {
+                                NormalizedRule::from_rule_with_global(
+                                    rule,
+                                    opts.allow_leading_underscore,
+                                    opts.allow_trailing_underscore,
+                                )
+                            });
+                            if let Some(normalized) = frag_normalized.as_ref() {
+                                if let Some(failure) = check_name(normalized, &name) {
+                                    diagnostics.push(
+                                        LintDiagnostic::new(
+                                            doc.span(start, end),
+                                            LintSeverity::Warning,
+                                            format_message(
+                                                "fragment",
+                                                &name,
+                                                &failure.message_body,
+                                            ),
+                                            "namingConvention",
+                                        )
+                                        .with_message_id("namingConvention"),
+                                    );
+                                }
                             }
+
+                            check_underscores_doc(
+                                &name,
+                                &opts,
+                                frag_normalized.as_ref(),
+                                start,
+                                end,
+                                &doc,
+                                &mut diagnostics,
+                            );
+                        }
+
+                        if let Some(sel_set) = frag.selection_set() {
+                            check_selection_aliases(&sel_set, &opts, &doc, &mut diagnostics);
                         }
                     }
                     _ => {}
@@ -718,6 +1070,59 @@ impl StandaloneDocumentLintRule for NamingConventionRuleImpl {
         }
 
         diagnostics
+    }
+}
+
+/// Recursively walk a selection set, emitting underscore diagnostics only for
+/// alias names (not for bare field names without aliases). Mirrors upstream's
+/// `Name[value=/^_/]` visitor which skips `Field.name` when the field has no
+/// alias (`node.parent.kind === 'Field' && node.parent.alias !== node` → skip).
+fn check_selection_aliases(
+    sel_set: &cst::SelectionSet,
+    opts: &NamingConventionOptions,
+    doc: &graphql_syntax::DocumentRef<'_>,
+    diagnostics: &mut Vec<LintDiagnostic>,
+) {
+    for selection in sel_set.selections() {
+        match selection {
+            cst::Selection::Field(field) => {
+                // If the field has an alias, check the alias name for underscores
+                // (upstream checks the alias but not the field's own name).
+                // If there's no alias, upstream skips the bare field name entirely.
+                if let Some(alias) = field.alias() {
+                    if let Some(alias_name) = alias.name() {
+                        let name = alias_name.text();
+                        let start: usize = alias_name.syntax().text_range().start().into();
+                        let end: usize = alias_name.syntax().text_range().end().into();
+                        check_underscores_doc(&name, opts, None, start, end, doc, diagnostics);
+                    }
+                }
+                if let Some(nested) = field.selection_set() {
+                    check_selection_aliases(&nested, opts, doc, diagnostics);
+                }
+            }
+            cst::Selection::InlineFragment(inline) => {
+                if let Some(nested) = inline.selection_set() {
+                    check_selection_aliases(&nested, opts, doc, diagnostics);
+                }
+            }
+            cst::Selection::FragmentSpread(_) => {}
+        }
+    }
+}
+
+/// Compute the wrapper depth of a `TypeRef` for `gqlType.*` selector matching.
+///
+/// This mirrors the depth of the upstream JS AST chain: a bare named type
+/// has depth 0 (`gqlType.name.value`), a singly-wrapped type (`NonNull` or `List`)
+/// has depth 1 (`gqlType.gqlType.name.value`), and so on.
+fn wrapper_depth_of(type_ref: &graphql_hir::TypeRef) -> u8 {
+    match (type_ref.is_non_null, type_ref.is_list) {
+        (false, false) => 0,
+        // NonNull only, or List only — one wrapper level.
+        (true, false) | (false, true) => 1,
+        // NonNull + List — two wrapper levels.
+        (true, true) => 2,
     }
 }
 
@@ -792,10 +1197,15 @@ impl StandaloneSchemaLintRule for NamingConventionRuleImpl {
                 TypeDefKind::InputObject => "InputObjectTypeDefinition",
                 TypeDefKind::Object | _ => "ObjectTypeDefinition",
             };
-            let type_rule = NamingConventionOptions::rule_for_node(type_kind_str, None, &selectors)
-                .or_else(|| opts.rule_for_type_kind(type_def.kind).cloned());
+            let type_rule =
+                NamingConventionOptions::rule_for_node(type_kind_str, None, None, 0, &selectors)
+                    .or_else(|| opts.rule_for_type_kind(type_def.kind).cloned());
             if let Some(rule) = type_rule {
-                let normalized = NormalizedRule::from_rule(&rule);
+                let normalized = NormalizedRule::from_rule_with_global(
+                    &rule,
+                    opts.allow_leading_underscore,
+                    opts.allow_trailing_underscore,
+                );
                 if let Some(failure) = check_name(&normalized, &type_def.name) {
                     let kind_label = match type_def.kind {
                         TypeDefKind::Interface => "interface",
@@ -814,6 +1224,15 @@ impl StandaloneSchemaLintRule for NamingConventionRuleImpl {
                     );
                 }
             }
+            // Global underscore check for type name.
+            check_underscores_schema(
+                &type_def.name,
+                &opts,
+                None,
+                &mut diagnostics_by_file,
+                type_def.file_id,
+                type_def.name_range,
+            );
 
             // Field definitions (object/interface) and input value definitions
             // (input object). The two share `FieldSignature` in our HIR, but
@@ -834,20 +1253,29 @@ impl StandaloneSchemaLintRule for NamingConventionRuleImpl {
                         (opts.field_definition.as_ref(), "FieldDefinition", "field")
                     };
 
-                // Selector resolution: `FieldDefinition[parent.name.value=Query]`
-                // and similar; `parent_name` is the enclosing type's name so
-                // these per-root-type predicates from upstream's recommended
-                // preset work.
+                // Selector resolution: `FieldDefinition[parent.name.value=Query]`,
+                // `FieldDefinition[gqlType.name.value=Snake]`, and similar.
+                // `parent_name` is the enclosing type's name; `type_name` and
+                // `wrapper_depth` come from the field's own type reference so
+                // that `gqlType.*` predicates match correctly.
                 let field_rule = NamingConventionOptions::rule_for_node(
                     kind_str,
                     Some(&type_def.name),
+                    Some(field.type_ref.name.as_ref()),
+                    wrapper_depth_of(&field.type_ref),
                     &selectors,
                 )
                 .or_else(|| per_kind_rule.cloned());
 
-                if let Some(rule) = field_rule {
-                    let normalized = NormalizedRule::from_rule(&rule);
-                    if let Some(failure) = check_name(&normalized, &field.name) {
+                let field_normalized = field_rule.as_ref().map(|rule| {
+                    NormalizedRule::from_rule_with_global(
+                        rule,
+                        opts.allow_leading_underscore,
+                        opts.allow_trailing_underscore,
+                    )
+                });
+                if let Some(ref normalized) = field_normalized {
+                    if let Some(failure) = check_name(normalized, &field.name) {
                         push_diagnostic(
                             &mut diagnostics_by_file,
                             field.file_id,
@@ -856,6 +1284,16 @@ impl StandaloneSchemaLintRule for NamingConventionRuleImpl {
                         );
                     }
                 }
+                // Global underscore check for field/input-value name; pass the
+                // normalized rule so `ignorePattern` can suppress the check.
+                check_underscores_schema(
+                    &field.name,
+                    &opts,
+                    field_normalized.as_ref(),
+                    &mut diagnostics_by_file,
+                    field.file_id,
+                    field.name_range,
+                );
 
                 // Field arguments use the `Argument` slot. Upstream's
                 // `Argument` selector applies to argument definitions on
@@ -866,11 +1304,17 @@ impl StandaloneSchemaLintRule for NamingConventionRuleImpl {
                     let arg_rule = NamingConventionOptions::rule_for_node(
                         "Argument",
                         Some(&field.name),
+                        None,
+                        0,
                         &selectors,
                     )
                     .or_else(|| opts.argument.clone());
                     if let Some(rule) = arg_rule {
-                        let normalized = NormalizedRule::from_rule(&rule);
+                        let normalized = NormalizedRule::from_rule_with_global(
+                            &rule,
+                            opts.allow_leading_underscore,
+                            opts.allow_trailing_underscore,
+                        );
                         for arg in &field.arguments {
                             if !source_file_ids.contains(&arg.file_id) {
                                 continue;
@@ -883,6 +1327,30 @@ impl StandaloneSchemaLintRule for NamingConventionRuleImpl {
                                     format_message("argument", &arg.name, &failure.message_body),
                                 );
                             }
+                            // Global underscore check for argument name.
+                            check_underscores_schema(
+                                &arg.name,
+                                &opts,
+                                None,
+                                &mut diagnostics_by_file,
+                                arg.file_id,
+                                arg.name_range,
+                            );
+                        }
+                    } else {
+                        // Even without an arg rule, still check underscores globally.
+                        for arg in &field.arguments {
+                            if !source_file_ids.contains(&arg.file_id) {
+                                continue;
+                            }
+                            check_underscores_schema(
+                                &arg.name,
+                                &opts,
+                                None,
+                                &mut diagnostics_by_file,
+                                arg.file_id,
+                                arg.name_range,
+                            );
                         }
                     }
                 }
@@ -894,11 +1362,17 @@ impl StandaloneSchemaLintRule for NamingConventionRuleImpl {
                 let value_rule = NamingConventionOptions::rule_for_node(
                     "EnumValueDefinition",
                     Some(&type_def.name),
+                    None,
+                    0,
                     &selectors,
                 )
                 .or_else(|| opts.enum_value_definition.clone());
                 if let Some(rule) = value_rule {
-                    let normalized = NormalizedRule::from_rule(&rule);
+                    let normalized = NormalizedRule::from_rule_with_global(
+                        &rule,
+                        opts.allow_leading_underscore,
+                        opts.allow_trailing_underscore,
+                    );
                     for value in &type_def.enum_values {
                         if let Some(failure) = check_name(&normalized, &value.name) {
                             push_diagnostic(
@@ -908,6 +1382,27 @@ impl StandaloneSchemaLintRule for NamingConventionRuleImpl {
                                 format_message("enum value", &value.name, &failure.message_body),
                             );
                         }
+                        // Global underscore check for enum value name.
+                        check_underscores_schema(
+                            &value.name,
+                            &opts,
+                            None,
+                            &mut diagnostics_by_file,
+                            type_def.file_id,
+                            value.name_range,
+                        );
+                    }
+                } else {
+                    // Even without an enum value rule, still check underscores globally.
+                    for value in &type_def.enum_values {
+                        check_underscores_schema(
+                            &value.name,
+                            &opts,
+                            None,
+                            &mut diagnostics_by_file,
+                            type_def.file_id,
+                            value.name_range,
+                        );
                     }
                 }
             }
@@ -919,11 +1414,20 @@ impl StandaloneSchemaLintRule for NamingConventionRuleImpl {
             if !source_file_ids.contains(&dir_def.file_id) {
                 continue;
             }
-            let dir_rule =
-                NamingConventionOptions::rule_for_node("DirectiveDefinition", None, &selectors)
-                    .or_else(|| opts.directive_definition.clone());
+            let dir_rule = NamingConventionOptions::rule_for_node(
+                "DirectiveDefinition",
+                None,
+                None,
+                0,
+                &selectors,
+            )
+            .or_else(|| opts.directive_definition.clone());
             if let Some(rule) = dir_rule {
-                let normalized = NormalizedRule::from_rule(&rule);
+                let normalized = NormalizedRule::from_rule_with_global(
+                    &rule,
+                    opts.allow_leading_underscore,
+                    opts.allow_trailing_underscore,
+                );
                 if let Some(failure) = check_name(&normalized, &dir_def.name) {
                     push_diagnostic(
                         &mut diagnostics_by_file,
@@ -933,11 +1437,29 @@ impl StandaloneSchemaLintRule for NamingConventionRuleImpl {
                     );
                 }
             }
-            let dir_arg_rule =
-                NamingConventionOptions::rule_for_node("Argument", Some(&dir_def.name), &selectors)
-                    .or_else(|| opts.argument.clone());
+            // Global underscore check for directive name.
+            check_underscores_schema(
+                &dir_def.name,
+                &opts,
+                None,
+                &mut diagnostics_by_file,
+                dir_def.file_id,
+                dir_def.name_range,
+            );
+            let dir_arg_rule = NamingConventionOptions::rule_for_node(
+                "Argument",
+                Some(&dir_def.name),
+                None,
+                0,
+                &selectors,
+            )
+            .or_else(|| opts.argument.clone());
             if let Some(rule) = dir_arg_rule {
-                let normalized = NormalizedRule::from_rule(&rule);
+                let normalized = NormalizedRule::from_rule_with_global(
+                    &rule,
+                    opts.allow_leading_underscore,
+                    opts.allow_trailing_underscore,
+                );
                 for arg in &dir_def.arguments {
                     if !source_file_ids.contains(&arg.file_id) {
                         continue;
@@ -950,11 +1472,82 @@ impl StandaloneSchemaLintRule for NamingConventionRuleImpl {
                             format_message("argument", &arg.name, &failure.message_body),
                         );
                     }
+                    // Global underscore check for directive argument name.
+                    check_underscores_schema(
+                        &arg.name,
+                        &opts,
+                        None,
+                        &mut diagnostics_by_file,
+                        arg.file_id,
+                        arg.name_range,
+                    );
+                }
+            } else {
+                // Even without an arg rule, still check underscores globally.
+                for arg in &dir_def.arguments {
+                    if !source_file_ids.contains(&arg.file_id) {
+                        continue;
+                    }
+                    check_underscores_schema(
+                        &arg.name,
+                        &opts,
+                        None,
+                        &mut diagnostics_by_file,
+                        arg.file_id,
+                        arg.name_range,
+                    );
                 }
             }
         }
 
+        // Sort diagnostics per-file by source offset so the order matches
+        // upstream's traversal order (types before fields, fields before args,
+        // all in document-position order). Our HIR uses HashMaps which don't
+        // preserve insertion order.
+        for diags in diagnostics_by_file.values_mut() {
+            diags.sort_by_key(|d| d.span.start);
+        }
+
         diagnostics_by_file
+    }
+}
+
+/// Emit leading/trailing underscore diagnostics for a schema-level named node.
+/// Mirrors upstream's global `checkUnderscore` visitor for schema-side names.
+/// `applied_rule` is optional; when set and its `ignorePattern` matches `name`,
+/// the underscore check is suppressed (same `ignoredNodes` logic as doc-side).
+fn check_underscores_schema(
+    name: &str,
+    opts: &NamingConventionOptions,
+    applied_rule: Option<&NormalizedRule<'_>>,
+    diagnostics_by_file: &mut HashMap<FileId, Vec<LintDiagnostic>>,
+    file_id: FileId,
+    name_range: TextRange,
+) {
+    if is_ignored_by_rule(name, applied_rule) {
+        return;
+    }
+    // Per-kind `allowLeadingUnderscore`/`allowTrailingUnderscore` wins over
+    // the global flag if set to `true`.
+    let allow_leading =
+        opts.allow_leading_underscore || applied_rule.is_some_and(|r| r.allow_leading_underscore);
+    let allow_trailing =
+        opts.allow_trailing_underscore || applied_rule.is_some_and(|r| r.allow_trailing_underscore);
+    if !allow_leading && name.starts_with('_') {
+        push_diagnostic(
+            diagnostics_by_file,
+            file_id,
+            name_range,
+            "Leading underscores are not allowed".to_string(),
+        );
+    }
+    if !allow_trailing && name.ends_with('_') {
+        push_diagnostic(
+            diagnostics_by_file,
+            file_id,
+            name_range,
+            "Trailing underscores are not allowed".to_string(),
+        );
     }
 }
 
@@ -971,15 +1564,10 @@ fn push_diagnostic(
         byte_offset: 0,
         source: None,
     };
-    diagnostics_by_file
-        .entry(file_id)
-        .or_default()
-        .push(LintDiagnostic::new(
-            span,
-            LintSeverity::Warning,
-            message,
-            "namingConvention",
-        ));
+    diagnostics_by_file.entry(file_id).or_default().push(
+        LintDiagnostic::new(span, LintSeverity::Warning, message, "namingConvention")
+            .with_message_id("namingConvention"),
+    );
 }
 
 #[cfg(test)]
@@ -1334,13 +1922,13 @@ mod tests {
 
     #[test]
     fn test_disallow_leading_underscore_when_not_opted_in() {
-        // Without `allowLeadingUnderscore`, the leading `_` is part of the
-        // name and PascalCase still rejects it (first char must be uppercase).
+        // Without `allowLeadingUnderscore`, both the style failure ("_GetUser"
+        // isn't PascalCase) and the global underscore check fire — 2 diagnostics.
         let opts = serde_json::json!({
             "OperationDefinition": "PascalCase"
         });
         let diagnostics = check_with_options("query _GetUser { user { id } }", Some(&opts));
-        assert_eq!(diagnostics.len(), 1);
+        assert_eq!(diagnostics.len(), 2);
     }
 
     // ----- schema-side tests -----
