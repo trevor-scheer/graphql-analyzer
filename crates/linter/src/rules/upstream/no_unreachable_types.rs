@@ -229,9 +229,9 @@ fn valid_l124_interface_implementing_interface() {
 #[test]
 fn valid_l132_directive_on_schema_reachable() {
     // `@good` is applied on the schema definition. Upstream marks it reachable
-    // via the `Directive` visitor when walking the schema AST node. We don't
-    // report directives (only named types), so this passes vacuously: `Query`
-    // is the only named type and it is the root, so no errors.
+    // via the `Directive` visitor when walking the schema AST node. Our rule
+    // also collects directives applied on `schema { ... }` nodes, so `@good`
+    // is reachable. `Query` is the root type, so no errors.
     Case::valid(format!(
         "https://github.com/dimaMachina/graphql-eslint/blob/{}/packages/plugin/src/rules/no-unreachable-types/index.test.ts#L132",
         super::UPSTREAM_SHA,
@@ -253,8 +253,9 @@ fn valid_l132_directive_on_schema_reachable() {
 /// <https://github.com/dimaMachina/graphql-eslint/blob/f0f200ef0b030cb8a905bbcb32fe346b87cc2e24/packages/plugin/src/rules/no-unreachable-types/index.test.ts#L144>
 #[test]
 fn valid_l144_directives_with_request_locations_ignored() {
-    // Directives with request-side locations are not named types, so our rule
-    // never reports them. The only named type here is `Query` (root). No errors.
+    // Directives with request-side (executable) locations are always considered
+    // reachable — client documents can use them. `Query` is the root type.
+    // No errors expected.
     Case::valid(format!(
         "https://github.com/dimaMachina/graphql-eslint/blob/{}/packages/plugin/src/rules/no-unreachable-types/index.test.ts#L144",
         super::UPSTREAM_SHA,
@@ -370,12 +371,60 @@ fn invalid_l188_interface_and_object_unreachable() {
     .run_against_standalone_schema(NoUnreachableTypesRuleImpl);
 }
 
-// DIVERGENCE: upstream invalid L219 expects `Directive \`auth\` is
-// unreachable.` for an unused directive definition among other unreachable
-// types. Our rule does not report unreachable directive definitions — only
-// named types (object, interface, union, enum, input). The case would fail
-// both on count (we'd emit 6, upstream expects 7) and the missing directive
-// message. Skipping rather than asserting partial output.
+/// <https://github.com/dimaMachina/graphql-eslint/blob/f0f200ef0b030cb8a905bbcb32fe346b87cc2e24/packages/plugin/src/rules/no-unreachable-types/index.test.ts#L219>
+#[test]
+fn invalid_l219_multiple_unreachable_kinds_including_directive() {
+    // Every definition here is unreachable: no Query root type means nothing
+    // is reachable. The schema has no executable-location directives, and
+    // `@auth` is never applied anywhere, so it is also unreachable.
+    Case::invalid(format!(
+        "https://github.com/dimaMachina/graphql-eslint/blob/{}/packages/plugin/src/rules/no-unreachable-types/index.test.ts#L219",
+        super::UPSTREAM_SHA,
+    ))
+    .code(
+        r"
+        # ScalarTypeDefinition
+        scalar DateTime
+
+        # EnumTypeDefinition
+        enum Role {
+          ADMIN
+          USER
+        }
+
+        # DirectiveDefinition
+        directive @auth(role: [String!]!) on FIELD_DEFINITION
+
+        # UnionTypeDefinition
+        union Union = String | Boolean
+
+        # InputObjectTypeDefinition
+        input UsersFilter {
+          limit: Int
+        }
+
+        # InterfaceTypeDefinition
+        interface Address {
+          city: String
+        }
+
+        # ObjectTypeDefinition
+        type User implements Address {
+          city: String
+        }
+      ",
+    )
+    .errors(vec![
+        ExpectedError::new().message("Scalar type `DateTime` is unreachable."),
+        ExpectedError::new().message("Enum type `Role` is unreachable."),
+        ExpectedError::new().message("Directive `auth` is unreachable."),
+        ExpectedError::new().message("Union type `Union` is unreachable."),
+        ExpectedError::new().message("Input object type `UsersFilter` is unreachable."),
+        ExpectedError::new().message("Interface type `Address` is unreachable."),
+        ExpectedError::new().message("Object type `User` is unreachable."),
+    ])
+    .run_against_standalone_schema(NoUnreachableTypesRuleImpl);
+}
 
 /// <https://github.com/dimaMachina/graphql-eslint/blob/f0f200ef0b030cb8a905bbcb32fe346b87cc2e24/packages/plugin/src/rules/no-unreachable-types/index.test.ts#L261>
 #[test]
