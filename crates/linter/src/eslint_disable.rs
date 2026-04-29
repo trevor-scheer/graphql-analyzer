@@ -1,11 +1,12 @@
 //! Preprocess `# eslint-disable*` directive comments embedded in `.graphql`
-//! source text and produce a `Suppressions` map that the lint harness can use
-//! to filter out diagnostics before asserting.
+//! source text and produce a `Suppressions` map used to filter diagnostics.
 //!
 //! Upstream `@graphql-eslint` processes these directives at the `ESLint`
 //! framework level, so rules never see the suppressed violations. We replicate
-//! that behaviour as a post-processing step in our test harness rather than
-//! threading suppression state through every rule's `check` signature.
+//! that behaviour as a post-processing step applied after rules emit diagnostics
+//! — in the production pipeline (`graphql-analysis::lint_integration`) and in
+//! the upstream-port test harness — rather than threading suppression state
+//! through every rule's `check` signature.
 //!
 //! Supported directives (matching upstream):
 //! - `# eslint-disable-next-line [rule, ...]` — suppresses the directive line
@@ -17,7 +18,7 @@
 
 /// A resolved set of suppressed `(rule_name, line_number)` pairs derived from
 /// directive comments in a single source file. Line numbers are 1-based.
-pub(crate) struct Suppressions {
+pub struct Suppressions {
     /// Ranges of (`start_line`, `end_line`, `rule_or_none`) that are suppressed.
     /// `rule` is `None` for bare directives that suppress every rule.
     ranges: Vec<SuppressionRange>,
@@ -34,7 +35,8 @@ struct SuppressionRange {
 
 impl Suppressions {
     /// Parse `source` and build a `Suppressions` map.
-    pub(crate) fn from_source(source: &str) -> Self {
+    #[must_use]
+    pub fn from_source(source: &str) -> Self {
         let mut ranges = Vec::new();
 
         // Track open `eslint-disable` blocks: rule_or_none → start_line.
@@ -123,7 +125,8 @@ impl Suppressions {
     }
 
     /// Returns `true` if `rule_name` at `line` (1-based) is suppressed.
-    pub(crate) fn is_suppressed(&self, rule_name: &str, line: u32) -> bool {
+    #[must_use]
+    pub fn is_suppressed(&self, rule_name: &str, line: u32) -> bool {
         self.ranges.iter().any(|r| {
             line >= r.start_line
                 && line <= r.end_line

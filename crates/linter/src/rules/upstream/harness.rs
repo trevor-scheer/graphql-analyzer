@@ -357,7 +357,10 @@ fn apply_fix(source: &str, fix: &crate::diagnostics::CodeFix) -> String {
 impl Case {
     fn assert_outcome(&self, diagnostics: &[LintDiagnostic], source: &str) {
         // Filter out diagnostics that are covered by eslint-disable directives
-        // in the source, matching upstream's framework-level suppression.
+        // in the source. This mirrors the production pipeline's suppression step
+        // in `convert_lint_diagnostics` (graphql-analysis). The harness calls
+        // rule `.check()` directly without going through the analysis crate, so
+        // it must apply the same filter itself.
         let suppressions = Suppressions::from_source(source);
         let diagnostics: Vec<&LintDiagnostic> = diagnostics
             .iter()

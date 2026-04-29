@@ -580,7 +580,8 @@ fn unused_ignore_diagnostics(
         .collect()
 }
 
-/// Filter raw `LintDiagnostic`s, removing those suppressed by ignore comments.
+/// Filter raw `LintDiagnostic`s, removing those suppressed by either
+/// `# graphql-analyzer-ignore` or `# eslint-disable*` directives.
 fn filter_suppressed_diagnostics(
     db: &dyn GraphQLAnalysisDatabase,
     content: FileContent,
@@ -589,6 +590,8 @@ fn filter_suppressed_diagnostics(
     let file_text = content.text(db);
     let file_line_index = graphql_syntax::line_index(db, content);
     let file_ignores = graphql_linter::ignore::parse_ignore_directives(&file_text);
+    let file_suppressions =
+        graphql_linter::eslint_disable::Suppressions::from_source(&file_text);
 
     diagnostics
         .into_iter()
@@ -597,17 +600,22 @@ fn filter_suppressed_diagnostics(
                 let block_line_index = graphql_syntax::LineIndex::new(block_source);
                 let (sl, _) = block_line_index.line_col(ld.span.start);
                 let block_ignores = graphql_linter::ignore::parse_ignore_directives(block_source);
+                let block_suppressions =
+                    graphql_linter::eslint_disable::Suppressions::from_source(block_source);
                 !graphql_linter::ignore::is_suppressed(&block_ignores, sl, &ld.rule)
+                    && !block_suppressions.is_suppressed(&ld.rule, sl as u32 + 1)
             } else {
                 let (sl, _) = file_line_index.line_col(ld.span.start);
                 !graphql_linter::ignore::is_suppressed(&file_ignores, sl, &ld.rule)
+                    && !file_suppressions.is_suppressed(&ld.rule, sl as u32 + 1)
             }
         })
         .collect()
 }
 
 /// Convert `LintDiagnostic` (byte offsets) to `Diagnostic` (line/column),
-/// filtering out diagnostics suppressed by ignore comments.
+/// filtering out diagnostics suppressed by either `# graphql-analyzer-ignore`
+/// or `# eslint-disable*` directives.
 ///
 /// Each `LintDiagnostic` carries a `SourceSpan` which bundles byte offsets with block context
 /// (for embedded GraphQL in TS/JS). When block context is present:
@@ -616,8 +624,6 @@ fn filter_suppressed_diagnostics(
 /// - We add `span.line_offset` to get the correct position in the original file
 ///
 /// For pure GraphQL files (no block context), we use the full file's `LineIndex`.
-///
-/// Diagnostics preceded by `# graphql-analyzer-ignore` comments are filtered out.
 fn convert_lint_diagnostics(
     db: &dyn GraphQLAnalysisDatabase,
     content: FileContent,
@@ -630,6 +636,8 @@ fn convert_lint_diagnostics(
     let file_text = content.text(db);
     let file_line_index = graphql_syntax::line_index(db, content);
     let file_ignores = graphql_linter::ignore::parse_ignore_directives(&file_text);
+    let file_suppressions =
+        graphql_linter::eslint_disable::Suppressions::from_source(&file_text);
 
     lint_diags
         .into_iter()
@@ -649,17 +657,22 @@ fn convert_lint_diagnostics(
                         message = %ld.message,
                         "Converting block diagnostic"
                     );
-                    // For embedded blocks, parse ignore directives from the block source
+                    // For embedded blocks, check both ignore and eslint-disable
+                    // directives against the block source (not the outer file).
                     let block_ignores =
                         graphql_linter::ignore::parse_ignore_directives(block_source);
+                    let block_suppressions =
+                        graphql_linter::eslint_disable::Suppressions::from_source(block_source);
                     let suppressed =
-                        graphql_linter::ignore::is_suppressed(&block_ignores, sl, rule_name);
+                        graphql_linter::ignore::is_suppressed(&block_ignores, sl, rule_name)
+                            || block_suppressions.is_suppressed(rule_name, sl as u32 + 1);
                     (ld.span.line_offset, sl, sc, el, ec, suppressed)
                 } else {
                     let (sl, sc) = file_line_index.line_col(ld.span.start);
                     let (el, ec) = file_line_index.line_col(ld.span.end);
                     let suppressed =
-                        graphql_linter::ignore::is_suppressed(&file_ignores, sl, rule_name);
+                        graphql_linter::ignore::is_suppressed(&file_ignores, sl, rule_name)
+                            || file_suppressions.is_suppressed(rule_name, sl as u32 + 1);
                     (0u32, sl, sc, el, ec, suppressed)
                 };
 
@@ -667,7 +680,7 @@ fn convert_lint_diagnostics(
                 tracing::debug!(
                     rule = rule_name,
                     line = start_line,
-                    "Lint diagnostic suppressed by ignore comment"
+                    "Lint diagnostic suppressed by ignore or eslint-disable comment"
                 );
                 return None;
             }
