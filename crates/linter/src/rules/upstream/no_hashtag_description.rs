@@ -82,21 +82,18 @@ fn valid_l38_inline_trailing_comments() {
 }
 
 /// <https://github.com/dimaMachina/graphql-eslint/blob/f0f200ef0b030cb8a905bbcb32fe346b87cc2e24/packages/plugin/src/rules/no-hashtag-description/index.test.ts#L44>
-/// `# eslint-disable-next-line` suppression comment is OK.
-/// DIVERGENCE: `ESLint` directive comments (`eslint-disable-next-line`) are not
-/// supported; the `#` comment is treated as a hashtag description and fires.
+/// `# eslint-disable-next-line` is an ESLint directive, not a hashtag
+/// description. The suppression fires on the directive's own line, so the
+/// rule does not produce a diagnostic.
 #[test]
 fn valid_l44_eslint_disable_next_line() {
-    Case::invalid(format!(
+    Case::valid(format!(
         "https://github.com/dimaMachina/graphql-eslint/blob/{}/packages/plugin/src/rules/no-hashtag-description/index.test.ts#L44",
         super::UPSTREAM_SHA,
     ))
     .code(
         "# eslint-disable-next-line\ntype Query {\n  foo: String\n}\n",
     )
-    .errors(vec![
-        ExpectedError::new().message_id("HASHTAG_COMMENT"),
-    ])
     .run_against_standalone_schema(NoHashtagDescriptionRuleImpl);
 }
 

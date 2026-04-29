@@ -31,23 +31,13 @@ fn valid_l11_interface_node_clean_fields() {
 /// <https://github.com/dimaMachina/graphql-eslint/blob/f0f200ef0b030cb8a905bbcb32fe346b87cc2e24/packages/plugin/src/rules/no-typename-prefix/index.test.ts#L16>
 #[test]
 fn valid_l16_eslint_disable_comment() {
-    // Upstream uses an `# eslint-disable-next-line` comment to suppress the
-    // `userId` field violation. We don't implement ESLint-style inline
-    // disable comments, so we treat this case as a no-disable scenario.
-    //
-    // DIVERGENCE: upstream expects no error because the disable comment
-    // suppresses it. We flag `userId` normally. We assert one error here
-    // to document our actual behaviour.
-    Case::invalid(format!(
+    // `# eslint-disable-next-line` suppresses the `userId` diagnostic on the
+    // following line, matching upstream's framework-level suppression.
+    Case::valid(format!(
         "https://github.com/dimaMachina/graphql-eslint/blob/{}/packages/plugin/src/rules/no-typename-prefix/index.test.ts#L16",
         super::UPSTREAM_SHA,
     ))
     .code("type User {\n  # eslint-disable-next-line\n  userId: ID!\n}")
-    .errors(vec![
-        ExpectedError::new().message(
-            "Field \"userId\" starts with the name of the parent type \"User\"",
-        ),
-    ])
     .run_against_standalone_schema(NoTypenamePrefixRuleImpl);
 }
 
