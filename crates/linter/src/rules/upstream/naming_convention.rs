@@ -200,10 +200,6 @@ fn valid_l76_selector_parent_predicate() {
         "FieldDefinition[parent.name.value=Query]": { "style": "UPPER_CASE", "prefix": "QUERY" },
         "FieldDefinition[parent.name.value!=Query]": { "style": "camelCase", "prefix": "field" },
     }))
-    // DIVERGENCE: `FieldDefinition[parent.name.value!=Query]` uses a `!=` predicate which
-    // our selector parser does not support (only `=` is). That key is silently ignored.
-    // The `FieldDefinition[parent.name.value=Query]` selector works correctly; the `!=Query`
-    // fields (like `fieldA`) fall through to no rule and pass. Net result: valid.
     .code("type One { fieldA: String } type Query { QUERY_A(id: ID!): String }")
     .run_against_standalone_schema(NamingConventionRuleImpl);
 }
@@ -325,8 +321,6 @@ fn valid_l125_required_prefixes_type_selectors() {
             "requiredPrefixes": ["hiss_"],
         },
     }))
-    // DIVERGENCE: The `gqlType.*` selector predicates are not supported; those keys are
-    // silently ignored. All fields pass because no matching rule is applied.
     .code(
         "scalar Secret\n\ninterface Snake {\n  value: String!\n}\n\ntype Test {\n  isEnabled: Boolean!\n  SUPER_SECRET_secret: Secret!\n  hiss_snake: Snake\n}\n",
     )
@@ -350,7 +344,6 @@ fn valid_l148_required_suffixes_type_selectors() {
             "requiredSuffixes": ["IpAddress"],
         },
     }))
-    // DIVERGENCE: `gqlType.*` predicates are not supported; those selectors are ignored.
     .code(
         "scalar IpAddress\n\ntype Test {\n  specialFeatureEnabled: Boolean!\n  userIpAddress: IpAddress!\n}\n",
     )
@@ -748,20 +741,12 @@ fn invalid_l430_alias_leading_trailing_underscore() {
 /// <https://github.com/dimaMachina/graphql-eslint/blob/f0f200ef0b030cb8a905bbcb32fe346b87cc2e24/packages/plugin/src/rules/naming-convention/index.test.ts#L444>
 /// name: 'should error when selected type names do not match require prefixes'
 /// Upstream pins `errors: 3` (count only); we document our errors here.
-/// `gqlType.*` selectors are not supported; those keys are silently ignored.
-/// All three fields fail because no matching rule is applied from the
-/// unsupported selectors, so the errors would be 0. This is a divergence.
-// DIVERGENCE: The `gqlType.gqlType.name.value` and `gqlType.name.value` selector
-// predicates are not supported. Those keys are silently ignored, so none of the
-// three fields fire any diagnostic. Upstream expects 3 errors; we produce 0.
 #[test]
 fn invalid_l444_required_prefixes_type_selectors_errors() {
-    Case::valid(format!(
+    Case::invalid(format!(
         "https://github.com/dimaMachina/graphql-eslint/blob/{}/packages/plugin/src/rules/naming-convention/index.test.ts#L444",
         super::UPSTREAM_SHA,
     ))
-    // DIVERGENCE: upstream expects 3 errors from gqlType.* selectors we don't support;
-    // we produce 0 errors (all fields pass) because those selectors are silently ignored.
     .options(json!({
         "FieldDefinition[gqlType.gqlType.name.value=Boolean]": {
             "style": "camelCase",
@@ -778,20 +763,23 @@ fn invalid_l444_required_prefixes_type_selectors_errors() {
     .code(
         "scalar Secret\n\ninterface Snake {\n  value: String!\n}\n\ntype Test {\n  enabled: Boolean!\n  secret: Secret!\n  snake: Snake\n}\n",
     )
+    .errors(vec![
+        ExpectedError::new().message(r#"Field "enabled" should have one of the following prefixes: is or has"#),
+        ExpectedError::new().message(r#"Field "secret" should have one of the following prefixes: SUPER_SECRET_"#),
+        ExpectedError::new().message(r#"Field "snake" should have one of the following prefixes: hiss"#),
+    ])
     .run_against_standalone_schema(NamingConventionRuleImpl);
 }
 
 /// <https://github.com/dimaMachina/graphql-eslint/blob/f0f200ef0b030cb8a905bbcb32fe346b87cc2e24/packages/plugin/src/rules/naming-convention/index.test.ts#L469>
 /// name: 'should error when selected type names do not match require suffixes'
-/// Upstream pins `errors: 2` (count only); we produce 0 (same gqlType.* divergence).
-// DIVERGENCE: same as above — gqlType.* selectors not supported.
+/// Upstream pins `errors: 2` (count only); we document our errors here.
 #[test]
 fn invalid_l469_required_suffixes_type_selectors_errors() {
-    Case::valid(format!(
+    Case::invalid(format!(
         "https://github.com/dimaMachina/graphql-eslint/blob/{}/packages/plugin/src/rules/naming-convention/index.test.ts#L469",
         super::UPSTREAM_SHA,
     ))
-    // DIVERGENCE: upstream expects 2 errors from gqlType.* selectors; we produce 0.
     .options(json!({
         "FieldDefinition[gqlType.gqlType.name.value=Boolean]": {
             "style": "camelCase",
@@ -804,6 +792,10 @@ fn invalid_l469_required_suffixes_type_selectors_errors() {
     .code(
         "scalar IpAddress\n\ntype Test {\n  specialFeature: Boolean!\n  user: IpAddress!\n}\n",
     )
+    .errors(vec![
+        ExpectedError::new().message(r#"Field "specialFeature" should have one of the following suffixes: Enabled or Disabled"#),
+        ExpectedError::new().message(r#"Field "user" should have one of the following suffixes: IpAddress"#),
+    ])
     .run_against_standalone_schema(NamingConventionRuleImpl);
 }
 
@@ -833,16 +825,13 @@ fn invalid_l486_forbidden_patterns() {
 /// <https://github.com/dimaMachina/graphql-eslint/blob/f0f200ef0b030cb8a905bbcb32fe346b87cc2e24/packages/plugin/src/rules/naming-convention/index.test.ts#L492>
 /// name: 'requiredPattern'
 /// Upstream uses JS `RegExp` `/^(is|has)/`; we use string form.
-/// Upstream pins `errors: 1` (count only); we document our errors here.
-// DIVERGENCE: upstream uses `gqlType.gqlType.name.value=Boolean` selector which is
-// not supported; we document this as producing 0 errors instead of 1.
+/// Upstream pins `errors: 1` (count only); we document our error here.
 #[test]
 fn invalid_l492_required_pattern() {
-    Case::valid(format!(
+    Case::invalid(format!(
         "https://github.com/dimaMachina/graphql-eslint/blob/{}/packages/plugin/src/rules/naming-convention/index.test.ts#L492",
         super::UPSTREAM_SHA,
     ))
-    // DIVERGENCE: gqlType.* selector not supported; upstream expects 1 error, we produce 0.
     .options(json!({
         "FieldDefinition[gqlType.gqlType.name.value=Boolean]": {
             "style": "camelCase",
@@ -851,6 +840,9 @@ fn invalid_l492_required_pattern() {
         },
     }))
     .code("type Test { enabled: Boolean! }")
+    .errors(vec![
+        ExpectedError::new().message_id("namingConvention"),
+    ])
     .run_against_standalone_schema(NamingConventionRuleImpl);
 }
 
