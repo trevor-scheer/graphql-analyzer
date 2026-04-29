@@ -46,7 +46,7 @@ pub struct Diagnostic {
     pub message: Arc<str>,
     /// Location in the file (line, column range)
     pub range: DiagnosticRange,
-    /// Source of the diagnostic (e.g., "graphql-parser", "graphql-linter")
+    /// Source of the diagnostic (e.g., "syntax", "validation", "graphql-linter")
     pub source: Arc<str>,
     /// Optional diagnostic code
     pub code: Option<Arc<str>>,
@@ -76,7 +76,7 @@ impl Diagnostic {
             severity: Severity::Error,
             message: message.into(),
             range,
-            source: "graphql-analysis".into(),
+            source: "validation".into(),
             code: None,
             message_id: None,
             fix: None,
@@ -94,7 +94,7 @@ impl Diagnostic {
             severity: Severity::Warning,
             message: message.into(),
             range,
-            source: "graphql-analysis".into(),
+            source: "validation".into(),
             code: None,
             message_id: None,
             fix: None,
@@ -112,7 +112,7 @@ impl Diagnostic {
             severity: Severity::Info,
             message: message.into(),
             range,
-            source: "graphql-analysis".into(),
+            source: "validation".into(),
             code: None,
             message_id: None,
             fix: None,
@@ -208,7 +208,7 @@ mod tests {
         let diag = Diagnostic::error("Test error", DiagnosticRange::default());
         assert_eq!(diag.severity, Severity::Error);
         assert_eq!(diag.message.as_ref(), "Test error");
-        assert_eq!(diag.source.as_ref(), "graphql-analysis");
+        assert_eq!(diag.source.as_ref(), "validation");
         assert!(diag.code.is_none());
     }
 

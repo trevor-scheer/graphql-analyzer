@@ -158,7 +158,7 @@ pub fn validate_file(
                         severity: Severity::Error,
                         message,
                         range,
-                        source: "apollo-compiler".into(),
+                        source: "validation".into(),
                         code: None,
                         message_id: None,
                         fix: None,

@@ -61,7 +61,7 @@ fn collect_apollo_diagnostics(errors: &DiagnosticList) -> HashMap<Arc<str>, Vec<
                 severity: Severity::Error,
                 message,
                 range,
-                source: "apollo-compiler".into(),
+                source: "validation".into(),
                 code: None,
                 message_id: None,
                 fix: None,
