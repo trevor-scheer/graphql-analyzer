@@ -120,9 +120,6 @@ fn valid_l68_fragment_ignored_by_operation_rule() {
 #[test]
 fn valid_l75_root_field_described() {
     // `rootField: true` with a described root field — no errors.
-    // Our rule accepts `rootField` in the options struct (dead field) but
-    // doesn't enforce it; with `{ rootField: true }` the other kinds default
-    // to false so nothing fires.
     Case::valid(format!(
         "https://github.com/dimaMachina/graphql-eslint/blob/{}/packages/plugin/src/rules/require-description/index.test.ts#L75",
         super::UPSTREAM_SHA,
@@ -152,87 +149,79 @@ fn valid_l81_empty_query_type() {
 /// <https://github.com/dimaMachina/graphql-eslint/blob/f0f200ef0b030cb8a905bbcb32fe346b87cc2e24/packages/plugin/src/rules/require-description/index.test.ts#L88>
 #[test]
 fn invalid_l88_object_type_no_description() {
-    // Upstream: `ObjectTypeDefinition: true` → 1 error.
-    // DIVERGENCE: our options struct has no per-kind `ObjectTypeDefinition` flag;
-    // `types: bool` covers all type kinds. With `{ ObjectTypeDefinition: true }`,
-    // serde ignores the unknown field and `types` defaults to false, so we
-    // produce 0 errors instead of 1.
-    Case::valid(format!(
+    // `ObjectTypeDefinition: true` → 1 error on the undescribed type.
+    Case::invalid(format!(
         "https://github.com/dimaMachina/graphql-eslint/blob/{}/packages/plugin/src/rules/require-description/index.test.ts#L88",
         super::UPSTREAM_SHA,
     ))
     .code("type User { id: ID }")
     .options(serde_json::json!({ "ObjectTypeDefinition": true }))
+    .errors(vec![ExpectedError::new().message_id("require-description")])
     .run_against_standalone_schema(RequireDescriptionRuleImpl);
 }
 
 /// <https://github.com/dimaMachina/graphql-eslint/blob/f0f200ef0b030cb8a905bbcb32fe346b87cc2e24/packages/plugin/src/rules/require-description/index.test.ts#L92>
 #[test]
 fn invalid_l92_interface_type_no_description() {
-    // DIVERGENCE: `InterfaceTypeDefinition: true` is not a supported option;
-    // we produce 0 errors instead of 1. See invalid_l88 for explanation.
-    Case::valid(format!(
+    Case::invalid(format!(
         "https://github.com/dimaMachina/graphql-eslint/blob/{}/packages/plugin/src/rules/require-description/index.test.ts#L92",
         super::UPSTREAM_SHA,
     ))
     .code("interface Node { id: ID! }")
     .options(serde_json::json!({ "InterfaceTypeDefinition": true }))
+    .errors(vec![ExpectedError::new().message_id("require-description")])
     .run_against_standalone_schema(RequireDescriptionRuleImpl);
 }
 
 /// <https://github.com/dimaMachina/graphql-eslint/blob/f0f200ef0b030cb8a905bbcb32fe346b87cc2e24/packages/plugin/src/rules/require-description/index.test.ts#L96>
 #[test]
 fn invalid_l96_enum_type_no_description() {
-    // DIVERGENCE: `EnumTypeDefinition: true` is not a supported option;
-    // we produce 0 errors instead of 1. See invalid_l88 for explanation.
-    Case::valid(format!(
+    Case::invalid(format!(
         "https://github.com/dimaMachina/graphql-eslint/blob/{}/packages/plugin/src/rules/require-description/index.test.ts#L96",
         super::UPSTREAM_SHA,
     ))
     .code("enum Role { ADMIN }")
     .options(serde_json::json!({ "EnumTypeDefinition": true }))
+    .errors(vec![ExpectedError::new().message_id("require-description")])
     .run_against_standalone_schema(RequireDescriptionRuleImpl);
 }
 
 /// <https://github.com/dimaMachina/graphql-eslint/blob/f0f200ef0b030cb8a905bbcb32fe346b87cc2e24/packages/plugin/src/rules/require-description/index.test.ts#L100>
 #[test]
 fn invalid_l100_scalar_no_description() {
-    // DIVERGENCE: `ScalarTypeDefinition: true` is not a supported option;
-    // we produce 0 errors instead of 1. See invalid_l88 for explanation.
-    Case::valid(format!(
+    Case::invalid(format!(
         "https://github.com/dimaMachina/graphql-eslint/blob/{}/packages/plugin/src/rules/require-description/index.test.ts#L100",
         super::UPSTREAM_SHA,
     ))
     .code("scalar Email")
     .options(serde_json::json!({ "ScalarTypeDefinition": true }))
+    .errors(vec![ExpectedError::new().message_id("require-description")])
     .run_against_standalone_schema(RequireDescriptionRuleImpl);
 }
 
 /// <https://github.com/dimaMachina/graphql-eslint/blob/f0f200ef0b030cb8a905bbcb32fe346b87cc2e24/packages/plugin/src/rules/require-description/index.test.ts#L104>
 #[test]
 fn invalid_l104_input_object_no_description() {
-    // DIVERGENCE: `InputObjectTypeDefinition: true` is not a supported option;
-    // we produce 0 errors instead of 1. See invalid_l88 for explanation.
-    Case::valid(format!(
+    Case::invalid(format!(
         "https://github.com/dimaMachina/graphql-eslint/blob/{}/packages/plugin/src/rules/require-description/index.test.ts#L104",
         super::UPSTREAM_SHA,
     ))
     .code("input CreateUserInput { email: Email! }")
     .options(serde_json::json!({ "InputObjectTypeDefinition": true }))
+    .errors(vec![ExpectedError::new().message_id("require-description")])
     .run_against_standalone_schema(RequireDescriptionRuleImpl);
 }
 
 /// <https://github.com/dimaMachina/graphql-eslint/blob/f0f200ef0b030cb8a905bbcb32fe346b87cc2e24/packages/plugin/src/rules/require-description/index.test.ts#L108>
 #[test]
 fn invalid_l108_union_no_description() {
-    // DIVERGENCE: `UnionTypeDefinition: true` is not a supported option;
-    // we produce 0 errors instead of 1. See invalid_l88 for explanation.
-    Case::valid(format!(
+    Case::invalid(format!(
         "https://github.com/dimaMachina/graphql-eslint/blob/{}/packages/plugin/src/rules/require-description/index.test.ts#L108",
         super::UPSTREAM_SHA,
     ))
     .code("union Media = Book | Movie")
     .options(serde_json::json!({ "UnionTypeDefinition": true }))
+    .errors(vec![ExpectedError::new().message_id("require-description")])
     .run_against_standalone_schema(RequireDescriptionRuleImpl);
 }
 
@@ -291,11 +280,9 @@ fn invalid_l124_enum_value_no_description() {
 /// <https://github.com/dimaMachina/graphql-eslint/blob/f0f200ef0b030cb8a905bbcb32fe346b87cc2e24/packages/plugin/src/rules/require-description/index.test.ts#L128>
 #[test]
 fn invalid_l128_object_type_override_false() {
-    // Upstream: `{ types: true, ObjectTypeDefinition: false, FieldDefinition: true }`
-    // disables ObjectTypeDefinition and enables FieldDefinition only → 2 field errors.
-    // DIVERGENCE: we don't support per-kind overrides like `ObjectTypeDefinition: false`.
-    // With `{ types: true, FieldDefinition: true }` we fire on the type too, giving
-    // 3 errors (type + 2 fields) instead of 2.
+    // `{ types: true, ObjectTypeDefinition: false, FieldDefinition: true }`
+    // suppresses ObjectTypeDefinition (explicit `false` wins over `types: true`)
+    // and enables FieldDefinition → 2 field errors only, no type error.
     Case::invalid(format!(
         "https://github.com/dimaMachina/graphql-eslint/blob/{}/packages/plugin/src/rules/require-description/index.test.ts#L128",
         super::UPSTREAM_SHA,
@@ -305,7 +292,6 @@ fn invalid_l128_object_type_override_false() {
     )
     .options(serde_json::json!({ "types": true, "ObjectTypeDefinition": false, "FieldDefinition": true }))
     .errors(vec![
-        ExpectedError::new().message_id("require-description"),
         ExpectedError::new().message_id("require-description"),
         ExpectedError::new().message_id("require-description"),
     ])
@@ -387,54 +373,51 @@ fn invalid_l170_fragment_comment_ignored_for_query() {
 /// <https://github.com/dimaMachina/graphql-eslint/blob/f0f200ef0b030cb8a905bbcb32fe346b87cc2e24/packages/plugin/src/rules/require-description/index.test.ts#L183>
 #[test]
 fn invalid_l183_root_field_no_description() {
-    // Upstream: `rootField: true`, `type Query { user(id: String!): User! }` → 1 error.
-    // DIVERGENCE: `rootField` is accepted but not yet implemented; with
-    // `{ rootField: true }` alone all other kinds default to false, so we
-    // produce 0 errors instead of 1.
-    Case::valid(format!(
+    // `rootField: true` requires descriptions on fields of root operation
+    // types. `type Query { user(id: String!): User! }` has no description on
+    // `user` → 1 error.
+    Case::invalid(format!(
         "https://github.com/dimaMachina/graphql-eslint/blob/{}/packages/plugin/src/rules/require-description/index.test.ts#L183",
         super::UPSTREAM_SHA,
     ))
     .code("type Query { user(id: String!): User! }")
     .options(serde_json::json!({ "rootField": true }))
+    .errors(vec![ExpectedError::new().message_id("require-description")])
     .run_against_standalone_schema(RequireDescriptionRuleImpl);
 }
 
 /// <https://github.com/dimaMachina/graphql-eslint/blob/f0f200ef0b030cb8a905bbcb32fe346b87cc2e24/packages/plugin/src/rules/require-description/index.test.ts#L189>
 #[test]
 fn invalid_l189_root_field_mutation_no_description() {
-    // DIVERGENCE: `rootField` not implemented; produces 0 errors instead of 1.
-    Case::valid(format!(
+    Case::invalid(format!(
         "https://github.com/dimaMachina/graphql-eslint/blob/{}/packages/plugin/src/rules/require-description/index.test.ts#L189",
         super::UPSTREAM_SHA,
     ))
     .code("type Mutation { createUser(id: [ID!]!): User! }")
     .options(serde_json::json!({ "rootField": true }))
+    .errors(vec![ExpectedError::new().message_id("require-description")])
     .run_against_standalone_schema(RequireDescriptionRuleImpl);
 }
 
 /// <https://github.com/dimaMachina/graphql-eslint/blob/f0f200ef0b030cb8a905bbcb32fe346b87cc2e24/packages/plugin/src/rules/require-description/index.test.ts#L195>
 #[test]
 fn invalid_l195_root_field_subscription_no_description() {
-    // DIVERGENCE: `rootField` not implemented; produces 0 errors instead of 1.
-    Case::valid(format!(
+    Case::invalid(format!(
         "https://github.com/dimaMachina/graphql-eslint/blob/{}/packages/plugin/src/rules/require-description/index.test.ts#L195",
         super::UPSTREAM_SHA,
     ))
     .code("type MySubscription {\n  users: [User!]!\n}\nschema {\n  subscription: MySubscription\n}")
     .options(serde_json::json!({ "rootField": true }))
+    .errors(vec![ExpectedError::new().message_id("require-description")])
     .run_against_standalone_schema(RequireDescriptionRuleImpl);
 }
 
 /// <https://github.com/dimaMachina/graphql-eslint/blob/f0f200ef0b030cb8a905bbcb32fe346b87cc2e24/packages/plugin/src/rules/require-description/index.test.ts#L207>
 #[test]
 fn invalid_l207_ignored_selectors() {
-    // Upstream: `types: true` + `ignoredSelectors` exempts PageInfo, *Connection,
-    // *Edge types → errors on Query, User, Friend only (3 errors).
-    // DIVERGENCE: we don't implement `ignoredSelectors`; with `{ types: true }` we
-    // fire on all undescribed types. The code below has these undescribed types:
-    // Query, User, FriendConnection, FriendEdge, Friend, PageInfo = 6 types.
-    // Assert 6 so the test stays green against our actual output.
+    // `types: true` + `ignoredSelectors` exempts PageInfo and any type whose
+    // name ends in `Connection` or `Edge`. The remaining undescribed types are
+    // Query, User, and Friend → 3 errors.
     Case::invalid(format!(
         "https://github.com/dimaMachina/graphql-eslint/blob/{}/packages/plugin/src/rules/require-description/index.test.ts#L207",
         super::UPSTREAM_SHA,
@@ -475,9 +458,6 @@ type PageInfo {
         ]
     }))
     .errors(vec![
-        ExpectedError::new().message_id("require-description"),
-        ExpectedError::new().message_id("require-description"),
-        ExpectedError::new().message_id("require-description"),
         ExpectedError::new().message_id("require-description"),
         ExpectedError::new().message_id("require-description"),
         ExpectedError::new().message_id("require-description"),
