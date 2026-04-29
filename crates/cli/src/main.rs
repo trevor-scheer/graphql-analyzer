@@ -7,7 +7,7 @@ mod watch;
 
 pub use exit_code::ExitCode;
 
-use clap::{Parser, Subcommand};
+use clap::{CommandFactory, Parser, Subcommand};
 use std::path::PathBuf;
 
 #[derive(Parser)]
@@ -258,6 +258,12 @@ Examples:
         preload: Option<Vec<String>>,
     },
 
+    /// Generate shell completions
+    #[command(name = "completions")]
+    Completions {
+        /// Shell to generate completions for
+        shell: clap_complete::Shell,
+    },
     /// List all available lint rules
     #[command(name = "list-rules")]
     ListRules,
@@ -385,6 +391,11 @@ async fn main() -> anyhow::Result<()> {
             no_preload,
             preload,
         } => commands::mcp::run(workspace, no_preload, preload).await,
+        Commands::Completions { shell } => {
+            let mut cmd = Cli::command();
+            clap_complete::generate(shell, &mut cmd, "graphql", &mut std::io::stdout());
+            Ok(())
+        }
         Commands::ListRules => commands::list_rules::run(),
         Commands::Explain { rule } => commands::explain::run(&rule),
         Commands::Lsp => unreachable!("handled above"),
