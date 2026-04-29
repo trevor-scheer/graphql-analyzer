@@ -1,11 +1,12 @@
 use crate::analysis::CliAnalysisHost;
 use crate::commands::common::CommandContext;
 use crate::commands::fix::{apply_fixes, collect_fixable_diagnostics, display_dry_run};
+use crate::rendering;
 use crate::watch::{FileWatcher, WatchConfig, WatchMode};
 use crate::{ExitCode, OutputFormat, OutputOptions};
 use anyhow::Result;
 use colored::Colorize;
-use graphql_ide::DiagnosticSeverity;
+use graphql_ide::{DiagnosticSeverity, DiagnosticTag};
 use std::path::PathBuf;
 
 /// Diagnostic output structure for collecting warnings and errors
@@ -18,6 +19,16 @@ struct DiagnosticOutput {
     message: String,
     severity: String,
     rule: Option<String>,
+    help: Option<String>,
+    url: Option<String>,
+    tags: Vec<DiagnosticTag>,
+}
+
+fn tag_name(tag: &DiagnosticTag) -> &'static str {
+    match tag {
+        DiagnosticTag::Unnecessary => "unnecessary",
+        DiagnosticTag::Deprecated => "deprecated",
+    }
 }
 
 /// File-level diagnostic grouping for JSON output
@@ -26,6 +37,7 @@ struct FileDiagnostics {
     warnings: Vec<DiagnosticOutput>,
 }
 
+#[allow(clippy::too_many_arguments)]
 pub fn run(
     config_path: Option<PathBuf>,
     project_name: Option<&str>,
@@ -33,6 +45,7 @@ pub fn run(
     watch: bool,
     fix: bool,
     fix_dry_run: bool,
+    max_warnings: Option<usize>,
     output_opts: OutputOptions,
 ) -> Result<()> {
     if watch {
@@ -52,13 +65,7 @@ pub fn run(
     let ctx = CommandContext::load(config_path, project_name, "lint")?;
 
     // Get project config
-    let selected_name = CommandContext::get_project_name(project_name);
-    let project_config = ctx
-        .config
-        .projects()
-        .find(|(name, _)| *name == selected_name)
-        .map(|(_, cfg)| cfg.clone())
-        .ok_or_else(|| anyhow::anyhow!("Project '{selected_name}' not found"))?;
+    let project_config = ctx.get_project_config(project_name)?;
 
     // Load and select project
     let spinner = if matches!(format, OutputFormat::Human) && output_opts.show_progress {
@@ -141,7 +148,7 @@ pub fn run(
     let mut files_with_diagnostics: std::collections::HashMap<String, FileDiagnostics> =
         std::collections::HashMap::new();
 
-    for (file_path, diagnostics) in all_diagnostics {
+    for (file_path, diagnostics) in &all_diagnostics {
         let file_path_str = file_path.to_string_lossy().to_string();
 
         for diag in diagnostics {
@@ -160,9 +167,12 @@ pub fn run(
                 column: (diag.range.start.character + 1) as usize,
                 end_line: (diag.range.end.line + 1) as usize,
                 end_column: (diag.range.end.character + 1) as usize,
-                message: diag.message,
+                message: diag.message.clone(),
                 severity: severity_string,
-                rule: diag.code,
+                rule: diag.code.clone(),
+                help: diag.help.clone(),
+                url: diag.url.clone(),
+                tags: diag.tags.clone(),
             };
 
             let file_diags = files_with_diagnostics
@@ -198,33 +208,36 @@ pub fn run(
 
     match format {
         OutputFormat::Human => {
-            // Print all warnings
-            for warning in &all_warnings {
-                println!(
-                    "\n{}:{}:{}: {} {}",
-                    warning.file_path,
-                    warning.line,
-                    warning.column,
-                    "warning:".yellow().bold(),
-                    warning.message.yellow()
-                );
-                if let Some(ref rule) = warning.rule {
-                    println!("  {}: {}", "rule".dimmed(), rule.dimmed());
-                }
-            }
+            // Render diagnostics with source code snippets using ariadne.
+            // We re-iterate the original diagnostics to preserve the full
+            // Diagnostic type needed by the renderer.
+            for (file_path, diagnostics) in &all_diagnostics {
+                let file_path_str = file_path.to_string_lossy();
+                let source_text = std::fs::read_to_string(file_path).ok();
 
-            // Print all errors
-            for error in &all_errors {
-                println!(
-                    "\n{}:{}:{}: {} {}",
-                    error.file_path,
-                    error.line,
-                    error.column,
-                    "error:".red().bold(),
-                    error.message.red()
-                );
-                if let Some(ref rule) = error.rule {
-                    println!("  {}: {}", "rule".dimmed(), rule.dimmed());
+                for diag in diagnostics {
+                    if let Some(ref source) = source_text {
+                        if rendering::render_diagnostic(&file_path_str, source, diag) {
+                            continue;
+                        }
+                    }
+                    // Fallback: simple format when source can't be loaded
+                    let line = diag.range.start.line + 1;
+                    let col = diag.range.start.character + 1;
+                    let (sev_label, msg_styled) = match diag.severity {
+                        DiagnosticSeverity::Error => ("error:".red().bold(), diag.message.red()),
+                        _ => ("warning:".yellow().bold(), diag.message.yellow()),
+                    };
+                    println!("\n{file_path_str}:{line}:{col}: {sev_label} {msg_styled}");
+                    if let Some(ref rule) = diag.code {
+                        println!("  {}: {}", "rule".dimmed(), rule.dimmed());
+                    }
+                    if let Some(ref help) = diag.help {
+                        println!("  {}: {}", "help".cyan(), help);
+                    }
+                    if let Some(ref url) = diag.url {
+                        println!("  {}: {}", "docs".dimmed(), url.dimmed());
+                    }
                 }
             }
         }
@@ -235,6 +248,9 @@ pub fn run(
                     "message": d.message,
                     "severity": d.severity,
                     "rule": d.rule,
+                    "help": d.help,
+                    "url": d.url,
+                    "tags": d.tags.iter().map(tag_name).collect::<Vec<_>>(),
                     "location": {
                         "start": { "line": d.line, "column": d.column },
                         "end": { "line": d.end_line, "column": d.end_column }
@@ -282,8 +298,14 @@ pub fn run(
                     .map(|r| format!(" [{r}]"))
                     .unwrap_or_default();
                 println!(
-                    "::warning file={},line={},col={}::{}{}",
-                    warning.file_path, warning.line, warning.column, warning.message, rule_suffix
+                    "::warning file={},line={},col={},endLine={},endColumn={}::{}{}",
+                    warning.file_path,
+                    warning.line,
+                    warning.column,
+                    warning.end_line,
+                    warning.end_column,
+                    warning.message,
+                    rule_suffix
                 );
             }
 
@@ -294,10 +316,45 @@ pub fn run(
                     .map(|r| format!(" [{r}]"))
                     .unwrap_or_default();
                 println!(
-                    "::error file={},line={},col={}::{}{}",
-                    error.file_path, error.line, error.column, error.message, rule_suffix
+                    "::error file={},line={},col={},endLine={},endColumn={}::{}{}",
+                    error.file_path,
+                    error.line,
+                    error.column,
+                    error.end_line,
+                    error.end_column,
+                    error.message,
+                    rule_suffix
                 );
             }
+        }
+        OutputFormat::Sarif => {
+            use crate::commands::sarif::{self, SarifLevel, SarifResult};
+
+            let mut sarif_results = Vec::new();
+            for diags in files_with_diagnostics.values() {
+                for d in diags.warnings.iter().chain(diags.errors.iter()) {
+                    sarif_results.push(SarifResult {
+                        rule_id: d.rule.clone().unwrap_or_else(|| "lint".to_string()),
+                        message: d.message.clone(),
+                        level: match d.severity.as_str() {
+                            "error" => SarifLevel::Error,
+                            "warning" => SarifLevel::Warning,
+                            _ => SarifLevel::Note,
+                        },
+                        file_path: d.file_path.clone(),
+                        start_line: d.line,
+                        start_column: d.column,
+                        end_line: d.end_line,
+                        end_column: d.end_column,
+                    });
+                }
+            }
+
+            let output = sarif::format_sarif(&sarif_results, &ctx.base_dir);
+            println!(
+                "{}",
+                serde_json::to_string_pretty(&output).unwrap_or_default()
+            );
         }
     }
 
@@ -351,6 +408,15 @@ pub fn run(
         ExitCode::ValidationError.exit();
     }
 
+    if let Some(max) = max_warnings {
+        if total_warnings > max {
+            eprintln!("\ngraphql-analyzer found {total_warnings} warning(s) (threshold: {max})");
+            ExitCode::WarningThresholdExceeded.exit();
+        } else if total_warnings < max {
+            eprintln!("\nYou can lower --max-warnings to {total_warnings} (currently {max})");
+        }
+    }
+
     Ok(())
 }
 
@@ -364,13 +430,7 @@ fn run_watch_mode(
     let ctx = CommandContext::load(config_path, project_name, "lint")?;
 
     // Get project config
-    let selected_name = CommandContext::get_project_name(project_name);
-    let project_config = ctx
-        .config
-        .projects()
-        .find(|(name, _)| *name == selected_name)
-        .map(|(_, cfg)| cfg.clone())
-        .ok_or_else(|| anyhow::anyhow!("Project '{selected_name}' not found"))?;
+    let project_config = ctx.get_project_config(project_name)?;
 
     // Create watch config
     let watch_config = WatchConfig {

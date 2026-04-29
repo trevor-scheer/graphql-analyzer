@@ -1,0 +1,23 @@
+# Source schema - intentionally incomplete.
+# A build step (e.g., directive-based codegen) generates additional fields.
+
+directive @generated(from: String!) on FIELD_DEFINITION
+
+type Query {
+  user(id: ID!): User
+  users: [User!]!
+}
+
+type User {
+  id: ID!
+  name: String!
+  email: String!
+  # The build step generates a `permissions` field from this directive
+  role: Role! @generated(from: "permissions")
+}
+
+enum Role {
+  ADMIN
+  USER
+  GUEST
+}

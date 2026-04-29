@@ -1,16 +1,32 @@
 //! Type conversion functions between LSP types and graphql-ide types
 //!
 //! This module contains pure conversion functions that translate between:
-//! - LSP protocol types (from tower-lsp/lsp-types)
+//! - LSP protocol types (from lsp-types)
 //! - graphql-ide types (our internal IDE API types)
 //!
 //! These conversions are stateless and can be used from any LSP handler.
+
+#[cfg(feature = "native")]
+use std::path::PathBuf;
 
 use lsp_types::{
     CodeLens, Command, Diagnostic, DiagnosticSeverity, FoldingRange, FoldingRangeKind, InlayHint,
     InlayHintKind, InlayHintLabel, Location, Position, Range, Uri,
 };
-use tower_lsp_server::ls_types as lsp_types;
+
+// =============================================================================
+// URI Helpers
+// =============================================================================
+
+/// Convert a `file://` URI to a filesystem path.
+///
+/// Delegates to the `url` crate for correct percent-decoding (including
+/// multi-byte UTF-8) and Windows drive-letter handling.
+#[cfg(feature = "native")]
+pub fn uri_to_file_path(uri: &Uri) -> Option<PathBuf> {
+    let url = url::Url::parse(uri.as_str()).ok()?;
+    url.to_file_path().ok()
+}
 
 // =============================================================================
 // Conversion Functions
@@ -98,12 +114,38 @@ pub fn convert_ide_diagnostic(diag: graphql_ide::Diagnostic) -> Diagnostic {
         graphql_ide::DiagnosticSeverity::Hint => DiagnosticSeverity::HINT,
     };
 
+    // If a URL fails to parse, drop it rather than panic — the diagnostic
+    // itself is still useful without the documentation link.
+    let code_description = diag
+        .url
+        .as_deref()
+        .and_then(|url| url.parse().ok())
+        .map(|href| lsp_types::CodeDescription { href });
+
+    let tags: Vec<lsp_types::DiagnosticTag> = diag
+        .tags
+        .iter()
+        .map(|t| match t {
+            graphql_ide::DiagnosticTag::Unnecessary => lsp_types::DiagnosticTag::UNNECESSARY,
+            graphql_ide::DiagnosticTag::Deprecated => lsp_types::DiagnosticTag::DEPRECATED,
+        })
+        .collect();
+
+    // LSP has no dedicated `help` field, so we append help text to the message.
+    // Clients that render `codeDescription` will still see the doc link separately.
+    let mut message = diag.message;
+    if let Some(ref help) = diag.help {
+        message = format!("{message}\nhelp: {help}");
+    }
+
     Diagnostic {
         range: convert_ide_range(diag.range),
         severity: Some(severity),
         code: diag.code.map(lsp_types::NumberOrString::String),
+        code_description,
         source: Some(diag.source),
-        message: diag.message,
+        message,
+        tags: if tags.is_empty() { None } else { Some(tags) },
         ..Default::default()
     }
 }
@@ -125,6 +167,7 @@ pub const fn convert_ide_symbol_kind(kind: graphql_ide::SymbolKind) -> lsp_types
         graphql_ide::SymbolKind::Union | graphql_ide::SymbolKind::Enum => {
             lsp_types::SymbolKind::ENUM
         }
+        graphql_ide::SymbolKind::Directive => lsp_types::SymbolKind::EVENT,
     }
 }
 
@@ -453,7 +496,12 @@ mod tests {
             ),
             source: "graphql".to_string(),
             code: Some("unknown-field".to_string()),
+            message_id: None,
             fix: None,
+            suggestions: Vec::new(),
+            help: None,
+            url: None,
+            tags: Vec::new(),
         };
         let lsp_diag = convert_ide_diagnostic(ide_diag);
         assert_eq!(lsp_diag.severity, Some(DiagnosticSeverity::ERROR));
@@ -472,10 +520,121 @@ mod tests {
             ),
             source: "linter".to_string(),
             code: None,
+            message_id: None,
             fix: None,
+            suggestions: Vec::new(),
+            help: None,
+            url: None,
+            tags: Vec::new(),
         };
         let lsp_diag = convert_ide_diagnostic(ide_diag);
         assert_eq!(lsp_diag.severity, Some(DiagnosticSeverity::WARNING));
+    }
+
+    #[test]
+    fn test_convert_ide_diagnostic_with_help_appends_to_message() {
+        let ide_diag = graphql_ide::Diagnostic {
+            severity: graphql_ide::DiagnosticSeverity::Warning,
+            message: "Field is deprecated".to_string(),
+            range: graphql_ide::Range::new(
+                graphql_ide::Position::new(0, 0),
+                graphql_ide::Position::new(0, 0),
+            ),
+            source: "linter".to_string(),
+            code: Some("noDeprecated".to_string()),
+            message_id: None,
+            fix: None,
+            suggestions: Vec::new(),
+            help: Some("Use the replacement field".to_string()),
+            url: None,
+            tags: Vec::new(),
+        };
+        let lsp_diag = convert_ide_diagnostic(ide_diag);
+        assert_eq!(
+            lsp_diag.message,
+            "Field is deprecated\nhelp: Use the replacement field"
+        );
+    }
+
+    #[test]
+    fn test_convert_ide_diagnostic_with_url_sets_code_description() {
+        let ide_diag = graphql_ide::Diagnostic {
+            severity: graphql_ide::DiagnosticSeverity::Warning,
+            message: "msg".to_string(),
+            range: graphql_ide::Range::new(
+                graphql_ide::Position::new(0, 0),
+                graphql_ide::Position::new(0, 0),
+            ),
+            source: "linter".to_string(),
+            code: Some("noDeprecated".to_string()),
+            message_id: None,
+            fix: None,
+            suggestions: Vec::new(),
+            help: None,
+            url: Some("https://graphql-analyzer.dev/rules/noDeprecated".to_string()),
+            tags: Vec::new(),
+        };
+        let lsp_diag = convert_ide_diagnostic(ide_diag);
+        let desc = lsp_diag
+            .code_description
+            .expect("code_description should be set when url is provided");
+        assert_eq!(
+            desc.href.as_str(),
+            "https://graphql-analyzer.dev/rules/noDeprecated"
+        );
+    }
+
+    #[test]
+    fn test_convert_ide_diagnostic_with_invalid_url_drops_code_description() {
+        let ide_diag = graphql_ide::Diagnostic {
+            severity: graphql_ide::DiagnosticSeverity::Warning,
+            message: "msg".to_string(),
+            range: graphql_ide::Range::new(
+                graphql_ide::Position::new(0, 0),
+                graphql_ide::Position::new(0, 0),
+            ),
+            source: "linter".to_string(),
+            code: None,
+            message_id: None,
+            fix: None,
+            suggestions: Vec::new(),
+            help: None,
+            url: Some("not a valid url".to_string()),
+            tags: Vec::new(),
+        };
+        let lsp_diag = convert_ide_diagnostic(ide_diag);
+        assert!(
+            lsp_diag.code_description.is_none(),
+            "invalid URL should be dropped rather than panic"
+        );
+    }
+
+    #[test]
+    fn test_convert_ide_diagnostic_tags() {
+        let ide_diag = graphql_ide::Diagnostic {
+            severity: graphql_ide::DiagnosticSeverity::Warning,
+            message: "msg".to_string(),
+            range: graphql_ide::Range::new(
+                graphql_ide::Position::new(0, 0),
+                graphql_ide::Position::new(0, 0),
+            ),
+            source: "linter".to_string(),
+            code: None,
+            message_id: None,
+            fix: None,
+            suggestions: Vec::new(),
+            help: None,
+            url: None,
+            tags: vec![
+                graphql_ide::DiagnosticTag::Unnecessary,
+                graphql_ide::DiagnosticTag::Deprecated,
+            ],
+        };
+        let lsp_diag = convert_ide_diagnostic(ide_diag);
+        let tags = lsp_diag.tags.expect("tags should be present");
+        assert_eq!(tags.len(), 2);
+        assert_eq!(tags[0], lsp_types::DiagnosticTag::UNNECESSARY);
+        assert_eq!(tags[1], lsp_types::DiagnosticTag::DEPRECATED);
     }
 
     #[test]
@@ -499,6 +658,10 @@ mod tests {
         assert_eq!(
             convert_ide_symbol_kind(graphql_ide::SymbolKind::Interface),
             lsp_types::SymbolKind::INTERFACE
+        );
+        assert_eq!(
+            convert_ide_symbol_kind(graphql_ide::SymbolKind::Directive),
+            lsp_types::SymbolKind::EVENT
         );
     }
 

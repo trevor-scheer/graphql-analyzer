@@ -147,7 +147,7 @@ let diagnostics_by_file = linter.lint_project(&ctx);
 
 **Use case**: CI/CD, comprehensive project analysis
 **Performance**: Potentially expensive on large projects
-**Current rules**: `unique_names`, `unused_fields`
+**Current rules**: `unique_names`, `no_unused_fields`
 
 ## Configuration
 
@@ -198,7 +198,7 @@ extensions:
   lint:
     extends: [recommended]
     rules:
-      unusedFields: warn
+      noUnusedFields: warn
 ```
 
 ### Severity Levels
@@ -250,8 +250,8 @@ The `recommended` preset includes rules that are objectively beneficial without 
 | `no_anonymous_operations` | error    | Named operations improve debugging and tooling |
 | `no_deprecated`           | warn     | Alerts to deprecated API usage                 |
 | `redundant_fields`        | warn     | Removes unnecessary duplication                |
-| `unused_fragments`        | warn     | Dead code removal                              |
-| `unused_fields`           | warn     | Identifies unused schema surface area          |
+| `no_unused_fragments`     | warn     | Dead code removal                              |
+| `no_unused_fields`        | warn     | Identifies unused schema surface area          |
 
 Other rules like `unique_names` and `require_id_field` are available but not included by default since they're tied to specific tooling choices (persisted queries, normalized caching, etc.).
 
@@ -314,6 +314,34 @@ The rule handles:
 - Transitive redundancy (field in fragment that includes other fragments)
 - Circular fragment references (prevents infinite loops)
 - Aliased fields (only same alias is considered redundant)
+
+### match_document_filename
+
+**Type**: StandaloneDocumentRule
+
+Enforces that operation and fragment names match the filename. For example, a file named `GetUser.graphql` should contain an operation named `GetUser`.
+
+The rule supports configurable naming styles (`camelCase`, `PascalCase`, `snake_case`, `kebab-case`, `matchDocumentStyle`) per definition type (query, mutation, subscription, fragment) and optional suffixes.
+
+```graphql
+# File: GetUser.graphql
+# Good - operation name matches filename
+query GetUser {
+  user {
+    id
+    name
+  }
+}
+
+# File: GetUser.graphql
+# Bad - operation name doesn't match filename
+query FetchUser {
+  user {
+    id
+    name
+  }
+}
+```
 
 ### require_id_field
 
@@ -385,6 +413,145 @@ query GetUser {
 }
 ```
 
+### require_nullable_result_in_root
+
+**Type**: StandaloneSchemaRule
+
+Requires root type fields (Query, Mutation, Subscription) to return nullable types. When a root field returns a non-null type and an error occurs, GraphQL's null-bubbling behavior propagates the null up to the nearest nullable parent — potentially nulling out the entire `data` response. Making root fields nullable isolates errors to the individual field that failed.
+
+```graphql
+# Schema
+type Query {
+  user(id: ID!): User! # ⚠️ Warning: Root field returns non-null type
+  posts: [Post!]! # ⚠️ Warning: Root field returns non-null type
+}
+
+# Fixed
+type Query {
+  user(id: ID!): User # ✅ OK - nullable
+  posts: [Post!] # ✅ OK - nullable outer type
+}
+```
+
+### relay_edge_types
+
+**Type**: StandaloneSchemaRule
+
+Enforces that edge types used by Relay connection types follow the [Relay cursor connections specification](https://relay.dev/graphql/connections.htm). Edge types (referenced by a connection type's `edges` list field) must have a `node` field returning a named type and a `cursor` field returning `String` or a scalar.
+
+**Options:**
+
+| Option                        | Type      | Default | Description                                                     |
+| ----------------------------- | --------- | ------- | --------------------------------------------------------------- |
+| `withEdgeSuffix`              | `boolean` | `true`  | Edge type names must end with `Edge`                            |
+| `shouldImplementNode`         | `boolean` | `true`  | The type returned by `node` must implement the `Node` interface |
+| `listTypeCanWrapOnlyEdgeType` | `boolean` | `true`  | List fields on connection types may only wrap edge types        |
+
+### require_import_fragment
+
+**Type**: StandaloneDocumentRule
+
+Requires fragment spreads to have a corresponding import comment when the fragment is defined in another file. This makes cross-file fragment dependencies explicit rather than relying on implicit global resolution. Fragments defined in the same document do not require an import.
+
+The expected import syntax is `# import FragmentName from "path/to/file.graphql"`. Multiple fragments can be comma-separated: `# import A, B from "file.graphql"`.
+
+````graphql
+# ⚠️ Warning: Fragment 'UserFields' is used without a corresponding import comment
+query GetUser {
+  user {
+    ...UserFields
+  }
+}
+
+# ✅ OK - fragment imported explicitly
+# import UserFields from "fragments/user.graphql"
+query GetUser {
+  user {
+    ...UserFields
+  }
+}
+### no_root_type
+
+**Type**: StandaloneSchemaRule
+
+Disallows certain root type definitions (`Query`, `Mutation`, `Subscription`) from the schema. Requires a `disallow` option specifying which root types to forbid.
+
+```yaml
+extensions:
+  lint:
+    rules:
+      noRootType: [error, { disallow: ["mutation", "subscription"] }]
+````
+
+### relay_arguments
+
+**Type**: StandaloneSchemaRule
+
+Enforces Relay-compliant pagination arguments on connection fields. Any field returning a type whose name ends with "Connection" must include the proper pagination arguments: `first`/`after` (forward) and `last`/`before` (backward).
+
+**Options:**
+
+| Option        | Type   | Default | Description                                                                                                     |
+| ------------- | ------ | ------- | --------------------------------------------------------------------------------------------------------------- |
+| `includeBoth` | `bool` | `true`  | When true, requires both forward and backward pagination arguments. When false, either direction is sufficient. |
+
+### require_deprecation_date
+
+**Type**: StandaloneSchemaRule
+
+Requires `@deprecated` directives to include a deletion date in the reason string. This helps teams track when deprecated fields, arguments, and enum values should be removed.
+
+The rule looks for a configurable keyword (default `deletionDate`) followed by `:` or `=` and a date value in the deprecation reason.
+
+**Options:**
+
+| Option         | Type     | Default          | Description                                          |
+| -------------- | -------- | ---------------- | ---------------------------------------------------- |
+| `argumentName` | `string` | `"deletionDate"` | The key to look for in the deprecation reason string |
+
+**Configuration examples:**
+
+```yaml
+# Default: require both forward and backward pagination args
+extensions:
+  lint:
+    rules:
+      relayArguments: warn
+
+# Only require one direction
+extensions:
+  lint:
+    rules:
+      relayArguments: [warn, { includeBoth: false }]
+# Default: look for 'deletionDate'
+extensions:
+  lint:
+    rules:
+      requireDeprecationDate: warn
+
+# Custom argument name
+extensions:
+  lint:
+    rules:
+      requireDeprecationDate: [warn, { argumentName: "removalDate" }]
+```
+
+**Example:**
+
+```graphql
+# Schema
+type User {
+  posts(first: Int, after: String): PostConnection # ⚠️ Warning: missing last/before
+}
+
+type PostConnection {
+  edges: [PostEdge]
+  id: ID!
+  oldField: String @deprecated(reason: "Use newField, deletionDate: 2025-01-01") # ✅ OK
+  legacy: String @deprecated(reason: "Use newField instead") # ⚠️ Warning: missing deletion date
+}
+```
+
 ### no_deprecated
 
 **Type**: DocumentSchemaRule
@@ -429,7 +596,7 @@ query GetUser {
 } # ❌ Error: Duplicate operation name 'GetUser'
 ```
 
-### unused_fields
+### no_unused_fields
 
 **Type**: ProjectRule
 
@@ -447,6 +614,26 @@ query {
   user {
     id
   }
+}
+```
+
+### require_type_pattern_with_oneof
+
+**Type**: StandaloneSchemaRule
+
+Enforces that types with the `@oneOf` directive contain both `ok` and `error` fields, standardizing mutation result types with explicit success and failure cases.
+
+```graphql
+# Schema
+type DoSomethingResult @oneOf {
+  ok: DoSomethingSuccess
+  # ⚠️ Warning: missing 'error' field
+}
+
+# Fixed
+type DoSomethingResult @oneOf {
+  ok: DoSomethingSuccess
+  error: Error # ✅ OK
 }
 ```
 
@@ -710,7 +897,7 @@ Test individual rules:
 ```bash
 cargo test -p graphql-linter deprecated
 cargo test -p graphql-linter unique_names
-cargo test -p graphql-linter unused_fields
+cargo test -p graphql-linter no_unused_fields
 ```
 
 ## License

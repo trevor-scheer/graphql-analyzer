@@ -369,7 +369,7 @@ extensions:
   cli:
     lint:
       rules:
-        unusedFields: error
+        noUnusedFields: error
 ```
 
 See [graphql-linter](../graphql-linter/README.md) for available rules and configuration options.
@@ -634,7 +634,7 @@ The CLI and LSP share the same core validation and linting logic but are optimiz
 
 - **Batch processing**: Validates all files at once
 - **CI/CD optimized**: Exit codes, JSON output, GitHub annotations
-- **Expensive rules enabled**: Project-wide lints like `unused_fields`
+- **Expensive rules enabled**: Project-wide lints like `no_unused_fields`
 - **No incremental updates**: Full project validation each run
 
 ### LSP (Language Server)
@@ -651,11 +651,11 @@ extensions:
   cli:
     lint:
       rules:
-        unused_fields: error # Enable in CLI
+        noUnusedFields: error # Enable in CLI
   lsp:
     lint:
       rules:
-        unused_fields: off # Disable in LSP
+        noUnusedFields: off # Disable in LSP
 ```
 
 ## Building from Source

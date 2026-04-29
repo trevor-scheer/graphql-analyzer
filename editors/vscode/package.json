@@ -1,15 +1,39 @@
 {
   "name": "graphql-analyzer",
   "displayName": "graphql-analyzer",
-  "version": "0.1.15",
+  "version": "0.2.2",
   "description": "GraphQL language support for VS Code",
+  "keywords": [
+    "graphql",
+    "gql",
+    "schema",
+    "apollo",
+    "relay",
+    "linting",
+    "validation",
+    "language-server"
+  ],
   "categories": [
-    "Programming Languages"
+    "Programming Languages",
+    "Linters"
   ],
   "license": "SEE LICENSE IN LICENSE.md",
   "repository": "https://github.com/trevor-scheer/graphql-analyzer",
   "publisher": "graphql-analyzer",
   "icon": "icon.png",
+  "galleryBanner": {
+    "color": "#1a1a2e",
+    "theme": "dark"
+  },
+  "extensionKind": [
+    "workspace"
+  ],
+  "capabilities": {
+    "untrustedWorkspaces": {
+      "supported": "limited",
+      "description": "Custom server path is disabled in untrusted workspaces"
+    }
+  },
   "main": "./out/extension.js",
   "scripts": {
     "vscode:prepublish": "npm run copy-schema && npm run compile -- --production",
@@ -38,7 +62,7 @@
     "@typescript/native-preview": "^7.0.0-dev",
     "@vscode/test-electron": "^2.5.2",
     "@vscode/vsce": "^3.2.1",
-    "esbuild": "^0.27.3",
+    "esbuild": "^0.28.0",
     "vitest": "^4.0.18",
     "vscode-oniguruma": "^2.0.1",
     "vscode-textmate": "^9.3.2"

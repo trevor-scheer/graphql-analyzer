@@ -11,15 +11,20 @@ categories = ["development-tools", "parser-implementations"]
 
 [dependencies]
 graphql-base-db = { path = "../base-db" }
-graphql-syntax = { path = "../syntax" }
-graphql-hir = { path = "../hir" }
-graphql-linter = { path = "../linter" }
+graphql-syntax = { path = "../syntax", default-features = false }
+graphql-hir = { path = "../hir", default-features = false }
+graphql-linter = { path = "../linter", default-features = false }
 salsa = { workspace = true }
 apollo-compiler = { workspace = true }
 apollo-parser = { workspace = true }
 thiserror = { workspace = true }
 tracing = { workspace = true }
 text-size = "1.1"
+
+[features]
+default = ["extract"]
+extract = ["graphql-syntax/extract", "graphql-hir/extract", "graphql-linter/extract"]
+native = ["graphql-syntax/native", "graphql-hir/native", "graphql-linter/native"]
 
 [dev-dependencies]
 graphql-test-utils = { path = "../test-utils" }

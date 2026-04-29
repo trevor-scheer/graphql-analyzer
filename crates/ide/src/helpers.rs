@@ -77,15 +77,56 @@ pub const fn convert_severity(
     }
 }
 
-/// Convert analysis Diagnostic to IDE Diagnostic
+/// Convert analysis Diagnostic to IDE Diagnostic. Carries the autofix
+/// through unchanged — `analysis::CodeFix` is the line/column-based form we
+/// need on `ide::Diagnostic.fix`, so consumers (LSP code actions, the napi
+/// binding feeding `ESLint`'s `LintMessage.fix`) get the fix without going
+/// through a separate `lint_diagnostics_with_fixes` call.
 pub fn convert_diagnostic(diag: &graphql_analysis::Diagnostic) -> crate::types::Diagnostic {
     crate::types::Diagnostic {
         range: convert_range(diag.range),
         severity: convert_severity(diag.severity),
         message: diag.message.to_string(),
         code: diag.code.as_ref().map(ToString::to_string),
+        message_id: diag.message_id.as_ref().map(ToString::to_string),
         source: diag.source.to_string(),
-        fix: None, // Fixes are handled separately via lint_diagnostics_with_fixes
+        fix: diag.fix.as_ref().map(convert_code_fix),
+        suggestions: diag
+            .suggestions
+            .iter()
+            .map(|s| crate::types::CodeSuggestion {
+                desc: s.desc.clone(),
+                fix: convert_code_fix(&s.fix),
+            })
+            .collect(),
+        help: diag.help.as_ref().map(ToString::to_string),
+        url: diag.url.as_ref().map(ToString::to_string),
+        tags: diag
+            .tags
+            .iter()
+            .map(|t| match t {
+                graphql_analysis::DiagnosticTag::Unnecessary => {
+                    crate::types::DiagnosticTag::Unnecessary
+                }
+                graphql_analysis::DiagnosticTag::Deprecated => {
+                    crate::types::DiagnosticTag::Deprecated
+                }
+            })
+            .collect(),
+    }
+}
+
+fn convert_code_fix(fix: &graphql_analysis::CodeFix) -> crate::types::CodeFix {
+    crate::types::CodeFix {
+        label: fix.label.clone(),
+        edits: fix
+            .edits
+            .iter()
+            .map(|e| crate::types::TextEdit {
+                range: convert_range(e.range),
+                new_text: e.new_text.clone(),
+            })
+            .collect(),
     }
 }
 
@@ -226,6 +267,272 @@ pub fn find_field_usages_in_parse(
         for (start, end) in ranges {
             let range = offset_range_to_range(&line_index, start, end);
             results.push(adjust_range_for_line_offset(range, doc.line_offset));
+        }
+    }
+
+    results
+}
+
+/// Find all directive usages in a parsed file by scanning all definitions
+pub fn find_directive_usages_in_parse(
+    parse: &graphql_syntax::Parse,
+    directive_name: &str,
+) -> Vec<Range> {
+    let mut results = Vec::new();
+
+    for doc in parse.documents() {
+        let line_index = graphql_syntax::LineIndex::new(doc.source);
+        let ranges = find_directive_usages_in_tree(doc.tree, directive_name);
+        for (start, end) in ranges {
+            let range = offset_range_to_range(&line_index, start, end);
+            results.push(adjust_range_for_line_offset(range, doc.line_offset));
+        }
+    }
+
+    results
+}
+
+/// Find a directive definition's name range in a parsed file
+pub fn find_directive_definition_in_parse(
+    parse: &graphql_syntax::Parse,
+    directive_name: &str,
+) -> Option<Range> {
+    use apollo_parser::cst::{CstNode, Definition};
+
+    for doc in parse.documents() {
+        for definition in doc.tree.document().definitions() {
+            if let Definition::DirectiveDefinition(dir_def) = definition {
+                if let Some(name) = dir_def.name() {
+                    if name.text() == directive_name {
+                        let range = name.syntax().text_range();
+                        let start: usize = range.start().into();
+                        let end: usize = range.end().into();
+                        let line_index = graphql_syntax::LineIndex::new(doc.source);
+                        let pos_range = offset_range_to_range(&line_index, start, end);
+                        return Some(adjust_range_for_line_offset(pos_range, doc.line_offset));
+                    }
+                }
+            }
+        }
+    }
+
+    None
+}
+
+/// Find all usages of a directive by name in a single syntax tree.
+/// Returns `(start_offset, end_offset)` pairs for each directive name occurrence.
+fn find_directive_usages_in_tree(
+    tree: &apollo_parser::SyntaxTree,
+    target_directive: &str,
+) -> Vec<(usize, usize)> {
+    use apollo_parser::cst::{CstNode, Definition, Selection};
+
+    fn collect_from_directives(
+        directives: &apollo_parser::cst::Directives,
+        target: &str,
+        results: &mut Vec<(usize, usize)>,
+    ) {
+        for directive in directives.directives() {
+            if let Some(name) = directive.name() {
+                if name.text() == target {
+                    let range = name.syntax().text_range();
+                    results.push((range.start().into(), range.end().into()));
+                }
+            }
+        }
+    }
+
+    fn collect_from_selection_set(
+        selection_set: &apollo_parser::cst::SelectionSet,
+        target: &str,
+        results: &mut Vec<(usize, usize)>,
+    ) {
+        for selection in selection_set.selections() {
+            match selection {
+                Selection::Field(field) => {
+                    if let Some(directives) = field.directives() {
+                        collect_from_directives(&directives, target, results);
+                    }
+                    if let Some(nested) = field.selection_set() {
+                        collect_from_selection_set(&nested, target, results);
+                    }
+                }
+                Selection::InlineFragment(inline_frag) => {
+                    if let Some(directives) = inline_frag.directives() {
+                        collect_from_directives(&directives, target, results);
+                    }
+                    if let Some(nested) = inline_frag.selection_set() {
+                        collect_from_selection_set(&nested, target, results);
+                    }
+                }
+                Selection::FragmentSpread(frag_spread) => {
+                    if let Some(directives) = frag_spread.directives() {
+                        collect_from_directives(&directives, target, results);
+                    }
+                }
+            }
+        }
+    }
+
+    fn collect_from_fields_definition(
+        fields: &apollo_parser::cst::FieldsDefinition,
+        target: &str,
+        results: &mut Vec<(usize, usize)>,
+    ) {
+        for field in fields.field_definitions() {
+            if let Some(directives) = field.directives() {
+                collect_from_directives(&directives, target, results);
+            }
+            if let Some(args) = field.arguments_definition() {
+                for arg in args.input_value_definitions() {
+                    if let Some(directives) = arg.directives() {
+                        collect_from_directives(&directives, target, results);
+                    }
+                }
+            }
+        }
+    }
+
+    fn collect_from_input_fields_definition(
+        fields: &apollo_parser::cst::InputFieldsDefinition,
+        target: &str,
+        results: &mut Vec<(usize, usize)>,
+    ) {
+        for field in fields.input_value_definitions() {
+            if let Some(directives) = field.directives() {
+                collect_from_directives(&directives, target, results);
+            }
+        }
+    }
+
+    fn collect_from_enum_values_definition(
+        values: &apollo_parser::cst::EnumValuesDefinition,
+        target: &str,
+        results: &mut Vec<(usize, usize)>,
+    ) {
+        for value in values.enum_value_definitions() {
+            if let Some(directives) = value.directives() {
+                collect_from_directives(&directives, target, results);
+            }
+        }
+    }
+
+    let mut results = Vec::new();
+    let doc = tree.document();
+
+    for definition in doc.definitions() {
+        match &definition {
+            Definition::OperationDefinition(op) => {
+                if let Some(directives) = op.directives() {
+                    collect_from_directives(&directives, target_directive, &mut results);
+                }
+                if let Some(selection_set) = op.selection_set() {
+                    collect_from_selection_set(&selection_set, target_directive, &mut results);
+                }
+            }
+            Definition::FragmentDefinition(frag) => {
+                if let Some(directives) = frag.directives() {
+                    collect_from_directives(&directives, target_directive, &mut results);
+                }
+                if let Some(selection_set) = frag.selection_set() {
+                    collect_from_selection_set(&selection_set, target_directive, &mut results);
+                }
+            }
+            Definition::ObjectTypeDefinition(obj) => {
+                if let Some(directives) = obj.directives() {
+                    collect_from_directives(&directives, target_directive, &mut results);
+                }
+                if let Some(fields) = obj.fields_definition() {
+                    collect_from_fields_definition(&fields, target_directive, &mut results);
+                }
+            }
+            Definition::InterfaceTypeDefinition(iface) => {
+                if let Some(directives) = iface.directives() {
+                    collect_from_directives(&directives, target_directive, &mut results);
+                }
+                if let Some(fields) = iface.fields_definition() {
+                    collect_from_fields_definition(&fields, target_directive, &mut results);
+                }
+            }
+            Definition::UnionTypeDefinition(union_def) => {
+                if let Some(directives) = union_def.directives() {
+                    collect_from_directives(&directives, target_directive, &mut results);
+                }
+            }
+            Definition::EnumTypeDefinition(enum_def) => {
+                if let Some(directives) = enum_def.directives() {
+                    collect_from_directives(&directives, target_directive, &mut results);
+                }
+                if let Some(values) = enum_def.enum_values_definition() {
+                    collect_from_enum_values_definition(&values, target_directive, &mut results);
+                }
+            }
+            Definition::ScalarTypeDefinition(scalar) => {
+                if let Some(directives) = scalar.directives() {
+                    collect_from_directives(&directives, target_directive, &mut results);
+                }
+            }
+            Definition::InputObjectTypeDefinition(input) => {
+                if let Some(directives) = input.directives() {
+                    collect_from_directives(&directives, target_directive, &mut results);
+                }
+                if let Some(fields) = input.input_fields_definition() {
+                    collect_from_input_fields_definition(&fields, target_directive, &mut results);
+                }
+            }
+            Definition::SchemaDefinition(schema) => {
+                if let Some(directives) = schema.directives() {
+                    collect_from_directives(&directives, target_directive, &mut results);
+                }
+            }
+            Definition::ObjectTypeExtension(ext) => {
+                if let Some(directives) = ext.directives() {
+                    collect_from_directives(&directives, target_directive, &mut results);
+                }
+                if let Some(fields) = ext.fields_definition() {
+                    collect_from_fields_definition(&fields, target_directive, &mut results);
+                }
+            }
+            Definition::InterfaceTypeExtension(ext) => {
+                if let Some(directives) = ext.directives() {
+                    collect_from_directives(&directives, target_directive, &mut results);
+                }
+                if let Some(fields) = ext.fields_definition() {
+                    collect_from_fields_definition(&fields, target_directive, &mut results);
+                }
+            }
+            Definition::UnionTypeExtension(ext) => {
+                if let Some(directives) = ext.directives() {
+                    collect_from_directives(&directives, target_directive, &mut results);
+                }
+            }
+            Definition::EnumTypeExtension(ext) => {
+                if let Some(directives) = ext.directives() {
+                    collect_from_directives(&directives, target_directive, &mut results);
+                }
+                if let Some(values) = ext.enum_values_definition() {
+                    collect_from_enum_values_definition(&values, target_directive, &mut results);
+                }
+            }
+            Definition::ScalarTypeExtension(ext) => {
+                if let Some(directives) = ext.directives() {
+                    collect_from_directives(&directives, target_directive, &mut results);
+                }
+            }
+            Definition::InputObjectTypeExtension(ext) => {
+                if let Some(directives) = ext.directives() {
+                    collect_from_directives(&directives, target_directive, &mut results);
+                }
+                if let Some(fields) = ext.input_fields_definition() {
+                    collect_from_input_fields_definition(&fields, target_directive, &mut results);
+                }
+            }
+            Definition::SchemaExtension(ext) => {
+                if let Some(directives) = ext.directives() {
+                    collect_from_directives(&directives, target_directive, &mut results);
+                }
+            }
+            Definition::DirectiveDefinition(_) => {}
         }
     }
 

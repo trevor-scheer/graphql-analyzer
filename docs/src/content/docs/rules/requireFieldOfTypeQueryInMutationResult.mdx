@@ -1,0 +1,51 @@
+---
+slug: rules/requireFieldOfTypeQueryInMutationResult
+title: requireFieldOfTypeQueryInMutationResult
+description: Require Query field in mutation result types.
+---
+
+| Property         | Value                                     |
+| ---------------- | ----------------------------------------- |
+| Config name      | `requireFieldOfTypeQueryInMutationResult` |
+| Default severity | `—`                                       |
+| Context          | Schema                                    |
+| In recommended   | No                                        |
+
+## What it checks
+
+Require Query field in mutation result types.
+
+## Examples
+
+```graphql
+# ❌ Bad — mutation result without Query field
+type Mutation {
+  createUser(name: String!): CreateUserPayload
+}
+
+type CreateUserPayload {
+  user: User
+}
+```
+
+```graphql
+# ✅ Good — mutation result with Query field
+type Mutation {
+  createUser(name: String!): CreateUserPayload
+}
+
+type CreateUserPayload {
+  user: User
+  query: Query
+}
+```
+
+## Configuration
+
+```yaml
+extensions:
+  graphql-analyzer:
+    lint:
+      rules:
+        requireFieldOfTypeQueryInMutationResult: warn
+```

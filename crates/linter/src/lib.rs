@@ -2,6 +2,7 @@ mod config;
 
 // New Salsa-based architecture
 mod diagnostics;
+pub mod eslint_disable;
 pub mod ignore;
 mod registry;
 mod rules;
@@ -12,12 +13,13 @@ pub use config::{LintConfig, LintRuleConfig, LintSeverity};
 
 // New architecture exports
 pub use diagnostics::{
-    CodeFix, LintDiagnostic, LintSeverity as DiagnosticSeverity, OffsetRange, TextEdit,
+    rule_doc_url, CodeFix, CodeSuggestion, DiagnosticTag, LintDiagnostic,
+    LintSeverity as DiagnosticSeverity, OffsetRange, TextEdit,
 };
 pub use graphql_syntax::SourceSpan;
 pub use registry::{
-    all_rule_names, document_schema_rules, project_rules, standalone_document_rules,
-    standalone_schema_rules,
+    all_rule_info, all_rule_names, document_schema_rules, project_rules, standalone_document_rules,
+    standalone_schema_rules, RuleCategory, RuleInfo,
 };
 pub use traits::{
     DocumentSchemaLintRule, LintRule, ProjectLintRule, StandaloneDocumentLintRule,

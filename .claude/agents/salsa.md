@@ -170,7 +170,7 @@ let result2 = {
 };
 ```
 
-### Pitfall 2: Shared Arc<RwLock<...>> in Database
+### Pitfall 2: Shared Arc<RwLock<...>> in Database (or alongside it)
 
 ```rust
 #[derive(Clone)]
@@ -180,7 +180,7 @@ struct Database {
 }
 ```
 
-This creates lock ordering issues. The config lock might be held while Salsa locks are held, causing deadlock.
+This creates lock ordering issues. The config lock might be held while Salsa locks are held, causing deadlock. The same applies to _any_ non-Salsa lock that both `Analysis` snapshots and the host can acquire — even if it lives next to the database rather than inside it.
 
 **Fix**: Use Salsa inputs for all mutable state:
 
@@ -200,6 +200,17 @@ struct Database {
     config: Arc<Config>,  // Immutable, replaced on change
 }
 ```
+
+**Real-world incident — `graphql-analyzer`, early–mid 2026 (pre sync-LSP migration).** This project shipped exactly the broken pattern: `AnalysisHost` held a `FileRegistry` behind a `parking_lot::RwLock`, and `Analysis` snapshots cloned an `Arc` to the same lock for path lookups (`get_file_id`, `get_path`, `get_content`, `get_metadata`). PRs #779, #784, and #949 each added a workaround for a different manifestation of the same bug — DashMap shard locks across `.await`, runtime starvation when the Salsa setter ran on the async thread, and so on. None of them addressed the actual cycle:
+
+1. A `spawn_blocking` snapshot was inside `Analysis::find_affected_document_files`, holding `registry.read()` across long Salsa queries.
+2. A `did_change` writer in another `spawn_blocking` task acquired `registry.write()` and called `existing_content.set_text(db).to(...)`. The Salsa setter parked waiting for the snapshot to drop.
+3. The snapshot's next iteration of the diagnostics loop tried to take `registry.read()` again. parking_lot's writer-preferring policy parked the read.
+4. Both workers blocked forever. Two threads, each waiting on the other.
+
+The architectural fix moved URI ↔ `FileId` and `FileId` → `(FileContent, FileMetadata)` into a new `FilePathMap` Salsa input + the existing `FileEntryMap`, exposed through a `DbFiles` adapter that only takes `&dyn salsa::Database`. `Analysis` no longer has a `registry` field. No second lock = no cycle = the deadlock class is gone by construction. See `crates/CLAUDE.md` "Snapshot/Host Lock Discipline" for the rule and `crates/lsp/src/workspace.rs::test_concurrent_snapshot_lookups_during_writer` for the regression test.
+
+**Lesson**: when reviewing a Salsa-based codebase, treat any lock-ish field (`Arc<RwLock>`, `Arc<Mutex>`, etc.) that's reachable from BOTH the host AND a snapshot as a deadlock waiting to happen. The right answer is almost always "put it in a Salsa input."
 
 ### Pitfall 3: Blocking in Query Functions
 
@@ -266,27 +277,31 @@ When providing guidance:
 
 ## Applying to GraphQL LSP
 
-This project uses tower-lsp (async) unlike rust-analyzer (synchronous event loop). This creates
-a critical constraint: **Salsa queries must never run directly on the async runtime**.
+This project now uses the same architecture as rust-analyzer: a synchronous main loop on
+`lsp-server` + `crossbeam-channel`, with an explicit `threadpool` for read-only Salsa queries.
+There is no async runtime in the LSP crate to starve, so the entire `spawn_blocking` /
+runtime-starvation class of bug from the tower-lsp era is gone by construction.
 
-### Async Runtime Starvation (fixed in #779)
+### Where Salsa runs
 
-tower-lsp handlers run on tokio's async runtime. Salsa queries are synchronous and can block for
-hundreds of milliseconds. This starves the runtime — health checks time out, the client thinks the
-server is dead, and the LSP hangs.
+- **Notification handlers** (`did_open`, `did_change`, ...) run on the main thread with
+  `&mut GlobalState`. Setters and `update_file_and_snapshot` execute here directly.
+- **Request handlers** (hover, completion, goto-def, ...) are dispatched via `on_pool`: the main
+  thread takes an `Analysis` snapshot, hands it to a worker, and the worker runs the Salsa
+  query and ships the response back over a crossbeam task channel.
+- **`on_main` requests** (workspace-symbol, execute-command) run synchronously on the main
+  thread — used when the handler needs to traverse all hosts or mutate state.
 
-**Rule**: Always use `spawn_blocking` for Salsa queries in LSP handlers:
+### What still matters
 
-- `with_analysis` — for request handlers (bundles workspace lookup + snapshot + spawn_blocking)
-- `blocking` — for notification handlers that already have a snapshot
-
-See `.claude/rules/lsp-handlers.md` for the full pattern.
-
-### rust-analyzer's Approach (for comparison)
-
-rust-analyzer avoids this entirely: no async runtime, synchronous crossbeam event loop, explicit
-thread pool for Salsa queries, and panic-based cancellation when inputs change. We can't do this
-because tower-lsp is async, so `spawn_blocking` is our bridge.
+- Snapshots must drop before the next setter on the same host. `update_file_and_snapshot`
+  returns the snapshot atomically with the write, so notification handlers don't accidentally
+  hold one across a later setter.
+- Anything a snapshot reads must live **inside Salsa**. The pre-migration deadlock class (Pitfall
+  2 above) was only structurally fixed by moving URI ↔ FileId and file content into Salsa
+  inputs. Don't reintroduce a side-channel `Arc<RwLock<...>>` on `AnalysisHost`.
+- Stale results: `did_change` bumps a per-URI `diagnostics_seq`; the publish step drops a
+  worker's result if a newer keystroke superseded it. This is the sync analogue of cancellation.
 
 ## Research Resources
 

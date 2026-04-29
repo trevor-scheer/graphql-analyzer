@@ -69,13 +69,18 @@ impl StandaloneDocumentLintRule for OperationNameSuffixRuleImpl {
                             let start_offset: usize = text_range.start().into();
                             let end_offset: usize = text_range.end().into();
 
-                            diagnostics.push(LintDiagnostic::warning(
-                                doc.span(start_offset, end_offset),
-                                format!(
-                                    "Operation name '{name_text}' should end with '{expected_suffix}'. Consider renaming to '{name_text}{expected_suffix}'."
-                                ),
-                                "operationNameSuffix",
-                            ));
+                            diagnostics.push(
+                                LintDiagnostic::warning(
+                                    doc.span(start_offset, end_offset),
+                                    format!(
+                                        "Operation name '{name_text}' should end with '{expected_suffix}'. Consider renaming to '{name_text}{expected_suffix}'."
+                                    ),
+                                    "operationNameSuffix",
+                                )
+                                .with_help(format!(
+                                    "Append '{expected_suffix}' to the operation name so its type is clear from the name"
+                                )),
+                            );
                         }
                     }
                 }
@@ -99,7 +104,18 @@ mod tests {
         let document_file_ids = graphql_base_db::DocumentFileIds::new(db, Arc::new(vec![]));
         let file_entry_map =
             graphql_base_db::FileEntryMap::new(db, Arc::new(std::collections::HashMap::new()));
-        ProjectFiles::new(db, schema_file_ids, document_file_ids, file_entry_map)
+        ProjectFiles::new(
+            db,
+            schema_file_ids,
+            document_file_ids,
+            graphql_base_db::ResolvedSchemaFileIds::new(db, std::sync::Arc::new(vec![])),
+            file_entry_map,
+            graphql_base_db::FilePathMap::new(
+                db,
+                Arc::new(std::collections::HashMap::new()),
+                Arc::new(std::collections::HashMap::new()),
+            ),
+        )
     }
 
     fn run_rule(db: &RootDatabase, source: &str) -> Vec<LintDiagnostic> {

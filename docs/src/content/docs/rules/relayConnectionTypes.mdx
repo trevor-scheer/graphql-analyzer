@@ -1,0 +1,72 @@
+---
+slug: rules/relayConnectionTypes
+title: relayConnectionTypes
+description: Enforce Relay connection type conventions on types ending in "Connection".
+---
+
+| Property         | Value                  |
+| ---------------- | ---------------------- |
+| Config name      | `relayConnectionTypes` |
+| Default severity | `—`                    |
+| Context          | Schema                 |
+| In recommended   | No                     |
+
+## What it checks
+
+Enforces that types whose names end in "Connection" follow the [Relay connection specification](https://relay.dev/graphql/connections.htm):
+
+- The type must be an object type (not a scalar, enum, interface, etc.)
+- It must have an `edges` field that returns a list type
+- It must have a `pageInfo` field that returns a non-null `PageInfo` type
+
+## Examples
+
+```graphql
+# ❌ Bad — missing pageInfo field
+type UserConnection {
+  edges: [UserEdge]
+}
+```
+
+```graphql
+# ❌ Bad — edges is not a list type
+type UserConnection {
+  edges: UserEdge
+  pageInfo: PageInfo!
+}
+```
+
+```graphql
+# ❌ Bad — pageInfo is nullable
+type UserConnection {
+  edges: [UserEdge]
+  pageInfo: PageInfo
+}
+```
+
+```graphql
+# ✅ Good — follows Relay connection spec
+type UserConnection {
+  edges: [UserEdge]
+  pageInfo: PageInfo!
+}
+```
+
+```graphql
+# ✅ Good — extra fields are allowed
+type UserConnection {
+  edges: [UserEdge]
+  pageInfo: PageInfo!
+  totalCount: Int!
+}
+```
+
+## Configuration
+
+```yaml
+extensions:
+  graphql-analyzer:
+    lint:
+      rules:
+        relayConnectionTypes: warn
+```

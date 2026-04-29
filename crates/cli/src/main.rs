@@ -2,6 +2,7 @@ mod analysis;
 mod commands;
 mod exit_code;
 mod progress;
+pub(crate) mod rendering;
 mod watch;
 
 pub use exit_code::ExitCode;
@@ -11,7 +12,7 @@ use std::path::PathBuf;
 
 #[derive(Parser)]
 #[command(name = "graphql")]
-#[command(about = "GraphQL CLI for validation and linting", long_about = None)]
+#[command(about = "GraphQL CLI — validation, linting, schema management, and analysis")]
 #[command(version)]
 #[allow(clippy::struct_excessive_bools)]
 struct Cli {
@@ -55,6 +56,16 @@ pub struct OutputOptions {
 #[derive(Subcommand)]
 enum Commands {
     /// Validate GraphQL schema and documents against GraphQL spec
+    #[command(
+        alias = "v",
+        after_help = "\
+Examples:
+  graphql validate                Validate all documents
+  graphql validate -f json        JSON output for CI
+  graphql validate -f github      GitHub Actions annotations
+  graphql validate --syntax-only  Parse only, skip schema validation
+"
+    )]
     Validate {
         /// Output format
         #[arg(short, long, value_enum, default_value = "human")]
@@ -71,6 +82,16 @@ enum Commands {
     },
 
     /// Run custom lint rules on GraphQL documents
+    #[command(
+        alias = "l",
+        after_help = "\
+Examples:
+  graphql lint                Lint all documents
+  graphql lint -f json        JSON output for CI
+  graphql lint --fix          Apply auto-fixes
+  graphql lint --fix-dry-run  Preview auto-fixes without applying
+"
+    )]
     Lint {
         /// Output format
         #[arg(short, long, value_enum, default_value = "human")]
@@ -87,12 +108,26 @@ enum Commands {
         /// Show what would be fixed without modifying files
         #[arg(long, conflicts_with = "fix")]
         fix_dry_run: bool,
+
+        /// Maximum number of warnings allowed before returning a non-zero exit code
+        #[arg(long)]
+        max_warnings: Option<usize>,
     },
 
     /// Run all checks (validate + lint) in a single pass
     ///
     /// This command combines GraphQL spec validation and custom lint rules,
     /// providing unified output and exit codes. Recommended for CI pipelines.
+    #[command(
+        alias = "c",
+        after_help = "\
+Examples:
+  graphql check             Run all checks (validate + lint)
+  graphql check -f json     JSON output for CI
+  graphql check -f github   GitHub Actions annotations
+  graphql check -w          Watch mode — re-check on file changes
+"
+    )]
     Check {
         /// Output format
         #[arg(short, long, value_enum, default_value = "human")]
@@ -101,9 +136,18 @@ enum Commands {
         /// Watch mode - re-check on file changes
         #[arg(short, long)]
         watch: bool,
+
+        /// Maximum number of warnings allowed before returning a non-zero exit code
+        #[arg(long)]
+        max_warnings: Option<usize>,
     },
 
     /// List all deprecated field usages across the project
+    #[command(after_help = "\
+Examples:
+  graphql deprecations             List all deprecated usages
+  graphql deprecations -f json     JSON output for tooling
+")]
     Deprecations {
         /// Output format
         #[arg(short, long, value_enum, default_value = "human")]
@@ -111,12 +155,24 @@ enum Commands {
     },
 
     /// Schema-related commands (download, etc.)
+    #[command(after_help = "\
+Examples:
+  graphql schema download https://api.example.com/graphql
+  graphql schema download --project my-api
+  graphql schema download https://api.example.com/graphql -o schema.graphql
+  graphql schema download https://api.example.com/graphql -H \"Authorization: Bearer token\"
+")]
     Schema {
         #[command(subcommand)]
         command: commands::schema::SchemaCommands,
     },
 
     /// Display statistics about the GraphQL project
+    #[command(after_help = "\
+Examples:
+  graphql stats             Display project statistics
+  graphql stats -f json     JSON output for tooling
+")]
     Stats {
         /// Output format
         #[arg(short, long, value_enum, default_value = "human")]
@@ -124,6 +180,11 @@ enum Commands {
     },
 
     /// Analyze fragment usage across the project
+    #[command(after_help = "\
+Examples:
+  graphql fragments             Analyze fragment usage
+  graphql fragments -f json     JSON output for tooling
+")]
     Fragments {
         /// Output format
         #[arg(short, long, value_enum, default_value = "human")]
@@ -131,6 +192,12 @@ enum Commands {
     },
 
     /// Show schema field coverage by operations
+    #[command(after_help = "\
+Examples:
+  graphql coverage                  Show field coverage
+  graphql coverage -f json          JSON output for tooling
+  graphql coverage --type User      Filter coverage to a specific type
+")]
     Coverage {
         /// Output format
         #[arg(short, long, value_enum, default_value = "human")]
@@ -142,6 +209,13 @@ enum Commands {
     },
 
     /// Analyze query complexity for GraphQL operations
+    #[command(after_help = "\
+Examples:
+  graphql complexity                    Analyze query complexity
+  graphql complexity -f json            JSON output for tooling
+  graphql complexity -t 100             Fail if any operation exceeds threshold
+  graphql complexity -b                 Show per-field breakdown
+")]
     Complexity {
         /// Output format
         #[arg(short, long, value_enum, default_value = "human")]
@@ -160,6 +234,13 @@ enum Commands {
     ///
     /// This command starts a Model Context Protocol (MCP) server that exposes
     /// GraphQL tooling to AI agents. The server communicates via stdio.
+    #[command(after_help = "\
+Examples:
+  graphql mcp                              Start MCP server for current directory
+  graphql mcp -w /path/to/project          Start with a specific workspace
+  graphql mcp --no-preload                 Start without preloading projects
+  graphql mcp --preload api,web            Preload only specific projects
+")]
     Mcp {
         /// Workspace directory (defaults to current directory)
         #[arg(short, long)]
@@ -183,12 +264,26 @@ enum Commands {
         /// Shell to generate completions for
         shell: clap_complete::Shell,
     },
+    /// List all available lint rules
+    #[command(name = "list-rules")]
+    ListRules,
+
+    /// Show details about a lint rule
+    #[command(name = "explain")]
+    Explain {
+        /// Rule name to explain
+        rule: String,
+    },
 
     /// Start the Language Server Protocol (LSP) server
     ///
     /// This command starts the GraphQL language server, which provides IDE features
     /// like diagnostics, hover, goto definition, find references, and completions.
     /// The server communicates via stdio using JSON-RPC.
+    #[command(after_help = "\
+Examples:
+  graphql lsp    Start the language server (used by editor extensions)
+")]
     Lsp,
 }
 
@@ -200,6 +295,8 @@ enum OutputFormat {
     Json,
     /// GitHub Actions workflow commands for PR annotations
     Github,
+    /// SARIF (Static Analysis Results Interchange Format) for GitHub code scanning
+    Sarif,
 }
 
 #[tokio::main]
@@ -242,6 +339,7 @@ async fn main() -> anyhow::Result<()> {
             watch,
             fix,
             fix_dry_run,
+            max_warnings,
         } => commands::lint::run(
             cli.config,
             cli.project.as_deref(),
@@ -249,13 +347,19 @@ async fn main() -> anyhow::Result<()> {
             watch,
             fix,
             fix_dry_run,
+            max_warnings,
             output_opts,
         ),
-        Commands::Check { format, watch } => commands::check::run(
+        Commands::Check {
+            format,
+            watch,
+            max_warnings,
+        } => commands::check::run(
             cli.config,
             cli.project.as_deref(),
             format,
             watch,
+            max_warnings,
             output_opts,
         ),
         Commands::Deprecations { format } => {
@@ -291,7 +395,9 @@ async fn main() -> anyhow::Result<()> {
             let mut cmd = Cli::command();
             clap_complete::generate(shell, &mut cmd, "graphql", &mut std::io::stdout());
             Ok(())
-        }
+        },
+        Commands::ListRules => commands::list_rules::run(),
+        Commands::Explain { rule } => commands::explain::run(&rule),
         Commands::Lsp => unreachable!("handled above"),
     };
 

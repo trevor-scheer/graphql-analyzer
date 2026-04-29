@@ -1,12 +1,21 @@
+use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::Arc;
 
-use parking_lot::RwLock;
 use salsa::Setter;
 
 use graphql_base_db::{DocumentKind, Language};
 
+/// Global counter for snapshot IDs to track creation and drop in logs.
+static SNAPSHOT_ID: AtomicU64 = AtomicU64::new(1);
+
+fn next_snapshot_id() -> u64 {
+    SNAPSHOT_ID.fetch_add(1, Ordering::Relaxed)
+}
+
 use crate::analysis::Analysis;
-use crate::database::{ExtractConfigInput, IdeDatabase, LintConfigInput};
+#[cfg(feature = "extract")]
+use crate::database::ExtractConfigInput;
+use crate::database::{IdeDatabase, LintConfigInput};
 use crate::discovery::{
     determine_document_file_kind, expand_braces, path_to_file_path, DiscoveredFile, LoadedFile,
 };
@@ -43,9 +52,13 @@ use crate::types::{
 /// ```
 pub struct AnalysisHost {
     db: IdeDatabase,
-    /// File registry for mapping paths to file IDs
-    /// Wrapped in Arc<RwLock> so snapshots can share it
-    registry: Arc<RwLock<FileRegistry>>,
+    /// File registry for mapping paths to file IDs.
+    ///
+    /// Owned directly (no inner lock) because the outer `tokio::sync::Mutex`
+    /// in `ProjectHost` already serializes mutators, and snapshots no longer
+    /// reach back into the registry — they read everything via Salsa inputs
+    /// (`FilePathMap`, `FileEntryMap`).
+    registry: FileRegistry,
 }
 
 impl AnalysisHost {
@@ -54,18 +67,15 @@ impl AnalysisHost {
     pub fn new() -> Self {
         Self {
             db: IdeDatabase::default(),
-            registry: Arc::new(RwLock::new(FileRegistry::new())),
+            registry: FileRegistry::new(),
         }
     }
 
-    /// Add or update a file in the host
+    /// Add or update a file in the host.
     ///
-    /// This is a convenience method for adding files to the registry and database.
-    ///
-    /// Returns `true` if this is a new file, `false` if it's an update to an existing file.
-    ///
-    /// **IMPORTANT**: Only call `rebuild_project_files()` when this returns `true` (new file).
-    /// Content-only updates do NOT require rebuilding the project index.
+    /// Returns `true` if this is a new file, `false` if it's an update to an
+    /// existing file. New files automatically trigger a `ProjectFiles` rebuild
+    /// so that subsequent `snapshot()` calls observe the new file.
     pub fn add_file(
         &mut self,
         path: &FilePath,
@@ -73,31 +83,32 @@ impl AnalysisHost {
         language: Language,
         document_kind: DocumentKind,
     ) -> bool {
-        let mut registry = self.registry.write();
         let (_, _, _, is_new) =
-            registry.add_file(&mut self.db, path, content, language, document_kind);
+            self.registry
+                .add_file(&mut self.db, path, content, language, document_kind);
+        if is_new {
+            self.sync_project_files();
+        }
         is_new
     }
 
     /// Batch-add pre-discovered files to the host.
     ///
-    /// This is more efficient than calling `add_file` in a loop because
-    /// file I/O has already been done. The lock is only held briefly
-    /// for registration, not during disk reads.
-    ///
-    /// Returns the list of `LoadedFile` structs for building indexes.
+    /// More efficient than calling `add_file` in a loop because the project
+    /// index is rebuilt once at the end instead of after every file.
     pub fn add_discovered_files(&mut self, files: &[DiscoveredFile]) -> Vec<LoadedFile> {
-        let mut registry = self.registry.write();
         let mut loaded = Vec::with_capacity(files.len());
+        let mut any_new = false;
 
         for file in files {
-            registry.add_file(
+            let (_, _, _, is_new) = self.registry.add_file(
                 &mut self.db,
                 &file.path,
                 &file.content,
                 file.language,
                 file.document_kind,
             );
+            any_new = any_new || is_new;
             loaded.push(LoadedFile {
                 path: file.path.clone(),
                 language: file.language,
@@ -105,75 +116,56 @@ impl AnalysisHost {
             });
         }
 
+        if any_new {
+            self.sync_project_files();
+        }
         loaded
     }
 
-    /// Rebuild the `ProjectFiles` index after adding/removing files
+    /// Rebuild the `ProjectFiles` Salsa input from the current registry state.
     ///
-    /// This should be called after batch adding files to avoid O(n^2) performance.
-    /// It's relatively expensive as it iterates through all files, so avoid calling
-    /// it in a loop.
-    ///
-    /// This method also syncs the `ProjectFiles` to the database so queries can
-    /// access it via `db.project_files()`.
+    /// Most callers do NOT need to invoke this directly — `add_file`,
+    /// `add_files_batch`, `add_discovered_files`, `remove_file`, and
+    /// `update_file_and_snapshot` all maintain the index automatically. It is
+    /// kept on the public API for backwards compatibility and for the rare
+    /// "I mutated the registry through some other path, please refresh"
+    /// scenario.
     pub fn rebuild_project_files(&mut self) {
-        let mut registry = self.registry.write();
-        registry.rebuild_project_files(&mut self.db);
-
-        // Sync project_files from registry to database
-        // This enables queries to access project_files via db.project_files()
-        self.db.project_files_input = registry.project_files();
+        self.sync_project_files();
     }
 
-    /// Add multiple files in batch, then rebuild the project index once
-    ///
-    /// This is the recommended way to load multiple files at once. It:
-    /// 1. Adds all files to the registry without rebuilding
-    /// 2. Rebuilds the project index once at the end
-    ///
-    /// This is O(n) instead of O(n^2) compared to calling `add_file` + `rebuild_project_files`
-    /// for each file individually.
-    ///
-    /// # Example
-    ///
-    /// ```ignore
-    /// use graphql_ide::{AnalysisHost, FilePath, Language, DocumentKind};
-    ///
-    /// let mut host = AnalysisHost::new();
-    /// let files = vec![
-    ///     (FilePath::new("file:///schema.graphql"), "type Query { hello: String }", Language::GraphQL, DocumentKind::Schema),
-    ///     (FilePath::new("file:///query.graphql"), "query { hello }", Language::GraphQL, DocumentKind::Executable),
-    /// ];
-    /// host.add_files_batch(&files);
-    /// ```
-    pub fn add_files_batch(&mut self, files: &[(FilePath, &str, Language, DocumentKind)]) {
-        let mut registry = self.registry.write();
-        let mut any_new = false;
+    /// Internal: rebuild the `ProjectFiles` index and sync the cached input
+    /// reference on the database.
+    fn sync_project_files(&mut self) {
+        self.registry.rebuild_project_files(&mut self.db);
+        self.db.project_files_input = self.registry.project_files();
+    }
 
+    /// Add multiple files in batch, then rebuild the project index once.
+    ///
+    /// This is O(n) instead of O(n^2) compared to calling `add_file` repeatedly,
+    /// because the `ProjectFiles` Salsa input is rebuilt only once at the end.
+    pub fn add_files_batch(&mut self, files: &[(FilePath, &str, Language, DocumentKind)]) {
+        let mut any_new = false;
         for (path, content, language, document_kind) in files {
             let (_, _, _, is_new) =
-                registry.add_file(&mut self.db, path, content, *language, *document_kind);
+                self.registry
+                    .add_file(&mut self.db, path, content, *language, *document_kind);
             any_new = any_new || is_new;
         }
-
-        // Only rebuild if at least one file was new
         if any_new {
-            registry.rebuild_project_files(&mut self.db);
-            // Sync project_files from registry to database
-            self.db.project_files_input = registry.project_files();
+            self.sync_project_files();
         }
     }
 
-    /// Update a file and optionally create a snapshot in a single lock acquisition
+    /// Update a file and create a snapshot in one shot.
     ///
-    /// This is optimized for the common case of editing an existing file. It:
-    /// 1. Updates the file content (cheap operation)
-    /// 2. Returns a snapshot for immediate analysis
+    /// Optimized for `did_change`: if the file already exists, this only bumps
+    /// the file's `FileContent` (no project index rebuild). For a new file
+    /// (`did_open`) it rebuilds the index before snapshotting so the snapshot
+    /// observes the new file.
     ///
-    /// This avoids the overhead of multiple lock acquisitions per keystroke.
-    /// For new files, call `add_file()` followed by `rebuild_project_files()` instead.
-    ///
-    /// Returns `(is_new_file, Analysis)` tuple.
+    /// Returns `(is_new_file, Analysis)`.
     pub fn update_file_and_snapshot(
         &mut self,
         path: &FilePath,
@@ -181,45 +173,26 @@ impl AnalysisHost {
         language: Language,
         document_kind: DocumentKind,
     ) -> (bool, Analysis) {
-        // Single lock acquisition for both operations
-        let mut registry = self.registry.write();
         let (_, _, _, is_new) =
-            registry.add_file(&mut self.db, path, content, language, document_kind);
-
-        // If this is a new file, rebuild the index before creating snapshot
-        // This also syncs project_files to self.db.project_files_input
+            self.registry
+                .add_file(&mut self.db, path, content, language, document_kind);
         if is_new {
-            registry.rebuild_project_files(&mut self.db);
-            // Sync project_files from registry to database
-            self.db.project_files_input = registry.project_files();
+            self.sync_project_files();
         }
-
-        let project_files = self.db.project_files_input;
-        // Release the lock before creating the snapshot (no longer needed)
-        drop(registry);
-
-        let snapshot = Analysis {
-            db: self.db.clone(),
-            registry: Arc::clone(&self.registry),
-            project_files,
-        };
-
-        (is_new, snapshot)
+        (is_new, self.snapshot())
     }
 
     /// Check if a file exists in this host's registry
     #[must_use]
     pub fn contains_file(&self, path: &FilePath) -> bool {
-        let registry = self.registry.read();
-        registry.get_file_id(path).is_some()
+        self.registry.get_file_id(path).is_some()
     }
 
     /// Remove a file from the host
     pub fn remove_file(&mut self, path: &FilePath) {
-        let mut registry = self.registry.write();
-        if let Some(file_id) = registry.get_file_id(path) {
-            registry.remove_file(file_id);
-            registry.rebuild_project_files(&mut self.db);
+        if let Some(file_id) = self.registry.get_file_id(path) {
+            self.registry.remove_file(file_id);
+            self.sync_project_files();
         }
     }
 
@@ -319,9 +292,11 @@ impl AnalysisHost {
                             match std::fs::read_to_string(&entry) {
                                 Ok(content) => {
                                     let file_uri = path_to_file_uri(&entry);
+                                    #[cfg(feature = "extract")]
                                     let language = graphql_extract::Language::from_path(&entry);
 
                                     // Check if this is a TS/JS file that needs extraction
+                                    #[cfg(feature = "extract")]
                                     if let Some(lang) = language {
                                         if lang.requires_extraction() {
                                             // Extract GraphQL from TS/JS file
@@ -408,6 +383,7 @@ impl AnalysisHost {
                                     }
 
                                     // JSON introspection result file support
+                                    #[cfg(feature = "introspect")]
                                     if entry.extension().and_then(|e| e.to_str()) == Some("json")
                                         && graphql_introspect::is_introspection_json(&content)
                                     {
@@ -497,6 +473,42 @@ impl AnalysisHost {
             }
         }
 
+        // Load resolved schema file if configured
+        if let Some(resolved_path) = config.resolved_schema() {
+            let resolved_full = base_dir.join(&resolved_path);
+            if resolved_full.is_file() {
+                match std::fs::read_to_string(&resolved_full) {
+                    Ok(resolved_content) => {
+                        let file_uri = path_to_file_uri(&resolved_full);
+                        let file_path = FilePath::new(file_uri);
+                        let (file_id, _, _, _) = self.registry.add_file(
+                            &mut self.db,
+                            &file_path,
+                            &resolved_content,
+                            Language::GraphQL,
+                            DocumentKind::Schema,
+                        );
+                        self.registry.mark_as_resolved_schema(file_id);
+                        loaded_paths.push(resolved_full);
+                        count += 1;
+                        tracing::info!("Loaded resolved schema from '{}'", resolved_path);
+                    }
+                    Err(e) => {
+                        tracing::warn!(
+                            "Failed to read resolved schema '{}': {}",
+                            resolved_full.display(),
+                            e
+                        );
+                    }
+                }
+            } else {
+                tracing::debug!(
+                    "Resolved schema file not found (yet): {}",
+                    resolved_full.display()
+                );
+            }
+        }
+
         tracing::info!(
             "Loaded {} schema file(s) ({} paths tracked), {} pending introspection(s)",
             count,
@@ -556,10 +568,24 @@ impl AnalysisHost {
         }
     }
 
+    /// Read the currently-installed lint configuration.
+    ///
+    /// Used by callers (e.g. the napi binding) that swap in a per-call
+    /// override on top of the persistent config and need to restore the
+    /// original afterwards.
+    #[must_use]
+    pub fn lint_config(&self) -> Arc<graphql_linter::LintConfig> {
+        self.db.lint_config_input.map_or_else(
+            || Arc::new(graphql_linter::LintConfig::default()),
+            |input| input.config(&self.db).clone(),
+        )
+    }
+
     /// Set the extract configuration for the project
     ///
     /// This properly invalidates all queries that depend on extract config via Salsa's
     /// dependency tracking. Only extract-dependent queries will re-run when config changes.
+    #[cfg(feature = "extract")]
     pub fn set_extract_config(&mut self, config: graphql_extract::ExtractConfig) {
         if let Some(input) = self.db.extract_config_input {
             input.set_config(&mut self.db).to(Arc::new(config));
@@ -570,6 +596,7 @@ impl AnalysisHost {
     }
 
     /// Get the extract configuration for the project
+    #[cfg(feature = "extract")]
     pub fn get_extract_config(&self) -> graphql_extract::ExtractConfig {
         self.db
             .extract_config_input
@@ -591,6 +618,8 @@ impl AnalysisHost {
     ///
     /// * `config` - The project configuration containing document patterns
     /// * `workspace_path` - The base directory for glob pattern resolution
+    /// * `extract_config` - Configuration for TS/JS GraphQL extraction
+    ///   (only present when the `extract` feature is enabled)
     ///
     /// # Returns
     ///
@@ -600,7 +629,7 @@ impl AnalysisHost {
         &mut self,
         config: &graphql_config::ProjectConfig,
         workspace_path: &std::path::Path,
-        extract_config: &graphql_extract::ExtractConfig,
+        #[cfg(feature = "extract")] extract_config: &graphql_extract::ExtractConfig,
     ) -> (Vec<LoadedFile>, DocumentLoadResult) {
         let Some(documents_config) = &config.documents else {
             return (Vec::new(), DocumentLoadResult::default());
@@ -647,14 +676,23 @@ impl AnalysisHost {
 
                                             // Skip files that require extraction but contain no GraphQL
                                             if language.requires_extraction() {
-                                                let blocks = graphql_extract::extract_from_source(
-                                                    &content,
-                                                    language,
-                                                    extract_config,
-                                                    &path_str,
-                                                )
-                                                .unwrap_or_default();
-                                                if blocks.is_empty() {
+                                                #[cfg(feature = "extract")]
+                                                {
+                                                    let blocks =
+                                                        graphql_extract::extract_from_source(
+                                                            &content,
+                                                            language,
+                                                            extract_config,
+                                                            &path_str,
+                                                        )
+                                                        .unwrap_or_default();
+                                                    if blocks.is_empty() {
+                                                        continue;
+                                                    }
+                                                }
+                                                #[cfg(not(feature = "extract"))]
+                                                {
+                                                    // No extractor available; skip files that need extraction.
                                                     continue;
                                                 }
                                             }
@@ -721,49 +759,32 @@ impl AnalysisHost {
         (loaded_files, result)
     }
 
-    /// Iterate over all files in the host
-    ///
-    /// Returns an iterator of `FilePath` for all registered files.
+    /// Iterate over all files in the host.
     pub fn files(&self) -> Vec<FilePath> {
-        let registry = self.registry.read();
-        registry
+        self.registry
             .all_file_ids()
             .into_iter()
-            .filter_map(|file_id| registry.get_path(file_id))
+            .filter_map(|file_id| self.registry.get_path(file_id))
             .collect()
     }
 
-    /// Get an immutable snapshot for analysis
+    /// Get an immutable snapshot for analysis.
     ///
-    /// This snapshot can be used from multiple threads and provides all IDE features.
-    /// It's cheap to create and clone (`RootDatabase` implements Clone via salsa).
+    /// Cheap: creates a Salsa db clone and copies the cached `ProjectFiles`
+    /// handle. The snapshot resolves all file lookups through Salsa, never
+    /// reaching back into the host's `FileRegistry`.
     ///
-    /// # Lifecycle Warning
+    /// # Lifecycle
     ///
-    /// The returned `Analysis` **must be dropped before calling any mutating method**
-    /// on this `AnalysisHost`. This is required by Salsa's single-writer model.
-    /// See the struct-level documentation for details and examples.
+    /// The returned `Analysis` must be dropped before any host mutation. This
+    /// is enforced by Salsa's single-writer model: setters block until all
+    /// outstanding snapshots have been dropped.
     pub fn snapshot(&self) -> Analysis {
-        // project_files is already synced to the database in rebuild_project_files()
-        // Queries access it via db.project_files()
-        let project_files = self.db.project_files_input;
-
-        if let Some(ref pf) = project_files {
-            let doc_count = pf.document_file_ids(&self.db).ids(&self.db).len();
-            let schema_count = pf.schema_file_ids(&self.db).ids(&self.db).len();
-            tracing::debug!(
-                "Snapshot project_files: {} schema files, {} document files",
-                schema_count,
-                doc_count
-            );
-        } else {
-            tracing::warn!("Snapshot project_files is None!");
-        }
-
+        let snapshot_id = next_snapshot_id();
         Analysis {
             db: self.db.clone(),
-            registry: Arc::clone(&self.registry),
-            project_files,
+            project_files: self.db.project_files_input,
+            snapshot_id,
         }
     }
 }

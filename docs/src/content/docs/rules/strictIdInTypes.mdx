@@ -1,0 +1,64 @@
+---
+slug: rules/strictIdInTypes
+title: strictIdInTypes
+description: Require ID field in object types.
+---
+
+| Property         | Value             |
+| ---------------- | ----------------- |
+| Config name      | `strictIdInTypes` |
+| Default severity | `—`               |
+| Context          | Schema            |
+| In recommended   | No                |
+
+## What it checks
+
+Require ID field in object types.
+
+## Examples
+
+```graphql
+# ❌ Bad — object type without ID field
+type User {
+  name: String
+  email: String
+}
+```
+
+```graphql
+# ✅ Good — object type with ID field
+type User {
+  id: ID!
+  name: String
+  email: String
+}
+```
+
+## Options
+
+| Option                | Type       | Default  | Description                                                                                                             |
+| --------------------- | ---------- | -------- | ----------------------------------------------------------------------------------------------------------------------- |
+| `acceptedIdNames`     | `string[]` | `["id"]` | Field names that satisfy the unique identifier requirement.                                                             |
+| `acceptedIdTypes`     | `string[]` | `["ID"]` | GraphQL types (non-null) that are accepted as the identifier field's type.                                              |
+| `exceptions`          | `object`   | `{}`     | Types or type-name suffixes to exclude from this rule.                                                                  |
+| `exceptions.types`    | `string[]` | `[]`     | Exact type names to skip (e.g. `["Error", "PageInfo"]`).                                                                |
+| `exceptions.suffixes` | `string[]` | `[]`     | Type-name suffixes to skip — any type whose name ends with one of these is excluded (e.g. `["Payload", "Connection"]`). |
+
+## Configuration
+
+```yaml
+extensions:
+  graphql-analyzer:
+    lint:
+      rules:
+        strictIdInTypes: warn
+
+# Accept _id as well as id, allow UUID type, and skip payload types
+        strictIdInTypes:
+          - warn
+          - acceptedIdNames: ["id", "_id"]
+            acceptedIdTypes: ["ID", "UUID"]
+            exceptions:
+              types: ["Error"]
+              suffixes: ["Payload", "Connection"]
+```

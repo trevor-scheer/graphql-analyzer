@@ -1,0 +1,33 @@
+# Demonstrates: descriptionStyle
+# Default expects block descriptions ("""..."""). Inline descriptions on
+# any node — types, fields, arguments, input values, enum values, and
+# directives — are flagged.
+
+"A category for organizing items"
+type Category {
+  """
+  Unique identifier
+  """
+  id: ID!
+  "The category label"
+  label("Format hint for the label" format: String): String!
+}
+
+"Available color options"
+enum Color {
+  "Red"
+  RED
+  GREEN
+  BLUE
+}
+
+"""
+Filter input for users
+"""
+input UserFilter {
+  "Match users by id"
+  id: ID
+}
+
+"Mark a field as cached"
+directive @cached("How long to cache, in seconds" seconds: Int) on FIELD_DEFINITION

@@ -35,10 +35,7 @@ impl StandaloneSchemaLintRule for NoTypenamePrefixRuleImpl {
         let schema_types = graphql_hir::schema_types(db, project_files);
 
         for type_def in schema_types.values() {
-            if !matches!(
-                type_def.kind,
-                TypeDefKind::Object | TypeDefKind::Interface | TypeDefKind::InputObject
-            ) {
+            if !matches!(type_def.kind, TypeDefKind::Object | TypeDefKind::Interface) {
                 continue;
             }
 
@@ -47,9 +44,7 @@ impl StandaloneSchemaLintRule for NoTypenamePrefixRuleImpl {
             for field in &type_def.fields {
                 let field_name_lower = field.name.to_lowercase();
 
-                if field_name_lower.starts_with(&type_name_lower)
-                    && field_name_lower.len() > type_name_lower.len()
-                {
+                if field_name_lower.starts_with(&type_name_lower) {
                     let start: usize = field.name_range.start().into();
                     let end: usize = field.name_range.end().into();
                     let span = graphql_syntax::SourceSpan {
@@ -60,20 +55,37 @@ impl StandaloneSchemaLintRule for NoTypenamePrefixRuleImpl {
                         source: None,
                     };
 
+                    // Suggestion: rename the field with the type-name prefix
+                    // stripped (matches upstream's
+                    // `fixer.replaceText(field.name, fieldName.replace(typeName, ""))`).
+                    // The replacement uses the exact source-text prefix so
+                    // the casing of the suggested name matches what the user
+                    // would have typed (`UserId` → `Id`, not `id`).
+                    let prefix_len = type_def.name.len();
+                    let new_name = field.name.get(prefix_len..).unwrap_or("").to_string();
+                    let suggestion = crate::diagnostics::CodeSuggestion::replace(
+                        format!("Remove `{}` prefix", &field.name[..prefix_len]),
+                        start,
+                        end,
+                        new_name,
+                    );
+
                     diagnostics_by_file
                         .entry(type_def.file_id)
                         .or_default()
-                        .push(LintDiagnostic::new(
-                            span,
-                            LintSeverity::Warning,
-                            format!(
-                                "Field '{}' on type '{}' starts with the type name. Consider renaming to '{}'.",
-                                field.name,
-                                type_def.name,
-                                &field.name[type_def.name.len()..]
-                            ),
-                            "noTypenamePrefix",
-                        ));
+                        .push(
+                            LintDiagnostic::new(
+                                span,
+                                LintSeverity::Warning,
+                                format!(
+                                    "Field \"{}\" starts with the name of the parent type \"{}\"",
+                                    field.name, type_def.name,
+                                ),
+                                "noTypenamePrefix",
+                            )
+                            .with_message_id("NO_TYPENAME_PREFIX")
+                            .with_suggestion(suggestion),
+                        );
                 }
             }
         }
@@ -109,7 +121,18 @@ mod tests {
         let schema_file_ids = SchemaFileIds::new(db, Arc::new(vec![file_id]));
         let document_file_ids = DocumentFileIds::new(db, Arc::new(vec![]));
         let file_entry_map = FileEntryMap::new(db, Arc::new(entries));
-        ProjectFiles::new(db, schema_file_ids, document_file_ids, file_entry_map)
+        ProjectFiles::new(
+            db,
+            schema_file_ids,
+            document_file_ids,
+            graphql_base_db::ResolvedSchemaFileIds::new(db, std::sync::Arc::new(vec![])),
+            file_entry_map,
+            graphql_base_db::FilePathMap::new(
+                db,
+                Arc::new(std::collections::HashMap::new()),
+                Arc::new(std::collections::HashMap::new()),
+            ),
+        )
     }
 
     #[test]
@@ -132,5 +155,38 @@ mod tests {
         let diagnostics = rule.check(&db, project_files, None);
         let all: Vec<_> = diagnostics.values().flatten().collect();
         assert_eq!(all.len(), 2);
+    }
+
+    #[test]
+    fn test_field_name_equals_type_name() {
+        let db = RootDatabase::default();
+        let rule = NoTypenamePrefixRuleImpl;
+        let schema = "type User { user: ID! }";
+        let project_files = create_schema_project(&db, schema);
+        let diagnostics = rule.check(&db, project_files, None);
+        let all: Vec<_> = diagnostics.values().flatten().collect();
+        assert_eq!(all.len(), 1);
+    }
+
+    #[test]
+    fn test_input_object_is_ignored() {
+        let db = RootDatabase::default();
+        let rule = NoTypenamePrefixRuleImpl;
+        let schema = "input UserInput { userId: ID! }";
+        let project_files = create_schema_project(&db, schema);
+        let diagnostics = rule.check(&db, project_files, None);
+        let all: Vec<_> = diagnostics.values().flatten().collect();
+        assert!(all.is_empty());
+    }
+
+    #[test]
+    fn test_interface_is_checked() {
+        let db = RootDatabase::default();
+        let rule = NoTypenamePrefixRuleImpl;
+        let schema = "interface Node { nodeId: ID! }";
+        let project_files = create_schema_project(&db, schema);
+        let diagnostics = rule.check(&db, project_files, None);
+        let all: Vec<_> = diagnostics.values().flatten().collect();
+        assert_eq!(all.len(), 1);
     }
 }

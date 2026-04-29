@@ -32,13 +32,7 @@ pub fn run(
     let ctx = CommandContext::load(config_path, project_name, "deprecations")?;
 
     // Get project config
-    let selected_name = CommandContext::get_project_name(project_name);
-    let project_config = ctx
-        .config
-        .projects()
-        .find(|(name, _)| *name == selected_name)
-        .map(|(_, cfg)| cfg.clone())
-        .ok_or_else(|| anyhow::anyhow!("Project '{selected_name}' not found"))?;
+    let project_config = ctx.get_project_config(project_name)?;
 
     // Load project
     let spinner = if matches!(format, OutputFormat::Human) {
@@ -174,7 +168,7 @@ pub fn run(
                 total_duration.as_secs_f64()
             );
         }
-        OutputFormat::Json | OutputFormat::Github => {
+        OutputFormat::Json | OutputFormat::Github | OutputFormat::Sarif => {
             let json_output: Vec<_> = elements
                 .iter()
                 .map(|e| {

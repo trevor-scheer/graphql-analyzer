@@ -454,7 +454,10 @@ fn check_selection_set(
                     ),
                     "requireIdField",
                 )
-                .with_fix(fix),
+                .with_fix(fix)
+                .with_help(format!(
+                    "Add '{required_field}' to the selection set so clients can cache and refetch this object"
+                )),
             );
         }
     }
@@ -691,8 +694,18 @@ mod tests {
         file_entries.insert(schema_file_id, schema_entry);
         file_entries.insert(doc_file_id, doc_entry);
         let file_entry_map = graphql_base_db::FileEntryMap::new(db, Arc::new(file_entries));
-        let project_files =
-            ProjectFiles::new(db, schema_file_ids, document_file_ids, file_entry_map);
+        let project_files = ProjectFiles::new(
+            db,
+            schema_file_ids,
+            document_file_ids,
+            graphql_base_db::ResolvedSchemaFileIds::new(db, std::sync::Arc::new(vec![])),
+            file_entry_map,
+            graphql_base_db::FilePathMap::new(
+                db,
+                Arc::new(std::collections::HashMap::new()),
+                Arc::new(std::collections::HashMap::new()),
+            ),
+        );
 
         (doc_file_id, doc_content, doc_metadata, project_files)
     }
@@ -1140,8 +1153,18 @@ query GetUser {
             graphql_base_db::SchemaFileIds::new(db, Arc::new(vec![schema_file_id]));
         let document_file_ids = graphql_base_db::DocumentFileIds::new(db, Arc::new(doc_file_ids));
         let file_entry_map = graphql_base_db::FileEntryMap::new(db, Arc::new(file_entries));
-        let project_files =
-            ProjectFiles::new(db, schema_file_ids, document_file_ids, file_entry_map);
+        let project_files = ProjectFiles::new(
+            db,
+            schema_file_ids,
+            document_file_ids,
+            graphql_base_db::ResolvedSchemaFileIds::new(db, std::sync::Arc::new(vec![])),
+            file_entry_map,
+            graphql_base_db::FilePathMap::new(
+                db,
+                Arc::new(std::collections::HashMap::new()),
+                Arc::new(std::collections::HashMap::new()),
+            ),
+        );
 
         let (file_id, content, metadata) = first_doc.expect("At least one document required");
         (file_id, content, metadata, project_files)

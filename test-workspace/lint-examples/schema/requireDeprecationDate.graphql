@@ -1,0 +1,38 @@
+# Demonstrates: requireDeprecationDate
+# `@deprecated` directives must declare a `deletionDate` argument in
+# `DD/MM/YYYY` format (matching graphql-eslint's rule).
+
+"""
+User account
+"""
+type DeprecationDateExample {
+  """
+  Unique identifier
+  """
+  id: ID!
+  """
+  Current name field
+  """
+  name: String!
+  """
+  Old name - deprecated without deletion date
+  """
+  oldName: String @deprecated(reason: "Use 'name' instead")
+  """
+  Legacy field - deprecated with a future deletion date
+  """
+  legacyField: String @deprecated(reason: "Use 'name' instead", deletionDate: "01/01/2999")
+}
+
+"""
+Priority levels
+"""
+enum DeprecationDatePriority {
+  HIGH
+  MEDIUM
+  LOW
+  """
+  No longer used
+  """
+  NONE @deprecated(reason: "No longer supported")
+}

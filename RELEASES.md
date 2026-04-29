@@ -1,177 +1,239 @@
 # Release Process
 
-This document describes how releases are created and distributed for the GraphQL CLI.
+This document describes how graphql-analyzer's components are versioned,
+released, and distributed. Automation is driven by [Knope](https://knope.tech)
+and the `.github/workflows/release.yml` workflow.
 
-## Overview
+## Released components
 
-Binary releases are automatically built and published using [cargo-dist](https://github.com/axodotdev/cargo-dist) through GitHub Actions. When a version tag is pushed, the release workflow builds optimized binaries for multiple platforms and creates a GitHub Release.
+| Package                          | Artifact kind                             | Starting version |
+| -------------------------------- | ----------------------------------------- | ---------------- |
+| `graphql-analyzer-cli`           | Rust binary (GH Release)                  | independent      |
+| `graphql-analyzer-lsp`           | Rust binary + VS Code extension (coupled) | independent      |
+| `graphql-analyzer-mcp`           | Rust binary (GH Release)                  | independent      |
+| `graphql-analyzer-core`          | npm packages (6) — native addon           | 0.1.0-alpha.x    |
+| `graphql-analyzer-eslint-plugin` | npm package                               | 0.1.0-alpha.x    |
 
-## Supported Platforms
+Each package is listed in `knope.toml` with its `versioned_files` and
+changelog location. Changesets target these package names.
 
-The CLI is distributed for the following platforms:
+### Version coupling
 
-- **macOS**
-  - Intel (x86_64-apple-darwin)
-  - Apple Silicon (aarch64-apple-darwin)
-- **Linux**
-  - x86_64 (x86_64-unknown-linux-gnu)
-  - ARM64 (aarch64-unknown-linux-gnu)
-- **Windows**
-  - x86_64 (x86_64-pc-windows-msvc)
+Two packages bundle multiple files under one version:
 
-## Creating a Release
+- **`graphql-analyzer-lsp`** versions `crates/lsp/Cargo.toml` and
+  `editors/vscode/package.json` together. The VS Code extension ships with
+  the LSP binary bundled, so they're one user-facing unit.
+- **`graphql-analyzer-core`** versions the Rust crate, the npm dispatcher
+  (`@graphql-analyzer/core`), and five platform stubs
+  (`@graphql-analyzer/core-<triple>`) together. npm's `optionalDependencies`
+  resolution requires exact-version pins between them, so they move in lockstep.
 
-### 1. Update Version
+## Alpha phase
 
-Update the version in the workspace `Cargo.toml`:
+`knope.toml` sets `prerelease_label = "alpha"`. All npm releases are tagged
+`alpha` on the registry; consumers opt in via `npm install @graphql-analyzer/foo@alpha`.
 
-```toml
-[workspace.package]
-version = "0.2.0"
+Graduating out of alpha:
+
+1. Remove `prerelease_label = "alpha"` from `knope.toml`.
+2. Drop `--tag alpha` from the npm publish steps in `release.yml`.
+
+## Supported platforms
+
+Rust binaries (CLI, LSP, MCP) and the `@graphql-analyzer/core` native addon build for:
+
+- macOS — `aarch64-apple-darwin`, `x86_64-apple-darwin`
+- Linux — `aarch64-unknown-linux-gnu`, `x86_64-unknown-linux-gnu`
+- Windows — `x86_64-pc-windows-msvc`
+
+The VS Code extension is packaged once per target (`darwin-arm64`, `darwin-x64`,
+`linux-arm64`, `linux-x64`, `win32-x64`), bundling the matching LSP binary.
+
+## Release flow
+
+```
+  PR authors                         CI                                 npm / GH
+  ───────────                        ──                                 ────────
+  knope document-change ──►  .changeset/*.md
+                                      │
+                                      ▼
+                              merge to main
+                                      │
+                                      ▼
+                    prepare-release.yml (knope)
+                     • consume changesets
+                     • bump versioned_files
+                     • write CHANGELOG.md
+                     • open "release/next" PR
+                                      │
+                                      ▼
+                              merge release PR
+                                      │
+                                      ▼
+                        release.yml (on main)
+                     • build-binaries (Rust, 5 targets)
+                     • build-vscode (per-platform .vsix)
+                     • build-core (native addon, 5 targets)
+                     • knope release
+                       • create GH releases with CHANGELOGs
+                       • upload binary + .vsix artifacts ───► GitHub Releases
+                     • publish-vscode ───────────────────────► VS Code Marketplace
+                     • publish-openvsx ──────────────────────► Open VSX Registry
+                     • publish-npm
+                       • platform stubs (5) ─────────────────► npm
+                       • @graphql-analyzer/core ─────────────► npm
+                       • @graphql-analyzer/eslint-plugin ────► npm
+                     • update-homebrew-formula ──────────────► homebrew-tap
 ```
 
-### 2. Update CHANGELOG (if exists)
+## Authoring changesets
 
-Document the changes in this release.
-
-### 3. Commit the Version Bump
-
-```bash
-git add Cargo.toml Cargo.lock
-git commit -m "chore: bump version to 0.2.0"
+```sh
+knope document-change
 ```
 
-### 4. Create and Push Tag
+Or create the file manually in `.changeset/`. Each changeset targets one or
+more of the knope package names:
 
-```bash
-git tag v0.2.0
-git push origin main --tags
+```markdown
+---
+graphql-analyzer-cli: patch
+graphql-analyzer-lsp: minor
+---
+
+Short description of the user-facing change. ([#123](https://github.com/trevor-scheer/graphql-analyzer/pull/123))
 ```
 
-### 5. Automatic Build and Release
+### Which package to target
 
-The GitHub Actions workflow will automatically:
+| Change                                      | Target package                   |
+| ------------------------------------------- | -------------------------------- |
+| CLI feature or bug fix                      | `graphql-analyzer-cli`           |
+| LSP or VS Code extension change             | `graphql-analyzer-lsp`           |
+| MCP server change                           | `graphql-analyzer-mcp`           |
+| Native addon — Rust side or any npm package | `graphql-analyzer-core`          |
+| ESLint plugin (JS-only change)              | `graphql-analyzer-eslint-plugin` |
+| New lint rule                               | whichever consumers are affected |
 
-1. Build binaries for all supported platforms
-2. Generate checksums (SHA256) for verification
-3. Create shell and PowerShell installers
-4. Create a GitHub Release with all artifacts
-5. Upload all binaries and installers
+Shared crate changes (e.g., `graphql-linter`, `graphql-analysis`) don't have
+their own changeset package — they're internal. Target whichever released
+component(s) the change reaches users through.
 
-## Release Artifacts
+## npm publishing auth
 
-Each release includes:
+The workflow uses npm [Trusted Publishing](https://docs.npmjs.com/trusted-publishers)
+(OIDC) exclusively — no `NPM_TOKEN` secret lives in CI. Each of the seven
+`@graphql-analyzer/*` package names must be bound on npmjs.com to:
 
-### Binaries
+- Organization / user: `trevor-scheer`
+- Repository: `graphql-analyzer`
+- Workflow filename: `release.yml`
+- Environment: _(leave empty)_
 
-- Platform-specific compressed archives (.tar.xz for Unix, .zip for Windows)
-- Each archive contains:
-  - The `graphql` binary
-  - README.md
+The binding is scoped to the workflow file, not to individual jobs — so the
+same binding authorizes `publish-vscode`, `publish-openvsx`, and `publish-npm`.
 
-### Installers
+The `publish-npm` job sets `permissions: id-token: write` and runs
+`npm publish --provenance --access public --tag alpha` for every package. npm
+verifies the OIDC token against the registered binding before accepting the
+publish.
 
-- `graphql-cli-installer.sh` - Shell installer for macOS/Linux
-- `graphql-cli-installer.ps1` - PowerShell installer for Windows
+### Publish ordering and idempotency
 
-### Checksums
+The `publish-npm` job runs publishes in a fixed order: 5 platform stubs →
+`@graphql-analyzer/core` dispatcher → `@graphql-analyzer/eslint-plugin`. The
+order is mandatory — the dispatcher pins each platform stub via exact-version
+`optionalDependencies`, and the eslint-plugin pins the dispatcher via a normal
+exact-version dependency.
 
-- Individual `.sha256` files for each binary archive
-- `sha256.sum` - Combined checksums file
+Each step short-circuits via `npm view <name>@<version>` if that version is
+already on the registry, so a re-run of a partially-completed job picks up where
+the failure left off.
 
-### Source
+## Testing a release locally
 
-- `source.tar.gz` - Source code archive
+```sh
+# Dry-run knope's prepare-release (shows what would be bumped and written)
+knope --dry-run prepare-release
 
-## Installation Methods
+# Validate knope.toml syntax
+knope --validate
 
-Users can install the CLI in several ways:
+# Build the native addon locally (debug)
+npm run build:debug --workspace=@graphql-analyzer/core
 
-### 1. Shell/PowerShell Installer (Recommended)
+# Build the ESLint plugin
+npm run build --workspace=@graphql-analyzer/eslint-plugin
+```
 
-**macOS/Linux:**
+## Installation methods
 
-```bash
-# Install CLI (default), LSP, or MCP
+### CLI
+
+**macOS / Linux:**
+
+```sh
 curl -fsSL https://raw.githubusercontent.com/trevor-scheer/graphql-analyzer/main/scripts/install.sh | sh
-curl -fsSL .../install.sh | sh -s -- lsp
-curl -fsSL .../install.sh | sh -s -- mcp
-
-# Pin a specific version
-curl -fsSL .../install.sh | sh -s -- cli 0.1.6
 ```
 
 **Windows:**
 
 ```powershell
 irm https://raw.githubusercontent.com/trevor-scheer/graphql-analyzer/main/scripts/install.ps1 | iex
-
-# Install LSP instead of CLI
-$env:GA_TOOL="lsp"; irm .../install.ps1 | iex
 ```
 
-### 2. Direct Download
+**Homebrew:**
 
-Download the appropriate binary from the [releases page](https://github.com/trevor-scheer/graphql-analyzer/releases).
+```sh
+brew install trevor-scheer/tap/graphql-cli
+```
 
-### 3. From Source
+**From source:**
 
-```bash
+```sh
 cargo install --git https://github.com/trevor-scheer/graphql-analyzer graphql-cli
 ```
 
-## Binary Optimization
+### LSP (standalone, for non-VS Code editors)
 
-Binaries are built with the `dist` profile which includes:
-
-- Thin LTO (Link Time Optimization)
-- Size optimization (`opt-level = "z"`)
-- Debug symbol stripping
-- Single codegen unit for maximum optimization
-
-## Testing Releases
-
-### Test Locally Before Release
-
-```bash
-# Plan a release (doesn't build, just shows what would happen)
-dist plan
-
-# Build release artifacts locally
-dist build
+```sh
+curl -fsSL https://raw.githubusercontent.com/trevor-scheer/graphql-analyzer/main/scripts/install.sh | sh -s -- lsp
 ```
 
-### Test on Pull Requests
+### VS Code extension
 
-The release workflow runs in "plan" mode on pull requests to validate the configuration without publishing.
+Install from the Marketplace (`graphql-analyzer.graphql-analyzer`) or Open VSX.
+
+### ESLint plugin
+
+```sh
+npm install --save-dev @graphql-analyzer/eslint-plugin@alpha
+```
 
 ## Troubleshooting
 
-### Release Workflow Failed
+### knope `--validate` fails with "inconsistent versions"
 
-1. Check the GitHub Actions logs
-2. Verify all platforms built successfully
-3. Ensure the tag matches the version in Cargo.toml
-4. Check that cargo-dist version is compatible
+All files listed under a single `versioned_files` must already share a
+version before the next release. If they drift, hand-align them in a
+preparatory commit.
 
-### Binary Size Too Large
+### npm publish fails partway through
 
-The dist profile is already optimized for size. If binaries are still too large:
+Re-run the failed `publish-npm` job from the GitHub Actions UI. Each publish
+step checks `npm view <name>@<version>` first and skips packages already on the
+registry, so a re-run finishes whatever didn't complete the first time.
 
-1. Check for unnecessary dependencies
-2. Consider using `upx` for additional compression
-3. Review feature flags to minimize included code
+If a stub fails mid-stream and the dispatcher publishes anyway (it shouldn't —
+each step is sequential and `set -euo pipefail`), users on the affected
+platform will see `Cannot find module @graphql-analyzer/core-<triple>` at
+install time. Recover by re-running the workflow once the underlying issue is
+fixed.
 
-## Configuration
+### optionalDependencies resolve incorrectly
 
-Release configuration is in [`dist-workspace.toml`](dist-workspace.toml):
-
-- Target platforms
-- Installer types
-- cargo-dist version
-- CI settings
-
-Build optimization is in the workspace [`Cargo.toml`](Cargo.toml):
-
-- `[profile.dist]` section
-- LTO, optimization level, stripping, etc.
+All six `@graphql-analyzer/core*` packages must share an exact version, and the
+platform stubs must be published _before_ the dispatcher. The `publish-npm` job
+enforces this ordering, and `scripts/sync-workspace-deps.mjs` (run by knope
+during prepare-release) keeps the version pins in lockstep.

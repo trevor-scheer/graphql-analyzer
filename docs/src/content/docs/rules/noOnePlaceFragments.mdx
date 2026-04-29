@@ -1,0 +1,52 @@
+---
+slug: rules/noOnePlaceFragments
+title: noOnePlaceFragments
+description: Detect fragments used in only one place.
+---
+
+| Property         | Value                 |
+| ---------------- | --------------------- |
+| Config name      | `noOnePlaceFragments` |
+| Default severity | `—`                   |
+| Context          | Project               |
+| In recommended   | No                    |
+
+## What it checks
+
+Detect fragments used in only one place.
+
+## Examples
+
+```graphql
+# ❌ Bad — fragment used only once
+fragment UserFields on User {
+  id
+  name
+}
+
+query GetUser {
+  user {
+    ...UserFields
+  }
+}
+```
+
+```graphql
+# ✅ Good — inline the fields
+query GetUser {
+  user {
+    id
+    name
+  }
+}
+```
+
+## Configuration
+
+```yaml
+extensions:
+  graphql-analyzer:
+    lint:
+      rules:
+        noOnePlaceFragments: warn
+```

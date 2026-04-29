@@ -1,0 +1,46 @@
+---
+slug: rules/operationNameSuffix
+title: operationNameSuffix
+description: Enforce operation name conventions.
+---
+
+| Property         | Value                 |
+| ---------------- | --------------------- |
+| Config name      | `operationNameSuffix` |
+| Default severity | —                     |
+| Context          | Document              |
+| In recommended   | No                    |
+
+## What it checks
+
+Enforces naming conventions for GraphQL operations, such as requiring queries to end with `Query`, mutations with `Mutation`, etc.
+
+## Examples
+
+```graphql
+# ⚠️ Warning — missing suffix
+query GetUser {
+  user {
+    id
+  }
+}
+```
+
+```graphql
+# ✅ Good — has Query suffix
+query GetUserQuery {
+  user {
+    id
+  }
+}
+```
+
+## Configuration
+
+```yaml
+extensions:
+  graphql-analyzer:
+    lint:
+      rules:
+        operationNameSuffix: warn # or error, off
+```

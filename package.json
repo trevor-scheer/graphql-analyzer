@@ -5,8 +5,10 @@
   "description": "Development tools for graphql-lsp",
   "workspaces": [
     "editors/vscode",
+    "packages/*",
     "test-workspace/apollo-app",
     "test-workspace/countries",
+    "test-workspace/eslint-migration",
     "test-workspace/github",
     "test-workspace/misconfigured-documents",
     "test-workspace/misconfigured-schema",
@@ -15,22 +17,24 @@
     "test-workspace/starwars"
   ],
   "scripts": {
-    "compile": "npm run compile --workspace=editors/vscode",
-    "watch": "npm run watch --workspace=editors/vscode",
+    "build": "npm run build --workspaces --if-present",
+    "build:debug": "npm run build:debug --workspaces --if-present",
+    "compile": "npm run compile --workspaces --if-present",
+    "watch": "npm run watch --workspaces --if-present",
     "typecheck": "tsc -b",
     "lint": "oxlint .",
     "lint:fix": "oxlint --fix .",
     "package": "npm run package --workspace=editors/vscode",
-    "test:unit": "npm run test:unit --workspace=editors/vscode",
-    "test:e2e": "npm run test:e2e --workspace=editors/vscode",
+    "test:unit": "npm run test:unit --workspaces --if-present",
+    "test:e2e": "npm run test:e2e --workspaces --if-present",
     "fmt": "oxfmt --write .",
     "fmt:check": "oxfmt --check ."
   },
   "devDependencies": {
-    "oxfmt": "^0.42.0",
+    "oxfmt": "^0.46.0",
     "oxlint": "^1.51.0"
   },
   "volta": {
-    "node": "24.14.1"
+    "node": "24.15.0"
   }
 }

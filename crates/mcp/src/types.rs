@@ -125,6 +125,37 @@ pub struct DiagnosticInfo {
     /// Auto-fix suggestion if available
     #[serde(skip_serializing_if = "Option::is_none")]
     pub fix: Option<FixSuggestion>,
+
+    /// Actionable suggestion explaining how to resolve the issue
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub help: Option<String>,
+
+    /// Documentation URL for the rule
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub url: Option<String>,
+
+    /// Diagnostic tags (e.g., "unnecessary", "deprecated")
+    #[serde(skip_serializing_if = "Vec::is_empty", default)]
+    pub tags: Vec<DiagnosticTagInfo>,
+}
+
+/// Diagnostic tag classifications
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[serde(rename_all = "lowercase")]
+pub enum DiagnosticTagInfo {
+    /// Marks code that is unnecessary or unused
+    Unnecessary,
+    /// Marks code that is deprecated
+    Deprecated,
+}
+
+impl From<graphql_ide::DiagnosticTag> for DiagnosticTagInfo {
+    fn from(tag: graphql_ide::DiagnosticTag) -> Self {
+        match tag {
+            graphql_ide::DiagnosticTag::Unnecessary => DiagnosticTagInfo::Unnecessary,
+            graphql_ide::DiagnosticTag::Deprecated => DiagnosticTagInfo::Deprecated,
+        }
+    }
 }
 
 /// Severity level for diagnostics
@@ -385,6 +416,321 @@ pub struct CompletionsResult {
     pub count: usize,
 }
 
+// --- Schema exploration types ---
+
+/// Parameters for get_schema_types tool
+#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
+pub struct SchemaTypesParams {
+    /// Optional filter by type kind: "object", "interface", "union", "enum", "scalar", "input_object"
+    #[schemars(
+        description = "Filter by type kind. Options: object, interface, union, enum, scalar, input_object"
+    )]
+    #[serde(default)]
+    pub kind: Option<String>,
+
+    /// Optional project name
+    #[schemars(
+        description = "Optional project name. If not provided, uses the first/only loaded project."
+    )]
+    #[serde(default)]
+    pub project: Option<String>,
+}
+
+/// Result of get_schema_types
+#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
+pub struct SchemaTypesResult {
+    /// List of types
+    pub types: Vec<SchemaTypeInfo>,
+    /// Total number of types returned
+    pub count: usize,
+    /// Schema statistics
+    pub stats: SchemaStatsInfo,
+}
+
+/// A type in the schema listing
+#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
+pub struct SchemaTypeInfo {
+    /// Type name
+    pub name: String,
+    /// Type kind (object, interface, union, enum, scalar, input_object)
+    pub kind: String,
+    /// Type description
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub description: Option<String>,
+    /// Number of fields
+    pub field_count: usize,
+    /// Interfaces this type implements
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    pub implements: Vec<String>,
+    /// Whether this type comes from an extension
+    #[serde(skip_serializing_if = "std::ops::Not::not")]
+    pub is_extension: bool,
+}
+
+/// Schema-level statistics
+#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
+pub struct SchemaStatsInfo {
+    pub objects: usize,
+    pub interfaces: usize,
+    pub unions: usize,
+    pub enums: usize,
+    pub scalars: usize,
+    pub input_objects: usize,
+    pub total_fields: usize,
+    pub directives: usize,
+}
+
+/// Parameters for get_type_info tool
+#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
+pub struct TypeInfoParams {
+    /// The name of the type to look up
+    #[schemars(
+        description = "The name of the GraphQL type (e.g. \"User\", \"Query\", \"Status\")"
+    )]
+    pub type_name: String,
+
+    /// Optional project name
+    #[schemars(
+        description = "Optional project name. If not provided, uses the first/only loaded project."
+    )]
+    #[serde(default)]
+    pub project: Option<String>,
+}
+
+/// Result of get_type_info
+#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
+pub struct TypeInfoResult {
+    /// Type name
+    pub name: String,
+    /// Type kind
+    pub kind: String,
+    /// Type description
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub description: Option<String>,
+    /// Interfaces this type implements
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    pub implements: Vec<String>,
+    /// Fields (for object, interface, input_object types)
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    pub fields: Vec<FieldInfo>,
+    /// Directives applied to this type
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    pub directives: Vec<DirectiveInfo>,
+    /// Enum values (for enum types)
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    pub enum_values: Vec<EnumValueInfo>,
+    /// Union members (for union types)
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    pub union_members: Vec<String>,
+}
+
+/// A field in a type
+#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
+pub struct FieldInfo {
+    pub name: String,
+    #[serde(rename = "type")]
+    pub type_ref: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub description: Option<String>,
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    pub arguments: Vec<ArgumentInfo>,
+    #[serde(skip_serializing_if = "std::ops::Not::not")]
+    pub is_deprecated: bool,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub deprecation_reason: Option<String>,
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    pub directives: Vec<DirectiveInfo>,
+}
+
+/// An argument on a field
+#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
+pub struct ArgumentInfo {
+    pub name: String,
+    #[serde(rename = "type")]
+    pub type_ref: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub description: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub default_value: Option<String>,
+}
+
+/// A directive applied to a schema element
+#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
+pub struct DirectiveInfo {
+    pub name: String,
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    pub arguments: Vec<DirectiveArgumentInfo>,
+}
+
+/// An argument passed to a directive
+#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
+pub struct DirectiveArgumentInfo {
+    pub name: String,
+    pub value: String,
+}
+
+/// An enum value
+#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
+pub struct EnumValueInfo {
+    pub name: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub description: Option<String>,
+    #[serde(skip_serializing_if = "std::ops::Not::not")]
+    pub is_deprecated: bool,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub deprecation_reason: Option<String>,
+}
+
+/// Parameters for get_schema_sdl tool
+#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
+pub struct SchemaSdlParams {
+    /// Optional project name
+    #[schemars(
+        description = "Optional project name. If not provided, uses the first/only loaded project."
+    )]
+    #[serde(default)]
+    pub project: Option<String>,
+}
+
+/// Result of get_schema_sdl
+#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
+pub struct SchemaSdlResult {
+    /// The full merged schema as SDL text
+    pub sdl: String,
+    /// Number of types in the schema
+    pub type_count: usize,
+}
+
+// --- Document analysis types ---
+
+/// Parameters for get_operations tool
+#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
+pub struct OperationsParams {
+    /// Optional file path to filter operations from a single file
+    #[schemars(description = "Optional file path to limit results to a single file")]
+    #[serde(default)]
+    pub file_path: Option<String>,
+
+    /// Optional project name
+    #[schemars(
+        description = "Optional project name. If not provided, uses the first/only loaded project."
+    )]
+    #[serde(default)]
+    pub project: Option<String>,
+}
+
+/// Result of get_operations
+#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
+pub struct OperationsResult {
+    /// List of operations
+    pub operations: Vec<OperationInfo>,
+    /// Total count
+    pub count: usize,
+}
+
+/// An operation extracted from a document
+#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
+pub struct OperationInfo {
+    /// Operation name (null for anonymous)
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub name: Option<String>,
+    /// Operation type: query, mutation, subscription
+    pub operation_type: String,
+    /// File containing this operation
+    pub file: String,
+    /// Variables defined on this operation
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    pub variables: Vec<VariableInfo>,
+    /// Fragment names this operation depends on
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    pub fragment_dependencies: Vec<String>,
+}
+
+/// A variable on an operation
+#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
+pub struct VariableInfo {
+    pub name: String,
+    #[serde(rename = "type")]
+    pub type_ref: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub default_value: Option<String>,
+}
+
+/// Parameters for get_query_complexity tool
+#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
+pub struct QueryComplexityParams {
+    /// Optional operation name to filter (returns all if omitted)
+    #[schemars(
+        description = "Optional operation name. If omitted, returns complexity for all operations."
+    )]
+    #[serde(default)]
+    pub operation_name: Option<String>,
+
+    /// Optional project name
+    #[schemars(
+        description = "Optional project name. If not provided, uses the first/only loaded project."
+    )]
+    #[serde(default)]
+    pub project: Option<String>,
+}
+
+/// Result of get_query_complexity
+#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
+pub struct QueryComplexityResult {
+    /// Complexity analysis per operation
+    pub operations: Vec<ComplexityInfo>,
+    /// Number of operations analyzed
+    pub count: usize,
+}
+
+/// Complexity analysis for a single operation
+#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
+pub struct ComplexityInfo {
+    pub operation_name: String,
+    pub operation_type: String,
+    pub total_complexity: u32,
+    pub depth: u32,
+    pub breakdown: Vec<FieldComplexityInfo>,
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    pub warnings: Vec<String>,
+    pub file: String,
+}
+
+/// Per-field complexity breakdown
+#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
+pub struct FieldComplexityInfo {
+    pub path: String,
+    pub complexity: u32,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub multiplier: Option<u32>,
+}
+
+// --- Utility types ---
+
+/// Parameters for introspect_endpoint tool
+#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
+pub struct IntrospectEndpointParams {
+    /// The GraphQL endpoint URL to introspect
+    #[schemars(description = "GraphQL endpoint URL (e.g. https://api.example.com/graphql)")]
+    pub url: String,
+
+    /// Optional HTTP headers (e.g. for authentication)
+    #[schemars(
+        description = "Optional HTTP headers as key-value pairs (e.g. {\"Authorization\": \"Bearer token\"})"
+    )]
+    #[serde(default)]
+    pub headers: Option<std::collections::HashMap<String, String>>,
+}
+
+/// Result of introspect_endpoint
+#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
+pub struct IntrospectEndpointResult {
+    /// The schema SDL
+    pub sdl: String,
+    /// The URL that was introspected
+    pub url: String,
+}
+
 // Conversion implementations from graphql_ide types
 
 impl From<graphql_ide::Location> for LocationResult {
@@ -410,6 +756,7 @@ fn symbol_kind_str(kind: graphql_ide::SymbolKind) -> &'static str {
         graphql_ide::SymbolKind::Interface => "interface",
         graphql_ide::SymbolKind::Union => "union",
         graphql_ide::SymbolKind::Enum => "enum",
+        graphql_ide::SymbolKind::Directive => "directive",
     }
 }
 
@@ -496,8 +843,11 @@ impl From<graphql_ide::Diagnostic> for DiagnosticInfo {
             severity: diag.severity.into(),
             message: diag.message,
             range: Some(diag.range.into()),
-            rule: None,
+            rule: diag.code,
             fix: None,
+            help: diag.help,
+            url: diag.url,
+            tags: diag.tags.into_iter().map(Into::into).collect(),
         }
     }
 }

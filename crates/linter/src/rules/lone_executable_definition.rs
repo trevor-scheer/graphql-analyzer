@@ -1,13 +1,31 @@
+use std::collections::HashSet;
+
 use crate::diagnostics::{LintDiagnostic, LintSeverity};
 use crate::traits::{LintRule, StandaloneDocumentLintRule};
 use apollo_parser::cst::{self, CstNode};
 use graphql_base_db::{FileContent, FileId, FileMetadata, ProjectFiles};
+
+use super::{get_operation_kind, OperationKind};
 
 /// Lint rule that requires each file to contain only one executable definition
 ///
 /// Having one operation or fragment per file improves code organization and
 /// makes it easier to find and maintain GraphQL operations.
 pub struct LoneExecutableDefinitionRuleImpl;
+
+/// Parse the `ignore` array from options. Accepts the same values as upstream:
+/// `"fragment"`, `"query"`, `"mutation"`, `"subscription"`.
+fn parse_ignore(options: Option<&serde_json::Value>) -> HashSet<String> {
+    options
+        .and_then(|v| v.get("ignore"))
+        .and_then(|v| v.as_array())
+        .map(|arr| {
+            arr.iter()
+                .filter_map(|s| s.as_str().map(str::to_owned))
+                .collect()
+        })
+        .unwrap_or_default()
+}
 
 impl LintRule for LoneExecutableDefinitionRuleImpl {
     fn name(&self) -> &'static str {
@@ -31,9 +49,10 @@ impl StandaloneDocumentLintRule for LoneExecutableDefinitionRuleImpl {
         content: FileContent,
         metadata: FileMetadata,
         _project_files: ProjectFiles,
-        _options: Option<&serde_json::Value>,
+        options: Option<&serde_json::Value>,
     ) -> Vec<LintDiagnostic> {
         let mut diagnostics = Vec::new();
+        let ignore = parse_ignore(options);
 
         let parse = graphql_syntax::parse(db, content, metadata);
         if parse.has_errors() {
@@ -57,15 +76,44 @@ impl StandaloneDocumentLintRule for LoneExecutableDefinitionRuleImpl {
                 }
             }
 
-            let total_defs = operations.len() + fragments.len();
+            // Definitions that are in the ignore set don't participate in the
+            // "lone definition" count or reporting — they're invisible to the rule.
+            let counted_ops: Vec<_> = operations
+                .iter()
+                .filter(|op| {
+                    let kind_key = op.operation_type().map_or("query", |op_type| {
+                        match get_operation_kind(&op_type) {
+                            OperationKind::Query => "query",
+                            OperationKind::Mutation => "mutation",
+                            OperationKind::Subscription => "subscription",
+                        }
+                    });
+                    !ignore.contains(kind_key)
+                })
+                .collect();
+            let counted_frags: Vec<_> = fragments
+                .iter()
+                .filter(|_| !ignore.contains("fragment"))
+                .collect();
+
+            let total_defs = counted_ops.len() + counted_frags.len();
             if total_defs <= 1 {
                 continue;
             }
 
-            // Report all definitions after the first one
-            let mut all_defs: Vec<(&str, Option<String>, usize, usize)> = Vec::new();
+            // Report all definitions after the first one. The pascal-cased "kind"
+            // (`Query`, `Mutation`, `Subscription`, `Fragment`) matches graphql-eslint's
+            // message wording.
+            let mut all_defs: Vec<(&'static str, Option<String>, usize, usize)> = Vec::new();
 
-            for op in &operations {
+            for op in &counted_ops {
+                let kind = op
+                    .operation_type()
+                    .map_or("Query", |op_type| match get_operation_kind(&op_type) {
+                        OperationKind::Query => "Query",
+                        OperationKind::Mutation => "Mutation",
+                        OperationKind::Subscription => "Subscription",
+                    });
                 let name = op.name().map(|n| n.text().to_string());
                 let name_or_keyword = op
                     .name()
@@ -89,11 +137,11 @@ impl StandaloneDocumentLintRule for LoneExecutableDefinitionRuleImpl {
                     });
 
                 if let Some((start, end)) = name_or_keyword {
-                    all_defs.push(("operation", name, start, end));
+                    all_defs.push((kind, name, start, end));
                 }
             }
 
-            for frag in &fragments {
+            for frag in &counted_frags {
                 let name = frag
                     .fragment_name()
                     .and_then(|fn_| fn_.name())
@@ -105,23 +153,26 @@ impl StandaloneDocumentLintRule for LoneExecutableDefinitionRuleImpl {
                 });
 
                 if let Some((start, end)) = name_or_keyword {
-                    all_defs.push(("fragment", name, start, end));
+                    all_defs.push(("Fragment", name, start, end));
                 }
             }
 
             // Sort by position and skip the first definition
             all_defs.sort_by_key(|d| d.2);
             for (kind, name, start, end) in all_defs.into_iter().skip(1) {
-                let def_desc =
-                    name.map_or_else(|| format!("anonymous {kind}"), |n| format!("{kind} '{n}'"));
-                diagnostics.push(LintDiagnostic::new(
-                    doc.span(start, end),
-                    LintSeverity::Warning,
-                    format!(
-                        "Only one executable definition is allowed per file. Found additional {def_desc}."
-                    ),
-                    "loneExecutableDefinition",
-                ));
+                let label = match name {
+                    Some(n) => format!("{kind} \"{n}\""),
+                    None => kind.to_string(),
+                };
+                diagnostics.push(
+                    LintDiagnostic::new(
+                        doc.span(start, end),
+                        LintSeverity::Warning,
+                        format!("{label} should be in a separate file."),
+                        "loneExecutableDefinition",
+                    )
+                    .with_message_id("lone-executable-definition"),
+                );
             }
         }
 
@@ -142,7 +193,18 @@ mod tests {
         let document_file_ids = graphql_base_db::DocumentFileIds::new(db, Arc::new(vec![]));
         let file_entry_map =
             graphql_base_db::FileEntryMap::new(db, Arc::new(std::collections::HashMap::new()));
-        ProjectFiles::new(db, schema_file_ids, document_file_ids, file_entry_map)
+        ProjectFiles::new(
+            db,
+            schema_file_ids,
+            document_file_ids,
+            graphql_base_db::ResolvedSchemaFileIds::new(db, std::sync::Arc::new(vec![])),
+            file_entry_map,
+            graphql_base_db::FilePathMap::new(
+                db,
+                Arc::new(std::collections::HashMap::new()),
+                Arc::new(std::collections::HashMap::new()),
+            ),
+        )
     }
 
     fn check(source: &str) -> Vec<LintDiagnostic> {
@@ -177,7 +239,10 @@ mod tests {
     fn test_multiple_operations() {
         let diagnostics = check("query Q1 { user { id } } query Q2 { posts { id } }");
         assert_eq!(diagnostics.len(), 1);
-        assert!(diagnostics[0].message.contains("Q2"));
+        assert_eq!(
+            diagnostics[0].message,
+            "Query \"Q2\" should be in a separate file."
+        );
     }
 
     #[test]

@@ -15,17 +15,11 @@ GraphQL Analyzer has three main components you can install independently:
 
 The extension bundles the LSP server — no separate installation needed.
 
-**One-line installer (macOS/Linux):**
+Install **[GraphQL Analyzer](https://marketplace.visualstudio.com/items?itemName=graphql-analyzer.graphql-analyzer)** from the VS Code Marketplace, or search "GraphQL Analyzer" in the Extensions view (`Ctrl/Cmd+Shift+X`).
 
-```sh
-curl -fsSL https://raw.githubusercontent.com/trevor-scheer/graphql-analyzer/main/scripts/install-vscode.sh | sh
-```
+For VS Codium, Cursor, Windsurf, and other VS Code-compatible editors, install from the [Open VSX Registry](https://open-vsx.org/extension/graphql-analyzer/graphql-analyzer).
 
-**One-line installer (Windows PowerShell):**
-
-```powershell
-irm https://raw.githubusercontent.com/trevor-scheer/graphql-analyzer/main/scripts/install-vscode.ps1 | iex
-```
+### Other installation methods
 
 **Manual installation:**
 
@@ -87,7 +81,7 @@ For editors other than VS Code (Neovim, Helix, etc.), install the LSP server dir
 **Via Cargo:**
 
 ```sh
-cargo install graphql-lsp
+cargo install --git https://github.com/trevor-scheer/graphql-analyzer graphql-lsp
 ```
 
 **Binary downloads:**

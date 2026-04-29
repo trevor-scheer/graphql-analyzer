@@ -2,26 +2,6 @@ name: CI
 
 on:
   push:
-    branches: [main, "release/**"]
-    paths:
-      - "**/*.rs"
-      - "**/Cargo.toml"
-      - "Cargo.lock"
-      - "rust-toolchain.toml"
-      - "rustfmt.toml"
-      - "editors/vscode/**/*.ts"
-      - "editors/vscode/package.json"
-      - "editors/vscode/package-lock.json"
-      - "editors/vscode/tsconfig.json"
-      - "test-workspace/**/*.ts"
-      - "test-workspace/**/*.tsx"
-      - "test-workspace/**/*.js"
-      - "**/*.graphql"
-      - "package.json"
-      - "package-lock.json"
-      - "CHANGELOG.md"
-      - ".github/workflows/**"
-  pull_request:
     branches: [main]
     paths:
       - "**/*.rs"
@@ -33,14 +13,18 @@ on:
       - "editors/vscode/package.json"
       - "editors/vscode/package-lock.json"
       - "editors/vscode/tsconfig.json"
+      - "packages/**"
       - "test-workspace/**/*.ts"
       - "test-workspace/**/*.tsx"
       - "test-workspace/**/*.js"
+      - "test-workspace/**/*.mjs"
       - "**/*.graphql"
       - "package.json"
       - "package-lock.json"
       - "CHANGELOG.md"
       - ".github/workflows/**"
+  pull_request:
+    branches: [main]
 
 concurrency:
   group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
@@ -69,12 +53,15 @@ jobs:
           shared-key: "ci-test"
 
       - name: Install cargo-nextest
-        uses: taiki-e/install-action@58de854a76b5f83026062595237164559fdbc5a1 # nextest
+        uses: taiki-e/install-action@e537394e10461340f56469a03c3e73f1705074a9 # nextest
         with:
           tool: nextest
 
       - name: Run tests
         run: cargo nextest run --workspace --all-features
+
+      - name: Run doctests
+        run: cargo test --workspace --doc
 
   lint:
     name: Lint
@@ -135,8 +122,8 @@ jobs:
 
   dogfood:
     name: Dogfood GraphQL Check
-    runs-on: ubuntu-latest
     needs: [build]
+    runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
 
@@ -159,11 +146,20 @@ jobs:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
 
       - name: Setup Node.js
-        uses: actions/setup-node@53b83947a5a98c8d113130e565377fae1a50d02f # v6
+        uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e # v6
         with:
-          node-version: "24"
+          node-version-file: .node-version
           cache: "npm"
           cache-dependency-path: editors/vscode/package-lock.json
+
+      - name: Pin npm
+        # npm 11.12 regressed `npm ci` to crash on lockfile optional-dep
+        # stubs that lack an explicit `version` (our napi platform stubs);
+        # 11.13 fixed it via arborist commit 7e3a66e ("do not install
+        # inert optional extraneous shared dependencies"). Pinning to
+        # 11.13 keeps us off whatever npm patch the GitHub-hosted Node 24
+        # image happens to ship until that catches up.
+        run: npm install -g npm@^11.13.0
 
       - name: Install dependencies
         working-directory: editors/vscode
@@ -177,6 +173,42 @@ jobs:
         working-directory: editors/vscode
         run: npm run compile
 
+  eslint-plugin:
+    name: ESLint Plugin
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
+
+      - name: Install Rust
+        run: rustup show
+
+      - name: Rust cache
+        uses: Swatinem/rust-cache@e18b497796c12c097a38f9edb9d0641fb99eee32 # v2
+        with:
+          shared-key: "ci-eslint-plugin"
+
+      - name: Setup Node.js
+        uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e # v6
+        with:
+          node-version-file: .node-version
+          cache: "npm"
+
+      - name: Pin npm
+        # npm 11.12 regressed `npm ci` (see vscode-extension job for context).
+        run: npm install -g npm@^11.13.0
+
+      - name: Install workspace deps
+        run: npm ci
+
+      - name: Build @graphql-analyzer/core native addon
+        run: npm run build:debug --workspace=@graphql-analyzer/core
+
+      - name: Build @graphql-analyzer/eslint-plugin
+        run: npm run build --workspace=@graphql-analyzer/eslint-plugin
+
+      - name: Run plugin tests
+        run: npm run test:unit --workspace=@graphql-analyzer/eslint-plugin
+
   format:
     name: Format
     runs-on: ubuntu-latest
@@ -184,10 +216,14 @@ jobs:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
 
       - name: Setup Node.js
-        uses: actions/setup-node@53b83947a5a98c8d113130e565377fae1a50d02f # v6
+        uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e # v6
         with:
-          node-version: "24"
+          node-version-file: .node-version
           cache: "npm"
+
+      - name: Pin npm
+        # npm 11.12 regressed `npm ci` (see vscode-extension job for context).
+        run: npm install -g npm@^11.13.0
 
       - name: Install dependencies
         run: npm ci
@@ -210,11 +246,95 @@ jobs:
       - name: TypeScript type check
         run: npm run typecheck
 
+  release-prep:
+    name: Release Prep Simulation
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
+
+      - name: Setup Node.js
+        uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e # v6
+        with:
+          node-version-file: .node-version
+          cache: "npm"
+
+      - name: Pin npm
+        # npm 11.12 regressed `npm ci` (see vscode-extension job for context).
+        run: npm install -g npm@^11.13.0
+
+      - name: Simulate knope's release-prep
+        run: node scripts/check-release-prep.mjs
+
+  web:
+    name: Web Playground
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
+
+      - name: Install Rust
+        run: |
+          rustup show
+          rustup target add wasm32-unknown-unknown
+
+      - name: Rust cache
+        uses: Swatinem/rust-cache@e18b497796c12c097a38f9edb9d0641fb99eee32 # v2
+        with:
+          shared-key: "ci-web"
+
+      - name: Install wasm-pack
+        uses: taiki-e/install-action@1222bc9d54bca5582f30a2aac6829eeb5fccf68b # v2
+        with:
+          tool: wasm-pack
+
+      - name: Check wasm-feature build of graphql-lsp
+        run: cargo check -p graphql-lsp --no-default-features --features wasm
+
+      - name: Check graphql-lsp-wasm for wasm32-unknown-unknown
+        run: cargo check -p graphql-lsp-wasm --target wasm32-unknown-unknown
+
+      - name: Setup Node.js
+        uses: actions/setup-node@53b83947a5a98c8d113130e565377fae1a50d02f # v6
+        with:
+          node-version-file: .node-version
+          cache: "npm"
+
+      - name: Install workspace deps
+        run: npm ci
+
+      - name: Build wasm bundle (release)
+        run: wasm-pack build crates/lsp-wasm --target web --out-dir $GITHUB_WORKSPACE/packages/web-ide/src/wasm --release
+
+      - name: TypeScript check
+        working-directory: packages/web-ide
+        run: npx tsc --noEmit
+
+      - name: Build playground (Vite)
+        run: npm --workspace=packages/web-ide run build
+
+      - name: Install Playwright browsers
+        working-directory: packages/web-ide
+        run: npx playwright install --with-deps chromium
+
+      - name: Run e2e tests
+        run: npm --workspace=packages/web-ide run test:e2e
+
   ci-success:
     name: CI Success
     runs-on: ubuntu-latest
     if: always()
-    needs: [test, lint, build, check, vscode-extension, format]
+    needs:
+      [
+        test,
+        lint,
+        build,
+        check,
+        dogfood,
+        vscode-extension,
+        eslint-plugin,
+        format,
+        release-prep,
+        web,
+      ]
     steps:
       - name: Check all jobs
         run: |

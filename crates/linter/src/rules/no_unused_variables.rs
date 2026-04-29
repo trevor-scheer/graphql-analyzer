@@ -1,0 +1,654 @@
+use crate::diagnostics::{CodeFix, LintDiagnostic, LintSeverity, TextEdit};
+use crate::traits::{LintRule, StandaloneDocumentLintRule};
+use apollo_parser::cst;
+use graphql_apollo_ext::{
+    walk_fragment_definition, walk_operation, CstVisitor, DocumentExt, NameExt, RangeExt,
+};
+use graphql_base_db::{FileContent, FileId, FileMetadata, ProjectFiles};
+use std::collections::HashSet;
+
+/// Lint rule that detects variables declared in operations that are never used
+///
+/// This rule checks for:
+/// - Variables declared in operation definitions but never referenced in the selection set
+/// - Variables never used in field arguments or directives
+///
+/// Example:
+/// ```graphql
+/// query GetUser($id: ID!, $unused: String) {  # $unused is never used
+///   user(id: $id) {
+///     name
+///   }
+/// }
+/// ```
+pub struct NoUnusedVariablesRuleImpl;
+
+impl LintRule for NoUnusedVariablesRuleImpl {
+    fn name(&self) -> &'static str {
+        "noUnusedVariables"
+    }
+
+    fn description(&self) -> &'static str {
+        "Detects variables declared in operations that are never used"
+    }
+
+    fn default_severity(&self) -> LintSeverity {
+        LintSeverity::Warning
+    }
+}
+
+impl StandaloneDocumentLintRule for NoUnusedVariablesRuleImpl {
+    fn check(
+        &self,
+        db: &dyn graphql_hir::GraphQLHirDatabase,
+        _file_id: FileId,
+        content: FileContent,
+        metadata: FileMetadata,
+        project_files: ProjectFiles,
+        _options: Option<&serde_json::Value>,
+    ) -> Vec<LintDiagnostic> {
+        let mut diagnostics = Vec::new();
+
+        let parse = graphql_syntax::parse(db, content, metadata);
+        if parse.has_errors() {
+            return diagnostics;
+        }
+
+        // Build the project-wide fragment source index once. This lets us
+        // resolve fragment spreads across files, mirroring how graphql-js
+        // validates the merged document (all sibling operations and fragments).
+        let fragment_sources = build_fragment_source_map(db, project_files);
+
+        // Unified: check all documents (works for both pure GraphQL and TS/JS)
+        for doc in parse.documents() {
+            for operation in doc.tree.operations() {
+                check_operation_for_unused_variables(
+                    &operation,
+                    &doc,
+                    &fragment_sources,
+                    &mut diagnostics,
+                );
+            }
+        }
+
+        diagnostics
+    }
+}
+
+/// Maps fragment name → source text for all fragments in the project.
+///
+/// This enables cross-file variable usage tracking: when an operation spreads
+/// a fragment defined in another file, we can walk that fragment's body to
+/// find variable references it contains.
+fn build_fragment_source_map(
+    db: &dyn graphql_hir::GraphQLHirDatabase,
+    project_files: ProjectFiles,
+) -> std::collections::HashMap<String, std::sync::Arc<str>> {
+    let all = graphql_hir::all_fragments(db, project_files);
+    let mut map = std::collections::HashMap::new();
+
+    for (name, frag_struct) in all {
+        let Some((content, _metadata)) =
+            graphql_base_db::file_lookup(db, project_files, frag_struct.file_id)
+        else {
+            continue;
+        };
+        map.insert(name.to_string(), content.text(db));
+    }
+
+    map
+}
+
+/// Information about a declared variable for fix computation
+struct DeclaredVariable {
+    /// Variable name (without $)
+    name: String,
+    /// Byte offset of the entire variable definition (including type, default value)
+    def_start: usize,
+    /// Byte offset of the end of the variable definition
+    def_end: usize,
+}
+
+/// Visitor that collects all variable references (excluding definitions) and
+/// all fragment spread names encountered during traversal.
+struct VariableCollector {
+    /// Track when we're inside a variable definition (to skip those)
+    in_variable_definition: bool,
+    variables: HashSet<String>,
+    /// Fragment spread names encountered — caller uses these to recursively
+    /// walk cross-file fragment bodies for more variable references.
+    spread_names: Vec<String>,
+}
+
+impl VariableCollector {
+    fn new() -> Self {
+        Self {
+            in_variable_definition: false,
+            variables: HashSet::new(),
+            spread_names: Vec::new(),
+        }
+    }
+}
+
+impl CstVisitor for VariableCollector {
+    fn enter_variable_definition(&mut self, _var_def: &cst::VariableDefinition) {
+        self.in_variable_definition = true;
+    }
+
+    fn exit_variable_definition(&mut self, _var_def: &cst::VariableDefinition) {
+        self.in_variable_definition = false;
+    }
+
+    fn visit_variable(&mut self, var: &cst::Variable) {
+        // Skip variables in variable definitions (those are declarations, not usages)
+        if self.in_variable_definition {
+            return;
+        }
+        if let Some(name) = var.name_text() {
+            self.variables.insert(name);
+        }
+    }
+
+    fn visit_fragment_spread(&mut self, spread: &cst::FragmentSpread) {
+        if let Some(name) = spread.fragment_name().and_then(|fn_| fn_.name()) {
+            self.spread_names.push(name.text().to_string());
+        }
+    }
+}
+
+/// Collect all variable names referenced inside a fragment and any fragments
+/// it transitively spreads, looking up bodies from `fragment_sources`.
+///
+/// `visited` prevents infinite recursion through cyclic fragment references.
+fn collect_variables_from_fragment(
+    fragment_name: &str,
+    fragment_sources: &std::collections::HashMap<String, std::sync::Arc<str>>,
+    used_variables: &mut HashSet<String>,
+    visited: &mut HashSet<String>,
+) {
+    if visited.contains(fragment_name) {
+        return;
+    }
+    visited.insert(fragment_name.to_string());
+
+    let Some(source) = fragment_sources.get(fragment_name) else {
+        return;
+    };
+
+    let parse_result = apollo_parser::Parser::new(source).parse();
+    let cst = parse_result.document();
+
+    for definition in cst.definitions() {
+        if let cst::Definition::FragmentDefinition(frag) = definition {
+            let is_target = frag
+                .fragment_name()
+                .and_then(|fn_| fn_.name())
+                .is_some_and(|n| n.text() == fragment_name);
+            if !is_target {
+                continue;
+            }
+
+            let mut collector = VariableCollector::new();
+            walk_fragment_definition(&mut collector, &frag);
+
+            used_variables.extend(collector.variables);
+
+            // Recurse into any spreads this fragment uses.
+            for nested_name in collector.spread_names {
+                collect_variables_from_fragment(
+                    &nested_name,
+                    fragment_sources,
+                    used_variables,
+                    visited,
+                );
+            }
+
+            return;
+        }
+    }
+}
+
+/// Check a single operation for unused variables
+fn check_operation_for_unused_variables(
+    operation: &cst::OperationDefinition,
+    doc: &graphql_syntax::DocumentRef<'_>,
+    fragment_sources: &std::collections::HashMap<String, std::sync::Arc<str>>,
+    diagnostics: &mut Vec<LintDiagnostic>,
+) {
+    // Step 1: Collect all declared variables with their ranges
+    let mut declared_variables: Vec<DeclaredVariable> = Vec::new();
+
+    if let Some(variable_definitions) = operation.variable_definitions() {
+        for variable_def in variable_definitions.variable_definitions() {
+            if let Some(variable) = variable_def.variable() {
+                if let Some(name) = variable.name_text() {
+                    let def_range = variable_def.byte_range();
+
+                    declared_variables.push(DeclaredVariable {
+                        name,
+                        def_start: def_range.start,
+                        def_end: def_range.end,
+                    });
+                }
+            }
+        }
+    }
+
+    // If no variables declared, nothing to check
+    if declared_variables.is_empty() {
+        return;
+    }
+
+    // Step 2: Collect all used variables from the operation body.
+    let mut collector = VariableCollector::new();
+    walk_operation(&mut collector, operation);
+
+    let mut used_variables = collector.variables;
+    let direct_spreads = collector.spread_names;
+
+    // Step 3: Transitively walk all fragment spreads from the operation,
+    // including those in fragments that live in other files. This matches
+    // graphql-js's behaviour of validating the merged document.
+    let mut visited_fragments = HashSet::new();
+    for spread_name in direct_spreads {
+        collect_variables_from_fragment(
+            &spread_name,
+            fragment_sources,
+            &mut used_variables,
+            &mut visited_fragments,
+        );
+    }
+
+    // Pull the operation name once for graphql-eslint message parity. When
+    // the operation is anonymous, the message drops the `in operation "X"`
+    // suffix verbatim like graphql-js's `NoUnusedVariablesRule`.
+    let operation_name = operation.name().and_then(|n| n.text().to_string().into());
+
+    // Step 4: Report unused variables with fixes. Mirror graphql-eslint's
+    // location and message exactly: graphql-eslint's `validationToRule`
+    // re-anchors the diagnostic to the first token of the variable
+    // definition (the `$` sigil), and the text comes from graphql-js's
+    // `NoUnusedVariablesRule` verbatim.
+    for var in declared_variables {
+        if !used_variables.contains(&var.name) {
+            let message = match &operation_name {
+                Some(name) => format!(
+                    "Variable \"${}\" is never used in operation \"{name}\".",
+                    var.name
+                ),
+                None => format!("Variable \"${}\" is never used.", var.name),
+            };
+            let fix = compute_variable_removal_fix(&var);
+
+            // `def_start` points at the `$` sigil; span just that single
+            // character to match graphql-eslint's first-token loc.
+            let dollar_start = var.def_start;
+            let dollar_end = var.def_start + 1;
+
+            diagnostics.push(
+                LintDiagnostic::warning(
+                    doc.span(dollar_start, dollar_end),
+                    message,
+                    "noUnusedVariables",
+                )
+                .with_fix(fix)
+                .with_help("Remove the unused variable declaration")
+                .with_tag(crate::diagnostics::DiagnosticTag::Unnecessary),
+            );
+        }
+    }
+}
+
+/// Compute the fix for removing an unused variable
+fn compute_variable_removal_fix(var: &DeclaredVariable) -> CodeFix {
+    let label = format!("Remove unused variable '${}'", var.name);
+    CodeFix::new(label, vec![TextEdit::delete(var.def_start, var.def_end)])
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use graphql_base_db::{
+        DocumentKind, FileContent, FileId, FileMetadata, FileUri, Language, ProjectFiles,
+    };
+    use graphql_ide_db::RootDatabase;
+    use std::sync::Arc;
+
+    fn create_test_project_files(db: &RootDatabase) -> ProjectFiles {
+        let schema_file_ids = graphql_base_db::SchemaFileIds::new(db, Arc::new(vec![]));
+        let document_file_ids = graphql_base_db::DocumentFileIds::new(db, Arc::new(vec![]));
+        let file_entry_map =
+            graphql_base_db::FileEntryMap::new(db, Arc::new(std::collections::HashMap::new()));
+        ProjectFiles::new(
+            db,
+            schema_file_ids,
+            document_file_ids,
+            graphql_base_db::ResolvedSchemaFileIds::new(db, std::sync::Arc::new(vec![])),
+            file_entry_map,
+            graphql_base_db::FilePathMap::new(
+                db,
+                Arc::new(std::collections::HashMap::new()),
+                Arc::new(std::collections::HashMap::new()),
+            ),
+        )
+    }
+
+    #[test]
+    fn test_unused_variable() {
+        let db = RootDatabase::default();
+        let rule = NoUnusedVariablesRuleImpl;
+
+        let source = "
+query GetUser($id: ID!, $unused: String) {
+  user(id: $id) {
+    name
+  }
+}
+";
+
+        let file_id = FileId::new(0);
+        let content = FileContent::new(&db, Arc::from(source));
+        let metadata = FileMetadata::new(
+            &db,
+            file_id,
+            FileUri::new("file:///test.graphql"),
+            Language::GraphQL,
+            DocumentKind::Executable,
+        );
+        let project_files = create_test_project_files(&db);
+
+        let diagnostics = rule.check(&db, file_id, content, metadata, project_files, None);
+
+        assert_eq!(diagnostics.len(), 1);
+        assert_eq!(
+            diagnostics[0].message,
+            "Variable \"$unused\" is never used in operation \"GetUser\"."
+        );
+
+        // Verify fix is provided
+        assert!(diagnostics[0].has_fix());
+        let fix = diagnostics[0].fix.as_ref().unwrap();
+        assert!(fix.label.contains("Remove unused variable"));
+        assert_eq!(fix.edits.len(), 1);
+        // The fix should delete the variable definition
+        assert_eq!(fix.edits[0].new_text, "");
+    }
+
+    #[test]
+    fn test_all_variables_used() {
+        let db = RootDatabase::default();
+        let rule = NoUnusedVariablesRuleImpl;
+
+        let source = "
+query GetUser($id: ID!, $name: String) {
+  user(id: $id, name: $name) {
+    name
+  }
+}
+";
+
+        let file_id = FileId::new(0);
+        let content = FileContent::new(&db, Arc::from(source));
+        let metadata = FileMetadata::new(
+            &db,
+            file_id,
+            FileUri::new("file:///test.graphql"),
+            Language::GraphQL,
+            DocumentKind::Executable,
+        );
+        let project_files = create_test_project_files(&db);
+
+        let diagnostics = rule.check(&db, file_id, content, metadata, project_files, None);
+
+        assert_eq!(diagnostics.len(), 0);
+    }
+
+    #[test]
+    fn test_variable_in_directive() {
+        let db = RootDatabase::default();
+        let rule = NoUnusedVariablesRuleImpl;
+
+        let source = "
+query GetUser($id: ID!, $skip: Boolean!) {
+  user(id: $id) @skip(if: $skip) {
+    name
+  }
+}
+";
+
+        let file_id = FileId::new(0);
+        let content = FileContent::new(&db, Arc::from(source));
+        let metadata = FileMetadata::new(
+            &db,
+            file_id,
+            FileUri::new("file:///test.graphql"),
+            Language::GraphQL,
+            DocumentKind::Executable,
+        );
+        let project_files = create_test_project_files(&db);
+
+        let diagnostics = rule.check(&db, file_id, content, metadata, project_files, None);
+
+        assert_eq!(diagnostics.len(), 0);
+    }
+
+    #[test]
+    fn test_variable_in_nested_field() {
+        let db = RootDatabase::default();
+        let rule = NoUnusedVariablesRuleImpl;
+
+        let source = "
+query GetUser($id: ID!, $postId: ID!) {
+  user(id: $id) {
+    name
+    post(id: $postId) {
+      title
+    }
+  }
+}
+";
+
+        let file_id = FileId::new(0);
+        let content = FileContent::new(&db, Arc::from(source));
+        let metadata = FileMetadata::new(
+            &db,
+            file_id,
+            FileUri::new("file:///test.graphql"),
+            Language::GraphQL,
+            DocumentKind::Executable,
+        );
+        let project_files = create_test_project_files(&db);
+
+        let diagnostics = rule.check(&db, file_id, content, metadata, project_files, None);
+
+        assert_eq!(diagnostics.len(), 0);
+    }
+
+    #[test]
+    fn test_variable_in_list() {
+        let db = RootDatabase::default();
+        let rule = NoUnusedVariablesRuleImpl;
+
+        let source = "
+query GetUsers($ids: [ID!]!, $id1: ID!, $id2: ID!) {
+  users(ids: [$id1, $id2]) {
+    name
+  }
+}
+";
+
+        let file_id = FileId::new(0);
+        let content = FileContent::new(&db, Arc::from(source));
+        let metadata = FileMetadata::new(
+            &db,
+            file_id,
+            FileUri::new("file:///test.graphql"),
+            Language::GraphQL,
+            DocumentKind::Executable,
+        );
+        let project_files = create_test_project_files(&db);
+
+        let diagnostics = rule.check(&db, file_id, content, metadata, project_files, None);
+
+        // $ids is unused
+        assert_eq!(diagnostics.len(), 1);
+        assert!(diagnostics[0].message.contains("$ids"));
+    }
+
+    #[test]
+    fn test_variable_in_object() {
+        let db = RootDatabase::default();
+        let rule = NoUnusedVariablesRuleImpl;
+
+        let source = "
+query CreateUser($name: String!, $email: String!) {
+  createUser(input: { name: $name, email: $email }) {
+    id
+  }
+}
+";
+
+        let file_id = FileId::new(0);
+        let content = FileContent::new(&db, Arc::from(source));
+        let metadata = FileMetadata::new(
+            &db,
+            file_id,
+            FileUri::new("file:///test.graphql"),
+            Language::GraphQL,
+            DocumentKind::Executable,
+        );
+        let project_files = create_test_project_files(&db);
+
+        let diagnostics = rule.check(&db, file_id, content, metadata, project_files, None);
+
+        assert_eq!(diagnostics.len(), 0);
+    }
+
+    #[test]
+    fn test_multiple_unused_variables() {
+        let db = RootDatabase::default();
+        let rule = NoUnusedVariablesRuleImpl;
+
+        let source = "
+query GetUser($id: ID!, $unused1: String, $unused2: Int, $limit: Int) {
+  user(id: $id, limit: $limit) {
+    name
+  }
+}
+";
+
+        let file_id = FileId::new(0);
+        let content = FileContent::new(&db, Arc::from(source));
+        let metadata = FileMetadata::new(
+            &db,
+            file_id,
+            FileUri::new("file:///test.graphql"),
+            Language::GraphQL,
+            DocumentKind::Executable,
+        );
+        let project_files = create_test_project_files(&db);
+
+        let diagnostics = rule.check(&db, file_id, content, metadata, project_files, None);
+
+        assert_eq!(diagnostics.len(), 2);
+        let messages: Vec<_> = diagnostics.iter().map(|d| &d.message).collect();
+        assert!(messages
+            .iter()
+            .any(|m| m.contains("$unused1") && m.contains("never used")));
+        assert!(messages
+            .iter()
+            .any(|m| m.contains("$unused2") && m.contains("never used")));
+    }
+
+    #[test]
+    fn test_no_variables() {
+        let db = RootDatabase::default();
+        let rule = NoUnusedVariablesRuleImpl;
+
+        let source = "
+query GetUser {
+  user {
+    name
+  }
+}
+";
+
+        let file_id = FileId::new(0);
+        let content = FileContent::new(&db, Arc::from(source));
+        let metadata = FileMetadata::new(
+            &db,
+            file_id,
+            FileUri::new("file:///test.graphql"),
+            Language::GraphQL,
+            DocumentKind::Executable,
+        );
+        let project_files = create_test_project_files(&db);
+
+        let diagnostics = rule.check(&db, file_id, content, metadata, project_files, None);
+
+        assert_eq!(diagnostics.len(), 0);
+    }
+
+    #[test]
+    fn test_mutation_with_unused_variable() {
+        let db = RootDatabase::default();
+        let rule = NoUnusedVariablesRuleImpl;
+
+        let source = "
+mutation UpdateUser($id: ID!, $name: String!, $unused: Boolean) {
+  updateUser(id: $id, name: $name) {
+    id
+    name
+  }
+}
+";
+
+        let file_id = FileId::new(0);
+        let content = FileContent::new(&db, Arc::from(source));
+        let metadata = FileMetadata::new(
+            &db,
+            file_id,
+            FileUri::new("file:///test.graphql"),
+            Language::GraphQL,
+            DocumentKind::Executable,
+        );
+        let project_files = create_test_project_files(&db);
+
+        let diagnostics = rule.check(&db, file_id, content, metadata, project_files, None);
+
+        assert_eq!(diagnostics.len(), 1);
+        assert!(diagnostics[0].message.contains("$unused"));
+    }
+
+    #[test]
+    fn test_variable_in_inline_fragment_directive() {
+        let db = RootDatabase::default();
+        let rule = NoUnusedVariablesRuleImpl;
+
+        let source = "
+query GetUser($id: ID!, $include: Boolean!) {
+  user(id: $id) {
+    name
+    ... @include(if: $include) {
+      email
+    }
+  }
+}
+";
+
+        let file_id = FileId::new(0);
+        let content = FileContent::new(&db, Arc::from(source));
+        let metadata = FileMetadata::new(
+            &db,
+            file_id,
+            FileUri::new("file:///test.graphql"),
+            Language::GraphQL,
+            DocumentKind::Executable,
+        );
+        let project_files = create_test_project_files(&db);
+
+        let diagnostics = rule.check(&db, file_id, content, metadata, project_files, None);
+
+        assert_eq!(diagnostics.len(), 0);
+    }
+}

@@ -23,6 +23,8 @@ pub enum ExitCode {
     IoError = 4,
     /// Parse error (invalid GraphQL syntax in config or schema)
     ParseError = 5,
+    /// Warning threshold exceeded (--max-warnings)
+    WarningThresholdExceeded = 6,
 }
 
 impl ExitCode {
@@ -47,6 +49,7 @@ impl std::fmt::Display for ExitCode {
             Self::SchemaError => write!(f, "schema load error"),
             Self::IoError => write!(f, "I/O error"),
             Self::ParseError => write!(f, "parse error"),
+            Self::WarningThresholdExceeded => write!(f, "warning threshold exceeded"),
         }
     }
 }

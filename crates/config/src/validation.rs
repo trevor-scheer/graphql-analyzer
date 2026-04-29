@@ -3,6 +3,7 @@
 //! Provides validation for GraphQL configuration files, returning structured
 //! errors that can be easily converted to diagnostics by consumers.
 
+use crate::suggestions::did_you_mean;
 use crate::GraphQLConfig;
 use std::collections::{HashMap, HashSet};
 use std::path::{Path, PathBuf};
@@ -92,12 +93,19 @@ pub enum ConfigValidationError {
         file_type: FileType,
     },
     /// An unknown lint rule name was specified in config.
-    UnknownLintRule { project: String, rule_name: String },
+    UnknownLintRule {
+        project: String,
+        rule_name: String,
+        suggestion: Option<String>,
+    },
     /// An unknown preset name was specified in config.
     UnknownPreset {
         project: String,
         preset_name: String,
+        suggestion: Option<String>,
     },
+    /// The resolved schema file was not found on disk.
+    ResolvedSchemaNotFound { project: String, path: String },
 }
 
 impl ConfigValidationError {
@@ -111,6 +119,7 @@ impl ConfigValidationError {
             Self::NoFilesFound { .. } => "no-files-found",
             Self::UnknownLintRule { .. } => "unknown-lint-rule",
             Self::UnknownPreset { .. } => "unknown-preset",
+            Self::ResolvedSchemaNotFound { .. } => "resolved-schema-not-found",
         }
     }
 
@@ -118,7 +127,9 @@ impl ConfigValidationError {
     #[must_use]
     pub fn severity(&self) -> Severity {
         match self {
-            Self::UnmatchedPattern { .. } | Self::NoFilesFound { .. } => Severity::Warning,
+            Self::UnmatchedPattern { .. }
+            | Self::NoFilesFound { .. }
+            | Self::ResolvedSchemaNotFound { .. } => Severity::Warning,
             Self::OverlappingPattern { .. }
             | Self::ContentMismatch { .. }
             | Self::UnknownLintRule { .. }
@@ -177,11 +188,24 @@ impl ConfigValidationError {
             } => {
                 format!("No {file_type} files found for project '{project}'.")
             }
-            Self::UnknownLintRule { rule_name, .. } => {
-                format!("Unknown lint rule: '{rule_name}'.")
-            }
-            Self::UnknownPreset { preset_name, .. } => {
-                format!("Unknown lint preset: '{preset_name}'.")
+            Self::UnknownLintRule {
+                rule_name,
+                suggestion,
+                ..
+            } => match suggestion {
+                Some(s) => format!("Unknown lint rule: '{rule_name}'. Did you mean '{s}'?"),
+                None => format!("Unknown lint rule: '{rule_name}'."),
+            },
+            Self::UnknownPreset {
+                preset_name,
+                suggestion,
+                ..
+            } => match suggestion {
+                Some(s) => format!("Unknown lint preset: '{preset_name}'. Did you mean '{s}'?"),
+                None => format!("Unknown lint preset: '{preset_name}'."),
+            },
+            Self::ResolvedSchemaNotFound { path, .. } => {
+                format!("Resolved schema file not found: '{path}'")
             }
         }
     }
@@ -210,6 +234,9 @@ impl ConfigValidationError {
             Self::UnknownPreset { preset_name, .. } => {
                 find_pattern_location(config_content, preset_name, 0)
             }
+            Self::ResolvedSchemaNotFound { path, .. } => {
+                find_pattern_location(config_content, path, 0)
+            }
         }
     }
 }
@@ -230,6 +257,7 @@ pub fn validate(
     let mut errors = Vec::new();
     errors.extend(validate_file_uniqueness(config, workspace_path));
     errors.extend(validate_unmatched_patterns(config, workspace_path));
+    errors.extend(validate_resolved_schema(config, workspace_path));
     if let Some(ctx) = lint_context {
         errors.extend(validate_lint_config(config, ctx));
     }
@@ -427,6 +455,28 @@ fn validate_unmatched_patterns(
     errors
 }
 
+/// Validate that resolved schema paths point to existing files.
+fn validate_resolved_schema(
+    config: &GraphQLConfig,
+    workspace_path: &Path,
+) -> Vec<ConfigValidationError> {
+    let mut errors = Vec::new();
+
+    for (project_name, project_config) in config.projects() {
+        if let Some(resolved_path) = project_config.resolved_schema() {
+            let full_path = workspace_path.join(&resolved_path);
+            if !full_path.is_file() {
+                errors.push(ConfigValidationError::ResolvedSchemaNotFound {
+                    project: project_name.to_string(),
+                    path: resolved_path,
+                });
+            }
+        }
+    }
+
+    errors
+}
+
 /// Validate lint configuration against known rule names and presets.
 fn validate_lint_config(
     config: &GraphQLConfig,
@@ -442,7 +492,7 @@ fn validate_lint_config(
         };
 
         validate_lint_value(
-            lint_value,
+            &lint_value,
             project_name,
             &rule_set,
             &preset_set,
@@ -460,11 +510,19 @@ fn validate_lint_value(
     preset_set: &HashSet<&str>,
     errors: &mut Vec<ConfigValidationError>,
 ) {
+    let suggest_preset = |name: &str| -> Option<String> {
+        did_you_mean(name, preset_set.iter().copied()).map(String::from)
+    };
+    let suggest_rule = |name: &str| -> Option<String> {
+        did_you_mean(name, rule_set.iter().copied()).map(String::from)
+    };
+
     match value {
         // `lint: "recommended"` — a single preset name
         serde_json::Value::String(name) => {
             if !preset_set.contains(name.as_str()) {
                 errors.push(ConfigValidationError::UnknownPreset {
+                    suggestion: suggest_preset(name),
                     project: project_name.to_string(),
                     preset_name: name.clone(),
                 });
@@ -476,6 +534,7 @@ fn validate_lint_value(
                 if let Some(name) = item.as_str() {
                     if !preset_set.contains(name) {
                         errors.push(ConfigValidationError::UnknownPreset {
+                            suggestion: suggest_preset(name),
                             project: project_name.to_string(),
                             preset_name: name.to_string(),
                         });
@@ -491,6 +550,7 @@ fn validate_lint_value(
                     serde_json::Value::String(name) => {
                         if !preset_set.contains(name.as_str()) {
                             errors.push(ConfigValidationError::UnknownPreset {
+                                suggestion: suggest_preset(name),
                                 project: project_name.to_string(),
                                 preset_name: name.clone(),
                             });
@@ -501,6 +561,7 @@ fn validate_lint_value(
                             if let Some(name) = item.as_str() {
                                 if !preset_set.contains(name) {
                                     errors.push(ConfigValidationError::UnknownPreset {
+                                        suggestion: suggest_preset(name),
                                         project: project_name.to_string(),
                                         preset_name: name.to_string(),
                                     });
@@ -517,6 +578,7 @@ fn validate_lint_value(
                 for rule_name in rules.keys() {
                     if !rule_set.contains(rule_name.as_str()) {
                         errors.push(ConfigValidationError::UnknownLintRule {
+                            suggestion: suggest_rule(rule_name),
                             project: project_name.to_string(),
                             rule_name: rule_name.clone(),
                         });
@@ -586,8 +648,13 @@ mod tests {
     fn lint_extensions(
         lint_value: serde_json::Value,
     ) -> Option<StdHashMap<String, serde_json::Value>> {
+        let mut analyzer = serde_json::Map::new();
+        analyzer.insert("lint".to_string(), lint_value);
         let mut map = StdHashMap::new();
-        map.insert("lint".to_string(), lint_value);
+        map.insert(
+            "graphql-analyzer".to_string(),
+            serde_json::Value::Object(analyzer),
+        );
         Some(map)
     }
 
@@ -607,23 +674,23 @@ mod tests {
                 let mut map = std::collections::HashMap::new();
                 map.insert(
                     "project1".to_string(),
-                    ProjectConfig {
-                        schema: SchemaConfig::Path("schema/*.graphql".to_string()),
-                        documents: None,
-                        include: None,
-                        exclude: None,
-                        extensions: None,
-                    },
+                    ProjectConfig::new(
+                        SchemaConfig::Path("schema/*.graphql".to_string()),
+                        None,
+                        None,
+                        None,
+                        None,
+                    ),
                 );
                 map.insert(
                     "project2".to_string(),
-                    ProjectConfig {
-                        schema: SchemaConfig::Path("schema/*.graphql".to_string()),
-                        documents: None,
-                        include: None,
-                        exclude: None,
-                        extensions: None,
-                    },
+                    ProjectConfig::new(
+                        SchemaConfig::Path("schema/*.graphql".to_string()),
+                        None,
+                        None,
+                        None,
+                        None,
+                    ),
                 );
                 map
             },
@@ -665,23 +732,23 @@ mod tests {
                 let mut map = std::collections::HashMap::new();
                 map.insert(
                     "project1".to_string(),
-                    ProjectConfig {
-                        schema: SchemaConfig::Path("schema1/*.graphql".to_string()),
-                        documents: None,
-                        include: None,
-                        exclude: None,
-                        extensions: None,
-                    },
+                    ProjectConfig::new(
+                        SchemaConfig::Path("schema1/*.graphql".to_string()),
+                        None,
+                        None,
+                        None,
+                        None,
+                    ),
                 );
                 map.insert(
                     "project2".to_string(),
-                    ProjectConfig {
-                        schema: SchemaConfig::Path("schema2/*.graphql".to_string()),
-                        documents: None,
-                        include: None,
-                        exclude: None,
-                        extensions: None,
-                    },
+                    ProjectConfig::new(
+                        SchemaConfig::Path("schema2/*.graphql".to_string()),
+                        None,
+                        None,
+                        None,
+                        None,
+                    ),
                 );
                 map
             },
@@ -794,12 +861,14 @@ projects:
         let error = ConfigValidationError::UnknownLintRule {
             project: "test".to_string(),
             rule_name: "badRule".to_string(),
+            suggestion: None,
         };
         assert_eq!(error.severity(), Severity::Error);
 
         let error = ConfigValidationError::UnknownPreset {
             project: "test".to_string(),
             preset_name: "badPreset".to_string(),
+            suggestion: None,
         };
         assert_eq!(error.severity(), Severity::Error);
     }
@@ -809,13 +878,13 @@ projects:
         let temp_dir = TempDir::new().unwrap();
         let workspace_path = temp_dir.path();
 
-        let config = GraphQLConfig::Single(Box::new(ProjectConfig {
-            schema: SchemaConfig::Path("nonexistent/*.graphql".to_string()),
-            documents: None,
-            include: None,
-            exclude: None,
-            extensions: None,
-        }));
+        let config = GraphQLConfig::Single(Box::new(ProjectConfig::new(
+            SchemaConfig::Path("nonexistent/*.graphql".to_string()),
+            None,
+            None,
+            None,
+            None,
+        )));
 
         let errors = validate(&config, workspace_path, None);
         let unmatched: Vec<_> = errors
@@ -837,13 +906,13 @@ projects:
         let temp_dir = TempDir::new().unwrap();
         let workspace_path = temp_dir.path();
 
-        let config = GraphQLConfig::Single(Box::new(ProjectConfig {
-            schema: SchemaConfig::Path("https://example.com/graphql".to_string()),
-            documents: None,
-            include: None,
-            exclude: None,
-            extensions: None,
-        }));
+        let config = GraphQLConfig::Single(Box::new(ProjectConfig::new(
+            SchemaConfig::Path("https://example.com/graphql".to_string()),
+            None,
+            None,
+            None,
+            None,
+        )));
 
         let errors = validate(&config, workspace_path, None);
         let unmatched: Vec<_> = errors
@@ -869,13 +938,13 @@ projects:
             }
         });
 
-        let config = GraphQLConfig::Single(Box::new(ProjectConfig {
-            schema: SchemaConfig::Path("schema.graphql".to_string()),
-            documents: None,
-            include: None,
-            exclude: None,
-            extensions: lint_extensions(lint_value),
-        }));
+        let config = GraphQLConfig::Single(Box::new(ProjectConfig::new(
+            SchemaConfig::Path("schema.graphql".to_string()),
+            None,
+            None,
+            None,
+            lint_extensions(lint_value),
+        )));
 
         let ctx = LintValidationContext {
             valid_rule_names: &["knownRule"],
@@ -899,13 +968,13 @@ projects:
         let mut f = std::fs::File::create(workspace_path.join("schema.graphql")).unwrap();
         writeln!(f, "type Query {{ hello: String }}").unwrap();
 
-        let config = GraphQLConfig::Single(Box::new(ProjectConfig {
-            schema: SchemaConfig::Path("schema.graphql".to_string()),
-            documents: None,
-            include: None,
-            exclude: None,
-            extensions: lint_extensions(serde_json::json!("nonexistent")),
-        }));
+        let config = GraphQLConfig::Single(Box::new(ProjectConfig::new(
+            SchemaConfig::Path("schema.graphql".to_string()),
+            None,
+            None,
+            None,
+            lint_extensions(serde_json::json!("nonexistent")),
+        )));
 
         let ctx = LintValidationContext {
             valid_rule_names: &[],
@@ -929,16 +998,16 @@ projects:
         let mut f = std::fs::File::create(workspace_path.join("schema.graphql")).unwrap();
         writeln!(f, "type Query {{ hello: String }}").unwrap();
 
-        let config = GraphQLConfig::Single(Box::new(ProjectConfig {
-            schema: SchemaConfig::Path("schema.graphql".to_string()),
-            documents: None,
-            include: None,
-            exclude: None,
-            extensions: lint_extensions(serde_json::json!({
+        let config = GraphQLConfig::Single(Box::new(ProjectConfig::new(
+            SchemaConfig::Path("schema.graphql".to_string()),
+            None,
+            None,
+            None,
+            lint_extensions(serde_json::json!({
                 "extends": "recommended",
                 "rules": { "myRule": "error" }
             })),
-        }));
+        )));
 
         let ctx = LintValidationContext {
             valid_rule_names: &["myRule"],
@@ -961,16 +1030,16 @@ projects:
         let mut f = std::fs::File::create(workspace_path.join("schema.graphql")).unwrap();
         writeln!(f, "type Query {{ hello: String }}").unwrap();
 
-        let config = GraphQLConfig::Single(Box::new(ProjectConfig {
-            schema: SchemaConfig::Path("schema.graphql".to_string()),
-            documents: None,
-            include: None,
-            exclude: None,
-            extensions: lint_extensions(serde_json::json!({
+        let config = GraphQLConfig::Single(Box::new(ProjectConfig::new(
+            SchemaConfig::Path("schema.graphql".to_string()),
+            None,
+            None,
+            None,
+            lint_extensions(serde_json::json!({
                 "extends": ["recommended", "strict"],
                 "rules": {}
             })),
-        }));
+        )));
 
         let ctx = LintValidationContext {
             valid_rule_names: &[],
@@ -984,6 +1053,213 @@ projects:
             .collect();
         assert_eq!(unknown.len(), 1);
         assert!(unknown[0].message().contains("strict"));
+    }
+
+    #[test]
+    fn test_unknown_rule_with_suggestion() {
+        let temp_dir = TempDir::new().unwrap();
+        let workspace_path = temp_dir.path();
+
+        let mut f = std::fs::File::create(workspace_path.join("schema.graphql")).unwrap();
+        writeln!(f, "type Query {{ hello: String }}").unwrap();
+
+        let lint_value = serde_json::json!({
+            "rules": {
+                "noAnonymous": "error"
+            }
+        });
+
+        let config = GraphQLConfig::Single(Box::new(ProjectConfig::new(
+            SchemaConfig::Path("schema.graphql".to_string()),
+            None,
+            None,
+            None,
+            lint_extensions(lint_value),
+        )));
+
+        let ctx = LintValidationContext {
+            valid_rule_names: &["noAnonymousOperations", "noDeprecatedUsage"],
+            valid_presets: &[],
+        };
+
+        let errors = validate(&config, workspace_path, Some(&ctx));
+        let unknown: Vec<_> = errors
+            .iter()
+            .filter(|e| e.code() == "unknown-lint-rule")
+            .collect();
+        assert_eq!(unknown.len(), 1);
+        assert!(
+            unknown[0]
+                .message()
+                .contains("Did you mean 'noAnonymousOperations'?"),
+            "Expected suggestion in message, got: {}",
+            unknown[0].message()
+        );
+    }
+
+    #[test]
+    fn test_unknown_preset_with_suggestion() {
+        let temp_dir = TempDir::new().unwrap();
+        let workspace_path = temp_dir.path();
+
+        let mut f = std::fs::File::create(workspace_path.join("schema.graphql")).unwrap();
+        writeln!(f, "type Query {{ hello: String }}").unwrap();
+
+        let config = GraphQLConfig::Single(Box::new(ProjectConfig::new(
+            SchemaConfig::Path("schema.graphql".to_string()),
+            None,
+            None,
+            None,
+            lint_extensions(serde_json::json!("recomended")),
+        )));
+
+        let ctx = LintValidationContext {
+            valid_rule_names: &[],
+            valid_presets: &["recommended", "strict"],
+        };
+
+        let errors = validate(&config, workspace_path, Some(&ctx));
+        let unknown: Vec<_> = errors
+            .iter()
+            .filter(|e| e.code() == "unknown-preset")
+            .collect();
+        assert_eq!(unknown.len(), 1);
+        assert!(
+            unknown[0].message().contains("Did you mean 'recommended'?"),
+            "Expected suggestion in message, got: {}",
+            unknown[0].message()
+        );
+    }
+
+    #[test]
+    fn test_unknown_rule_no_suggestion_for_unrelated_name() {
+        let temp_dir = TempDir::new().unwrap();
+        let workspace_path = temp_dir.path();
+
+        let mut f = std::fs::File::create(workspace_path.join("schema.graphql")).unwrap();
+        writeln!(f, "type Query {{ hello: String }}").unwrap();
+
+        let lint_value = serde_json::json!({
+            "rules": {
+                "totallyWrong": "error"
+            }
+        });
+
+        let config = GraphQLConfig::Single(Box::new(ProjectConfig::new(
+            SchemaConfig::Path("schema.graphql".to_string()),
+            None,
+            None,
+            None,
+            lint_extensions(lint_value),
+        )));
+
+        let ctx = LintValidationContext {
+            valid_rule_names: &["noAnonymousOperations"],
+            valid_presets: &[],
+        };
+
+        let errors = validate(&config, workspace_path, Some(&ctx));
+        let unknown: Vec<_> = errors
+            .iter()
+            .filter(|e| e.code() == "unknown-lint-rule")
+            .collect();
+        assert_eq!(unknown.len(), 1);
+        // Should NOT contain a suggestion since the input is too different
+        assert!(
+            !unknown[0].message().contains("Did you mean"),
+            "Should not suggest for unrelated name, got: {}",
+            unknown[0].message()
+        );
+    }
+
+    #[allow(clippy::unnecessary_wraps)]
+    fn resolved_schema_extensions(path: &str) -> Option<StdHashMap<String, serde_json::Value>> {
+        let mut analyzer = serde_json::Map::new();
+        analyzer.insert(
+            "resolvedSchema".to_string(),
+            serde_json::Value::String(path.to_string()),
+        );
+        let mut map = StdHashMap::new();
+        map.insert(
+            "graphql-analyzer".to_string(),
+            serde_json::Value::Object(analyzer),
+        );
+        Some(map)
+    }
+
+    #[test]
+    fn test_resolved_schema_not_found() {
+        let temp_dir = TempDir::new().unwrap();
+        let workspace_path = temp_dir.path();
+
+        // Create a schema file so we don't get unmatched-pattern noise
+        let mut f = std::fs::File::create(workspace_path.join("schema.graphql")).unwrap();
+        writeln!(f, "type Query {{ hello: String }}").unwrap();
+
+        let config = GraphQLConfig::Single(Box::new(ProjectConfig::new(
+            SchemaConfig::Path("schema.graphql".to_string()),
+            None,
+            None,
+            None,
+            resolved_schema_extensions("nonexistent/schema.graphql"),
+        )));
+
+        let errors = validate(&config, workspace_path, None);
+        let resolved: Vec<_> = errors
+            .iter()
+            .filter(|e| e.code() == "resolved-schema-not-found")
+            .collect();
+        assert_eq!(resolved.len(), 1);
+        assert!(resolved[0].message().contains("nonexistent/schema.graphql"));
+        assert_eq!(resolved[0].severity(), Severity::Warning);
+    }
+
+    #[test]
+    fn test_resolved_schema_found() {
+        let temp_dir = TempDir::new().unwrap();
+        let workspace_path = temp_dir.path();
+
+        // Create schema files
+        let mut f = std::fs::File::create(workspace_path.join("schema.graphql")).unwrap();
+        writeln!(f, "type Query {{ hello: String }}").unwrap();
+
+        let mut f = std::fs::File::create(workspace_path.join("resolved.graphql")).unwrap();
+        writeln!(f, "type Query {{ hello: String }}").unwrap();
+
+        let config = GraphQLConfig::Single(Box::new(ProjectConfig::new(
+            SchemaConfig::Path("schema.graphql".to_string()),
+            None,
+            None,
+            None,
+            resolved_schema_extensions("resolved.graphql"),
+        )));
+
+        let errors = validate(&config, workspace_path, None);
+        let resolved: Vec<_> = errors
+            .iter()
+            .filter(|e| e.code() == "resolved-schema-not-found")
+            .collect();
+        assert!(resolved.is_empty());
+    }
+
+    #[test]
+    fn test_resolved_schema_location_in_yaml() {
+        let config_content = r"
+schema: schema.graphql
+extensions:
+  graphql-analyzer:
+    resolvedSchema: generated/schema.graphql
+";
+
+        let error = ConfigValidationError::ResolvedSchemaNotFound {
+            project: "default".to_string(),
+            path: "generated/schema.graphql".to_string(),
+        };
+
+        let location = error.location(config_content);
+        assert!(location.is_some());
+        let loc = location.unwrap();
+        assert_eq!(loc.line, 4);
     }
 
     #[test]

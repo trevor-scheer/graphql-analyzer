@@ -1,18 +1,26 @@
+use crate::diagnostics::LintSeverity;
 /// Registry of all available lint rules
 use crate::rules::{
     AlphabetizeRuleImpl, DescriptionStyleRuleImpl, InputNameRuleImpl,
-    LoneExecutableDefinitionRuleImpl, NamingConventionRuleImpl, NoAnonymousOperationsRuleImpl,
-    NoDeprecatedRuleImpl, NoDuplicateFieldsRuleImpl, NoHashtagDescriptionRuleImpl,
-    NoOnePlaceFragmentsRuleImpl, NoScalarResultTypeOnMutationRuleImpl, NoTypenamePrefixRuleImpl,
-    NoUnreachableTypesRuleImpl, OperationNameSuffixRuleImpl, RedundantFieldsRuleImpl,
-    RequireDeprecationReasonRuleImpl, RequireDescriptionRuleImpl,
+    LoneExecutableDefinitionRuleImpl, MatchDocumentFilenameRuleImpl, NamingConventionRuleImpl,
+    NoAnonymousOperationsRuleImpl, NoDeprecatedRuleImpl, NoDuplicateFieldsRuleImpl,
+    NoHashtagDescriptionRuleImpl, NoOnePlaceFragmentsRuleImpl, NoRootTypeRuleImpl,
+    NoScalarResultTypeOnMutationRuleImpl, NoTypenamePrefixRuleImpl, NoUnreachableTypesRuleImpl,
+    NoUnusedFieldsRuleImpl, NoUnusedFragmentsRuleImpl, NoUnusedVariablesRuleImpl,
+    OperationNameSuffixRuleImpl, RedundantFieldsRuleImpl, RelayArgumentsRuleImpl,
+    RelayConnectionTypesRuleImpl, RelayEdgeTypesRuleImpl, RelayPageInfoRuleImpl,
+    RequireDeprecationDateRuleImpl, RequireDeprecationReasonRuleImpl, RequireDescriptionRuleImpl,
     RequireFieldOfTypeQueryInMutationResultRuleImpl, RequireIdFieldRuleImpl,
-    SelectionSetDepthRuleImpl, StrictIdInTypesRuleImpl, UniqueEnumValueNamesRuleImpl,
-    UniqueNamesRuleImpl, UnusedFieldsRuleImpl, UnusedFragmentsRuleImpl, UnusedVariablesRuleImpl,
+    RequireImportFragmentRuleImpl, RequireNullableFieldsWithOneofRuleImpl,
+    RequireNullableResultInRootRuleImpl, RequireSelectionsRuleImpl,
+    RequireTypePatternWithOneofRuleImpl, SelectionSetDepthRuleImpl, StrictIdInTypesRuleImpl,
+    UniqueEnumValueNamesRuleImpl, UniqueNamesRuleImpl,
 };
 use crate::traits::{
-    DocumentSchemaLintRule, ProjectLintRule, StandaloneDocumentLintRule, StandaloneSchemaLintRule,
+    DocumentSchemaLintRule, LintRule, ProjectLintRule, StandaloneDocumentLintRule,
+    StandaloneSchemaLintRule,
 };
+use std::fmt;
 use std::sync::{Arc, LazyLock};
 
 /// Lazily initialized standalone document rules.
@@ -22,13 +30,16 @@ static STANDALONE_DOCUMENT_RULES: LazyLock<Vec<Arc<dyn StandaloneDocumentLintRul
         vec![
             Arc::new(AlphabetizeRuleImpl),
             Arc::new(LoneExecutableDefinitionRuleImpl),
+            Arc::new(MatchDocumentFilenameRuleImpl),
             Arc::new(NamingConventionRuleImpl),
             Arc::new(NoAnonymousOperationsRuleImpl),
             Arc::new(NoDuplicateFieldsRuleImpl),
             Arc::new(OperationNameSuffixRuleImpl),
             Arc::new(RedundantFieldsRuleImpl),
+            Arc::new(RequireDescriptionRuleImpl),
+            Arc::new(RequireImportFragmentRuleImpl),
             Arc::new(SelectionSetDepthRuleImpl),
-            Arc::new(UnusedVariablesRuleImpl),
+            Arc::new(NoUnusedVariablesRuleImpl),
         ]
     });
 
@@ -39,6 +50,7 @@ static DOCUMENT_SCHEMA_RULES: LazyLock<Vec<Arc<dyn DocumentSchemaLintRule>>> =
         vec![
             Arc::new(NoDeprecatedRuleImpl),
             Arc::new(RequireIdFieldRuleImpl),
+            Arc::new(RequireSelectionsRuleImpl),
         ]
     });
 
@@ -48,8 +60,8 @@ static PROJECT_RULES: LazyLock<Vec<Arc<dyn ProjectLintRule>>> = LazyLock::new(||
     vec![
         Arc::new(NoOnePlaceFragmentsRuleImpl),
         Arc::new(UniqueNamesRuleImpl),
-        Arc::new(UnusedFieldsRuleImpl),
-        Arc::new(UnusedFragmentsRuleImpl),
+        Arc::new(NoUnusedFieldsRuleImpl),
+        Arc::new(NoUnusedFragmentsRuleImpl),
     ]
 });
 
@@ -58,15 +70,26 @@ static PROJECT_RULES: LazyLock<Vec<Arc<dyn ProjectLintRule>>> = LazyLock::new(||
 static STANDALONE_SCHEMA_RULES: LazyLock<Vec<Arc<dyn StandaloneSchemaLintRule>>> =
     LazyLock::new(|| {
         vec![
+            Arc::new(AlphabetizeRuleImpl),
             Arc::new(DescriptionStyleRuleImpl),
             Arc::new(InputNameRuleImpl),
+            Arc::new(NamingConventionRuleImpl),
             Arc::new(NoHashtagDescriptionRuleImpl),
+            Arc::new(NoRootTypeRuleImpl),
             Arc::new(NoScalarResultTypeOnMutationRuleImpl),
             Arc::new(NoTypenamePrefixRuleImpl),
             Arc::new(NoUnreachableTypesRuleImpl),
+            Arc::new(RelayConnectionTypesRuleImpl),
+            Arc::new(RelayEdgeTypesRuleImpl),
+            Arc::new(RelayArgumentsRuleImpl),
+            Arc::new(RequireDeprecationDateRuleImpl),
+            Arc::new(RelayPageInfoRuleImpl),
             Arc::new(RequireDeprecationReasonRuleImpl),
             Arc::new(RequireDescriptionRuleImpl),
             Arc::new(RequireFieldOfTypeQueryInMutationResultRuleImpl),
+            Arc::new(RequireNullableFieldsWithOneofRuleImpl),
+            Arc::new(RequireNullableResultInRootRuleImpl),
+            Arc::new(RequireTypePatternWithOneofRuleImpl),
             Arc::new(StrictIdInTypesRuleImpl),
             Arc::new(UniqueEnumValueNamesRuleImpl),
         ]
@@ -94,23 +117,99 @@ pub fn standalone_schema_rules() -> &'static [Arc<dyn StandaloneSchemaLintRule>]
 
 #[must_use]
 pub fn all_rule_names() -> Vec<&'static str> {
+    let mut seen = std::collections::HashSet::new();
     let mut names = Vec::new();
 
+    let mut push_unique = |name: &'static str, names: &mut Vec<&'static str>| {
+        if seen.insert(name) {
+            names.push(name);
+        }
+    };
+
     for rule in standalone_document_rules() {
-        names.push(rule.name());
+        push_unique(rule.name(), &mut names);
     }
     for rule in document_schema_rules() {
-        names.push(rule.name());
+        push_unique(rule.name(), &mut names);
     }
     for rule in project_rules() {
-        names.push(rule.name());
+        push_unique(rule.name(), &mut names);
     }
     for rule in standalone_schema_rules() {
-        names.push(rule.name());
+        push_unique(rule.name(), &mut names);
     }
 
     names.sort_unstable();
     names
+}
+
+/// Category of a lint rule based on what it analyzes.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum RuleCategory {
+    Schema,
+    Document,
+    Project,
+}
+
+impl fmt::Display for RuleCategory {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            Self::Schema => write!(f, "schema"),
+            Self::Document => write!(f, "document"),
+            Self::Project => write!(f, "project"),
+        }
+    }
+}
+
+/// Metadata about a lint rule, for discovery and documentation.
+#[derive(Debug, Clone)]
+pub struct RuleInfo {
+    pub name: &'static str,
+    pub description: &'static str,
+    pub default_severity: LintSeverity,
+    pub category: RuleCategory,
+}
+
+fn collect_rule_info(rule: &dyn LintRule, category: RuleCategory) -> RuleInfo {
+    RuleInfo {
+        name: rule.name(),
+        description: rule.description(),
+        default_severity: rule.default_severity(),
+        category,
+    }
+}
+
+/// Returns metadata for all registered lint rules, grouped by category.
+///
+/// Rules implemented for multiple sides (e.g. a rule that runs on both
+/// schemas and documents) are reported once, using the category of the
+/// first registry the rule appears in. Schema-side wins over document-side.
+#[must_use]
+pub fn all_rule_info() -> Vec<RuleInfo> {
+    let mut seen = std::collections::HashSet::new();
+    let mut info = Vec::new();
+
+    let mut push_unique =
+        |rule: &dyn LintRule, category: RuleCategory, info: &mut Vec<RuleInfo>| {
+            if seen.insert(rule.name()) {
+                info.push(collect_rule_info(rule, category));
+            }
+        };
+
+    for rule in standalone_schema_rules() {
+        push_unique(rule.as_ref(), RuleCategory::Schema, &mut info);
+    }
+    for rule in standalone_document_rules() {
+        push_unique(rule.as_ref(), RuleCategory::Document, &mut info);
+    }
+    for rule in document_schema_rules() {
+        push_unique(rule.as_ref(), RuleCategory::Document, &mut info);
+    }
+    for rule in project_rules() {
+        push_unique(rule.as_ref(), RuleCategory::Project, &mut info);
+    }
+
+    info
 }
 
 #[cfg(test)]
@@ -151,7 +250,7 @@ mod tests {
         assert!(names.contains(&"noAnonymousOperations"));
         assert!(names.contains(&"noDeprecated"));
         assert!(names.contains(&"uniqueNames"));
-        assert!(names.contains(&"unusedFragments"));
+        assert!(names.contains(&"noUnusedFragments"));
     }
 
     #[test]

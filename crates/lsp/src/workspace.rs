@@ -3,306 +3,167 @@
 //! This module provides the `WorkspaceManager` struct which manages:
 //! - Workspace folder tracking
 //! - Configuration paths and loaded configs
-//! - `AnalysisHost` instances per workspace/project
+//! - `AnalysisHost` instances per workspace/project (directly owned, no locks)
 //! - File-to-project mapping for efficient lookups
 //!
 //! ## Architecture
 //!
-//! The workspace manager separates concerns:
-//! - **Server**: Handles LSP protocol messages
-//! - **`WorkspaceManager`**: Manages workspace state and project data
-//! - **`AnalysisHost`** (in graphql-ide): Handles IDE features for a single project
+//! All state is owned by the main thread via `GlobalState`. No locks are needed
+//! because the main thread is the sole writer, and worker threads only receive
+//! immutable `Analysis` snapshots.
 
-use dashmap::DashMap;
+use std::collections::HashMap;
+use std::path::PathBuf;
+
 use graphql_ide::AnalysisHost;
 use lsp_types::Uri;
-use std::path::PathBuf;
-use std::sync::Arc;
-use std::time::Duration;
-use tokio::sync::Mutex;
-use tower_lsp_server::ls_types as lsp_types;
 
-/// Default timeout for acquiring host locks during LSP requests.
-const LOCK_TIMEOUT: Duration = Duration::from_millis(500);
+#[cfg(feature = "native")]
+use crate::conversions::uri_to_file_path;
 
-/// A wrapper around `AnalysisHost` that enforces safe access patterns.
+/// Strip the scheme/authority prefix from a URI, returning the path component
+/// for glob-pattern matching against project `schema`/`documents` patterns.
 ///
-/// This type prevents handlers from accidentally holding the lock without a timeout
-/// by only exposing safe access methods:
-/// - `try_snapshot()`: Read access with timeout (for request handlers)
-/// - `with_write()`: Write access for background tasks (no timeout, but caller is responsible)
-///
-/// Request handlers should ONLY use `try_snapshot()`. If they need write access,
-/// they're doing something wrong - writes should happen in `did_open`/`did_change`
-/// handlers or background tasks.
-#[derive(Clone)]
-pub struct ProjectHost {
-    inner: Arc<Mutex<AnalysisHost>>,
-}
-
-impl ProjectHost {
-    /// Create a new `ProjectHost` wrapping a fresh `AnalysisHost`
-    pub fn new() -> Self {
-        Self {
-            inner: Arc::new(Mutex::new(AnalysisHost::new())),
-        }
-    }
-
-    /// Check if two `ProjectHost` instances point to the same underlying host
-    #[cfg(test)]
-    pub fn ptr_eq(&self, other: &Self) -> bool {
-        Arc::ptr_eq(&self.inner, &other.inner)
-    }
-
-    /// Try to get a snapshot with a timeout.
-    ///
-    /// This is the ONLY way request handlers should access the analysis.
-    /// Returns `None` if the lock can't be acquired within the timeout,
-    /// allowing the handler to return early instead of blocking.
-    pub async fn try_snapshot(&self) -> Option<graphql_ide::Analysis> {
-        if let Ok(guard) = tokio::time::timeout(LOCK_TIMEOUT, self.inner.lock()).await {
-            Some(guard.snapshot())
-        } else {
-            tracing::debug!("Timed out waiting for analysis host lock");
-            None
-        }
-    }
-
-    /// Execute a write operation on the host.
-    ///
-    /// This acquires the lock WITHOUT a timeout. Only use this for:
-    /// - Background initialization tasks
-    /// - `did_open`/`did_change` handlers (which need to update content)
-    ///
-    /// The closure should complete quickly - don't do file I/O while holding the lock!
-    pub async fn with_write<F, R>(&self, f: F) -> R
-    where
-        F: FnOnce(&mut AnalysisHost) -> R,
-    {
-        let mut guard = self.inner.lock().await;
-        f(&mut guard)
-    }
-
-    /// Execute a write operation and get a snapshot in one lock acquisition.
-    ///
-    /// This is a generic helper for cases where you need to perform a write
-    /// operation and immediately get a snapshot. For file additions, prefer
-    /// `add_file_and_snapshot` which properly handles project file rebuilding.
-    ///
-    /// Doing both in one lock acquisition avoids double-locking.
-    #[allow(dead_code)]
-    pub async fn write_and_snapshot<F, R>(&self, f: F) -> (R, graphql_ide::Analysis)
-    where
-        F: FnOnce(&mut AnalysisHost) -> R,
-    {
-        let mut guard = self.inner.lock().await;
-        let result = f(&mut guard);
-        let snapshot = guard.snapshot();
-        (result, snapshot)
-    }
-
-    /// Add or update a file and get a snapshot in one lock acquisition.
-    ///
-    /// This properly handles both new and existing files:
-    /// - For new files: rebuilds project file index before creating snapshot
-    /// - For existing files: just updates content
-    ///
-    /// Returns `(is_new_file, Analysis)` tuple.
-    pub async fn add_file_and_snapshot(
-        &self,
-        path: &graphql_ide::FilePath,
-        content: &str,
-        language: graphql_ide::Language,
-        document_kind: graphql_ide::DocumentKind,
-    ) -> (bool, graphql_ide::Analysis) {
-        let mut guard = self.inner.lock().await;
-        guard.update_file_and_snapshot(path, content, language, document_kind)
-    }
-}
-
-impl Default for ProjectHost {
-    fn default() -> Self {
-        Self::new()
-    }
+/// Used on wasm where `uri_to_file_path` is unavailable; the caller has already
+/// determined the URI belongs to a known workspace, so what remains is matching
+/// the URI's path against the project's globs as if it were a relative path.
+#[cfg(not(feature = "native"))]
+fn uri_relative_path(uri: &Uri) -> String {
+    let s = uri.as_str();
+    let after_scheme = s.split_once("://").map_or(s, |(_, rest)| rest);
+    after_scheme.trim_start_matches('/').to_string()
 }
 
 /// Manages workspace state for the GraphQL Language Server.
-///
-/// This struct holds all per-workspace and per-project data:
-/// - Workspace folder paths
-/// - Configuration file paths and loaded configs
-/// - `AnalysisHost` instances (one per project)
-/// - Document version tracking
-/// - File-to-project mapping
 pub struct WorkspaceManager {
-    /// Workspace folders from initialization (stored temporarily until configs are loaded)
-    pub init_workspace_folders: DashMap<String, PathBuf>,
+    /// Workspace folders from initialization (drained during initialized handler)
+    pub init_workspace_folders: HashMap<String, PathBuf>,
 
     /// Workspace roots indexed by workspace folder URI string
-    pub workspace_roots: DashMap<String, PathBuf>,
+    pub workspace_roots: HashMap<String, PathBuf>,
 
     /// Config file paths indexed by workspace URI string
-    pub config_paths: DashMap<String, PathBuf>,
+    pub config_paths: HashMap<String, PathBuf>,
 
     /// Loaded GraphQL configs indexed by workspace URI string
-    pub configs: DashMap<String, graphql_config::GraphQLConfig>,
+    pub configs: HashMap<String, graphql_config::GraphQLConfig>,
 
-    /// `ProjectHost` per (workspace URI, project name) tuple.
-    ///
-    /// **Private by design.** All access goes through typed methods (`get_or_create_host`,
-    /// `get_host`, `projects_for_workspace`, `clear_workspace`) that return owned
-    /// `ProjectHost` clones. Never expose a `DashMap` `Ref` to callers — holding one
-    /// across an `.await` point deadlocks the async runtime.
-    hosts: DashMap<(String, String), ProjectHost>,
+    /// `AnalysisHost` per (workspace URI, project name) tuple.
+    hosts: HashMap<(String, String), AnalysisHost>,
 
     /// Document versions indexed by document URI string
-    /// Used to detect out-of-order updates and avoid race conditions
-    pub document_versions: DashMap<String, i32>,
+    pub document_versions: HashMap<String, i32>,
 
     /// In-memory document contents indexed by document URI string.
-    /// Required for incremental text sync: the client sends only changed ranges,
-    /// so we must maintain the full document text to apply edits.
-    pub document_contents: DashMap<String, String>,
+    pub document_contents: HashMap<String, String>,
 
-    /// Reverse index: file URI → (`workspace_uri`, `project_name`)
-    /// Provides O(1) lookup instead of O(n) iteration over all hosts
-    pub file_to_project: DashMap<String, (String, String)>,
+    /// Reverse index: file URI -> (`workspace_uri`, `project_name`)
+    pub file_to_project: HashMap<String, (String, String)>,
+
+    /// Resolved schema paths per (`workspace_uri`, `project_name`).
+    pub resolved_schema_paths: HashMap<(String, String), PathBuf>,
 }
 
 impl WorkspaceManager {
-    /// Create a new workspace manager
     #[must_use]
     pub fn new() -> Self {
         Self {
-            init_workspace_folders: DashMap::new(),
-            workspace_roots: DashMap::new(),
-            config_paths: DashMap::new(),
-            configs: DashMap::new(),
-            hosts: DashMap::new(),
-            document_versions: DashMap::new(),
-            document_contents: DashMap::new(),
-            file_to_project: DashMap::new(),
+            init_workspace_folders: HashMap::new(),
+            workspace_roots: HashMap::new(),
+            config_paths: HashMap::new(),
+            configs: HashMap::new(),
+            hosts: HashMap::new(),
+            document_versions: HashMap::new(),
+            document_contents: HashMap::new(),
+            file_to_project: HashMap::new(),
+            resolved_schema_paths: HashMap::new(),
         }
     }
 
-    /// Get or create a `ProjectHost` for a workspace/project
-    pub fn get_or_create_host(&self, workspace_uri: &str, project_name: &str) -> ProjectHost {
+    /// Get or create an `AnalysisHost` for a workspace/project
+    pub fn get_or_create_host(
+        &mut self,
+        workspace_uri: &str,
+        project_name: &str,
+    ) -> &mut AnalysisHost {
         self.hosts
             .entry((workspace_uri.to_string(), project_name.to_string()))
             .or_default()
-            .clone()
     }
 
-    /// Get an existing `ProjectHost`, returning `None` if it doesn't exist.
-    ///
-    /// Always returns a cloned `ProjectHost` (cheap `Arc` clone) rather than a `DashMap` reference.
-    /// This is intentional: `DashMap::get()` returns a `Ref` that holds a shard lock, and holding
-    /// that lock across `.await` points causes deadlocks with any concurrent `entry()` call on the
-    /// same shard. Callers receive ownership and can safely `.await` without holding any `DashMap` lock.
-    pub fn get_host(&self, workspace_uri: &str, project_name: &str) -> Option<ProjectHost> {
+    /// Get an existing `AnalysisHost` reference
+    pub fn get_host(&self, workspace_uri: &str, project_name: &str) -> Option<&AnalysisHost> {
         self.hosts
             .get(&(workspace_uri.to_string(), project_name.to_string()))
-            .map(|r| r.clone())
     }
 
-    /// Return all `(project_name, ProjectHost)` pairs for a given workspace.
-    ///
-    /// Collects into an owned `Vec` so no `DashMap` shard lock is held after this call returns.
-    pub fn projects_for_workspace(&self, workspace_uri: &str) -> Vec<(String, ProjectHost)> {
+    /// Get a mutable reference to an existing host
+    pub fn get_host_mut(
+        &mut self,
+        workspace_uri: &str,
+        project_name: &str,
+    ) -> Option<&mut AnalysisHost> {
+        self.hosts
+            .get_mut(&(workspace_uri.to_string(), project_name.to_string()))
+    }
+
+    /// Return all (key, host) pairs
+    pub fn all_hosts(&self) -> impl Iterator<Item = (&(String, String), &AnalysisHost)> {
+        self.hosts.iter()
+    }
+
+    /// Return hosts for a given workspace
+    pub fn projects_for_workspace(&self, workspace_uri: &str) -> Vec<(&str, &AnalysisHost)> {
         self.hosts
             .iter()
-            .filter(|entry| entry.key().0 == workspace_uri)
-            .map(|entry| (entry.key().1.clone(), entry.value().clone()))
+            .filter(|((ws, _), _)| ws == workspace_uri)
+            .map(|((_, name), host)| (name.as_str(), host))
             .collect()
     }
 
-    /// Return all hosts across all workspaces as owned `ProjectHost` clones.
-    ///
-    /// Collects into an owned `Vec` so no `DashMap` shard lock is held after this call returns.
-    /// Use this instead of iterating `hosts` directly when you need to `.await` on each host.
-    pub fn all_hosts(&self) -> Vec<ProjectHost> {
-        self.hosts
-            .iter()
-            .map(|entry| entry.value().clone())
-            .collect()
-    }
-
-    /// Find the workspace and project for a given document URI (sync version)
-    ///
-    /// Uses a reverse index for O(1) lookup of previously seen files.
-    /// Falls back to config pattern matching for files opened after init.
-    ///
-    /// Note: For virtual files (non-file:// scheme), use `find_workspace_and_project_async`.
+    /// Find the workspace and project for a given document URI
     pub fn find_workspace_and_project(&self, document_uri: &Uri) -> Option<(String, String)> {
         let uri_string = document_uri.to_string();
 
-        // First, check the reverse index
         if let Some(entry) = self.file_to_project.get(&uri_string) {
-            return Some(entry.value().clone());
-        }
-
-        // For virtual files, caller should use async version
-        if !uri_string.starts_with("file://") {
-            return None;
-        }
-
-        // Fall back to searching configs for pattern matching
-        let doc_path = document_uri.to_file_path()?;
-        for workspace_entry in &self.workspace_roots {
-            let workspace_uri = workspace_entry.key();
-            let workspace_path = workspace_entry.value();
-
-            if doc_path.as_ref().starts_with(workspace_path.as_path()) {
-                if let Some(config) = self.configs.get(workspace_uri.as_str()) {
-                    if let Some(project_name) =
-                        config.find_project_for_document(&doc_path, workspace_path)
-                    {
-                        return Some((workspace_uri.clone(), project_name.to_string()));
-                    }
-                }
-                return None;
-            }
-        }
-
-        None
-    }
-
-    /// Find the workspace and project for a given document URI (async version)
-    ///
-    /// This version also handles virtual files (like `schema://` URIs) by
-    /// searching all hosts asynchronously.
-    #[allow(dead_code)]
-    pub async fn find_workspace_and_project_async(
-        &self,
-        document_uri: &Uri,
-    ) -> Option<(String, String)> {
-        let uri_string = document_uri.to_string();
-
-        // First, check the reverse index
-        if let Some(entry) = self.file_to_project.get(&uri_string) {
-            return Some(entry.value().clone());
+            return Some(entry.clone());
         }
 
         // For virtual files (non-file:// scheme), search all hosts
         if !uri_string.starts_with("file://") {
-            return self.find_host_for_virtual_file(&uri_string).await;
+            if let Some(entry) = self.find_host_for_virtual_file(&uri_string) {
+                return Some(entry);
+            }
+
+            // In the wasm path, route unrecognised virtual files to the first
+            // installed workspace so that `didOpen` can add them to a host.
+            #[cfg(not(feature = "native"))]
+            if let Some((workspace_uri, config)) = self.configs.iter().next() {
+                let project_name = config
+                    .projects()
+                    .next()
+                    .map(|(n, _)| n)
+                    .unwrap_or("default");
+                return Some((workspace_uri.clone(), project_name.to_string()));
+            }
+
+            return None;
         }
 
-        // Fall back to searching configs for pattern matching
-        let doc_path = document_uri.to_file_path()?;
-        for workspace_entry in &self.workspace_roots {
-            let workspace_uri = workspace_entry.key();
-            let workspace_path = workspace_entry.value();
-
-            if doc_path.as_ref().starts_with(workspace_path.as_path()) {
-                if let Some(config) = self.configs.get(workspace_uri.as_str()) {
-                    if let Some(project_name) =
-                        config.find_project_for_document(&doc_path, workspace_path)
-                    {
-                        return Some((workspace_uri.clone(), project_name.to_string()));
+        #[cfg(feature = "native")]
+        {
+            let doc_path = uri_to_file_path(document_uri)?;
+            for (workspace_uri, workspace_path) in &self.workspace_roots {
+                if doc_path.starts_with(workspace_path.as_path()) {
+                    if let Some(config) = self.configs.get(workspace_uri.as_str()) {
+                        if let Some(project_name) =
+                            config.find_project_for_document(&doc_path, workspace_path)
+                        {
+                            return Some((workspace_uri.clone(), project_name.to_string()));
+                        }
                     }
+                    return None;
                 }
-                return None;
             }
         }
 
@@ -310,118 +171,48 @@ impl WorkspaceManager {
     }
 
     /// Find which host contains a virtual file by searching all hosts.
-    ///
-    /// This is used for non-file:// URIs like `schema://` virtual files
-    /// that represent remote schemas fetched via introspection.
-    ///
-    /// Note: This is async because it uses the timeout-based snapshot access.
-    #[allow(dead_code)]
-    pub async fn find_host_for_virtual_file(&self, uri_string: &str) -> Option<(String, String)> {
+    fn find_host_for_virtual_file(&self, uri_string: &str) -> Option<(String, String)> {
         let file_path = graphql_ide::FilePath::new(uri_string);
 
-        for entry in &self.hosts {
-            let (workspace_uri, project_name) = entry.key();
-            let host = entry.value();
-
-            // Try to get a snapshot with timeout
-            if let Some(snapshot) = host.try_snapshot().await {
-                if snapshot.file_content(&file_path).is_some() {
-                    return Some((workspace_uri.clone(), project_name.clone()));
-                }
+        for ((workspace_uri, project_name), host) in &self.hosts {
+            let snapshot = host.snapshot();
+            if snapshot.file_content(&file_path).is_some() {
+                return Some((workspace_uri.clone(), project_name.clone()));
             }
         }
 
         None
     }
 
-    /// Register a file in the file-to-project index
-    #[allow(dead_code)]
-    pub fn register_file(&self, file_uri: &str, workspace_uri: &str, project_name: &str) {
-        self.file_to_project.insert(
-            file_uri.to_string(),
-            (workspace_uri.to_string(), project_name.to_string()),
-        );
-    }
-
     /// Clear all state for a workspace
-    ///
-    /// Used when reloading configuration.
-    #[allow(dead_code)]
-    pub fn clear_workspace(&self, workspace_uri: &str) {
-        // Remove hosts for this workspace
-        let keys_to_remove: Vec<_> = self
-            .hosts
-            .iter()
-            .filter(|entry| entry.key().0 == workspace_uri)
-            .map(|entry| entry.key().clone())
-            .collect();
-
-        for key in &keys_to_remove {
-            self.hosts.remove(key);
-        }
-
-        // Remove file mappings for this workspace
-        let file_keys_to_remove: Vec<_> = self
-            .file_to_project
-            .iter()
-            .filter(|entry| entry.value().0 == workspace_uri)
-            .map(|entry| entry.key().clone())
-            .collect();
-
-        for key in file_keys_to_remove {
-            self.file_to_project.remove(&key);
-        }
-
-        // Remove config
+    pub fn clear_workspace(&mut self, workspace_uri: &str) {
+        self.hosts.retain(|(ws, _), _| ws != workspace_uri);
+        self.file_to_project
+            .retain(|_, (ws, _)| ws != workspace_uri);
         self.configs.remove(workspace_uri);
     }
 
-    /// Update document version tracking
-    ///
-    /// Returns `true` if this is a valid (newer) version, `false` if stale.
-    #[allow(dead_code)]
-    pub fn update_document_version(&self, uri: &str, version: i32) -> bool {
-        if let Some(current_version) = self.document_versions.get(uri) {
-            if version <= *current_version {
-                return false;
-            }
-        }
-        self.document_versions.insert(uri.to_string(), version);
-        true
-    }
-
-    /// Remove document version tracking for a closed document
-    #[allow(dead_code)]
-    pub fn remove_document_version(&self, uri: &str) {
-        self.document_versions.remove(uri);
-    }
-
-    /// Get workspace count
-    #[allow(dead_code)]
-    pub fn workspace_count(&self) -> usize {
-        self.workspace_roots.len()
-    }
-
-    /// Check if any workspaces are loaded
-    #[allow(dead_code)]
-    pub fn has_workspaces(&self) -> bool {
-        !self.workspace_roots.is_empty()
-    }
-
     /// Get the file type (schema or document) for a file based on config patterns.
-    ///
-    /// This determines whether a file should be treated as a schema file or
-    /// a document file based on the project's configuration patterns.
     pub fn get_file_type(
         &self,
         uri: &Uri,
         workspace_uri: &str,
         project_name: &str,
     ) -> Option<graphql_config::FileType> {
-        let doc_path = uri.to_file_path()?;
-        let workspace_path = self.workspace_roots.get(workspace_uri)?;
-        let config = self.configs.get(workspace_uri)?;
-        config.get_file_type(&doc_path, workspace_path.value(), project_name)
+        #[cfg(not(feature = "native"))]
+        {
+            let config = self.configs.get(workspace_uri)?;
+            let rel_path = uri_relative_path(uri);
+            return config.get_file_type_by_rel_path(&rel_path, project_name);
+        }
+
+        #[cfg(feature = "native")]
+        {
+            let doc_path = uri_to_file_path(uri)?;
+            let workspace_path = self.workspace_roots.get(workspace_uri)?;
+            let config = self.configs.get(workspace_uri)?;
+            config.get_file_type(&doc_path, workspace_path, project_name)
+        }
     }
 }
 
@@ -435,7 +226,6 @@ pub fn apply_content_change(
     change: &lsp_types::TextDocumentContentChangeEvent,
 ) -> String {
     let Some(range) = change.range else {
-        // Full document replacement
         return change.text.clone();
     };
 
@@ -477,41 +267,40 @@ mod tests {
 
     #[test]
     fn test_get_or_create_host() {
-        let manager = WorkspaceManager::new();
-        let host1 = manager.get_or_create_host("workspace1", "project1");
-        let host2 = manager.get_or_create_host("workspace1", "project1");
-
-        // Should return the same host
-        assert!(host1.ptr_eq(&host2));
-
-        // Different project should get different host
-        let host3 = manager.get_or_create_host("workspace1", "project2");
-        assert!(!host1.ptr_eq(&host3));
+        let mut manager = WorkspaceManager::new();
+        let _host1 = manager.get_or_create_host("workspace1", "project1");
+        let _host2 = manager.get_or_create_host("workspace1", "project2");
+        assert!(manager.get_host("workspace1", "project1").is_some());
+        assert!(manager.get_host("workspace1", "project2").is_some());
     }
 
     #[test]
     fn test_register_and_clear_workspace() {
-        let manager = WorkspaceManager::new();
+        let mut manager = WorkspaceManager::new();
 
-        // Register files
-        manager.register_file("file1.graphql", "workspace1", "project1");
-        manager.register_file("file2.graphql", "workspace1", "project1");
-        manager.register_file("file3.graphql", "workspace2", "project1");
+        manager.file_to_project.insert(
+            "file1.graphql".to_string(),
+            ("workspace1".to_string(), "project1".to_string()),
+        );
+        manager.file_to_project.insert(
+            "file2.graphql".to_string(),
+            ("workspace1".to_string(), "project1".to_string()),
+        );
+        manager.file_to_project.insert(
+            "file3.graphql".to_string(),
+            ("workspace2".to_string(), "project1".to_string()),
+        );
 
-        // Create hosts
         let _ = manager.get_or_create_host("workspace1", "project1");
         let _ = manager.get_or_create_host("workspace2", "project1");
 
-        // Clear workspace1
         manager.clear_workspace("workspace1");
 
-        // workspace1 data should be gone
-        assert!(manager.file_to_project.get("file1.graphql").is_none());
-        assert!(manager.file_to_project.get("file2.graphql").is_none());
+        assert!(!manager.file_to_project.contains_key("file1.graphql"));
+        assert!(!manager.file_to_project.contains_key("file2.graphql"));
         assert!(manager.get_host("workspace1", "project1").is_none());
 
-        // workspace2 data should remain
-        assert!(manager.file_to_project.get("file3.graphql").is_some());
+        assert!(manager.file_to_project.contains_key("file3.graphql"));
         assert!(manager.get_host("workspace2", "project1").is_some());
     }
 
@@ -528,7 +317,6 @@ mod tests {
 
     #[test]
     fn test_apply_content_change_single_char_insert() {
-        // Insert "x" at position (0, 8) in "query { hello }"
         let content = "query { hello }";
         let change = lsp_types::TextDocumentContentChangeEvent {
             range: Some(lsp_types::Range {
@@ -549,7 +337,6 @@ mod tests {
 
     #[test]
     fn test_apply_content_change_replace_word() {
-        // Replace "hello" (positions 8..13) with "world"
         let content = "query { hello }";
         let change = lsp_types::TextDocumentContentChangeEvent {
             range: Some(lsp_types::Range {
@@ -571,7 +358,6 @@ mod tests {
     #[test]
     fn test_apply_content_change_multiline() {
         let content = "query {\n  hello\n  world\n}";
-        // Replace "hello" on line 1, chars 2..7
         let change = lsp_types::TextDocumentContentChangeEvent {
             range: Some(lsp_types::Range {
                 start: lsp_types::Position {
@@ -594,7 +380,6 @@ mod tests {
 
     #[test]
     fn test_apply_content_change_delete() {
-        // Delete "hello " (positions 8..14)
         let content = "query { hello world }";
         let change = lsp_types::TextDocumentContentChangeEvent {
             range: Some(lsp_types::Range {
@@ -616,7 +401,6 @@ mod tests {
     #[test]
     fn test_apply_content_change_cross_line() {
         let content = "query {\n  hello\n  world\n}";
-        // Replace from end of line 1 to start of line 2's content
         let change = lsp_types::TextDocumentContentChangeEvent {
             range: Some(lsp_types::Range {
                 start: lsp_types::Position {
@@ -639,10 +423,8 @@ mod tests {
 
     #[test]
     fn test_apply_content_change_sequential_edits() {
-        // Simulate a realistic editing session: type "query { }" character by character
         let mut content = String::new();
 
-        // Type "q"
         let change = lsp_types::TextDocumentContentChangeEvent {
             range: Some(lsp_types::Range {
                 start: lsp_types::Position {
@@ -660,7 +442,6 @@ mod tests {
         content = apply_content_change(&content, &change);
         assert_eq!(content, "q");
 
-        // Type "uery { }"
         let change = lsp_types::TextDocumentContentChangeEvent {
             range: Some(lsp_types::Range {
                 start: lsp_types::Position {
@@ -678,7 +459,6 @@ mod tests {
         content = apply_content_change(&content, &change);
         assert_eq!(content, "query { }");
 
-        // Insert "name " between "{ " and "}"
         let change = lsp_types::TextDocumentContentChangeEvent {
             range: Some(lsp_types::Range {
                 start: lsp_types::Position {
@@ -695,68 +475,5 @@ mod tests {
         };
         content = apply_content_change(&content, &change);
         assert_eq!(content, "query { name }");
-    }
-
-    #[test]
-    fn test_document_contents_tracking() {
-        let manager = WorkspaceManager::new();
-        let uri = "file:///test.graphql";
-
-        // Store initial content (simulating did_open)
-        manager
-            .document_contents
-            .insert(uri.to_string(), "query { hello }".to_string());
-
-        // Apply incremental change (simulating did_change)
-        let stored = manager.document_contents.get(uri).unwrap();
-        let change = lsp_types::TextDocumentContentChangeEvent {
-            range: Some(lsp_types::Range {
-                start: lsp_types::Position {
-                    line: 0,
-                    character: 8,
-                },
-                end: lsp_types::Position {
-                    line: 0,
-                    character: 13,
-                },
-            }),
-            range_length: None,
-            text: "world".to_string(),
-        };
-        let new_content = apply_content_change(&stored, &change);
-        drop(stored);
-        manager
-            .document_contents
-            .insert(uri.to_string(), new_content);
-
-        assert_eq!(
-            *manager.document_contents.get(uri).unwrap(),
-            "query { world }"
-        );
-
-        // Clean up (simulating did_close)
-        manager.document_contents.remove(uri);
-        assert!(manager.document_contents.get(uri).is_none());
-    }
-
-    #[test]
-    fn test_document_version_tracking() {
-        let manager = WorkspaceManager::new();
-
-        // First version should succeed
-        assert!(manager.update_document_version("file.graphql", 1));
-
-        // Higher version should succeed
-        assert!(manager.update_document_version("file.graphql", 2));
-
-        // Same version should fail
-        assert!(!manager.update_document_version("file.graphql", 2));
-
-        // Lower version should fail
-        assert!(!manager.update_document_version("file.graphql", 1));
-
-        // Remove and re-add
-        manager.remove_document_version("file.graphql");
-        assert!(manager.update_document_version("file.graphql", 1));
     }
 }

@@ -62,8 +62,9 @@ Or configure it globally in your VS Code settings (`.vscode/settings.json`):
 schema: schema.graphql
 documents: "**/*.{graphql,gql,ts,tsx,js,jsx}"
 extensions:
-  client: apollo
-  lint: recommended
+  graphql-analyzer:
+    client: apollo
+    lint: recommended
 ```
 
 ### Multi-Project
@@ -74,21 +75,23 @@ projects:
     schema: api/schema.graphql
     documents: "api/**/*.graphql"
     extensions:
-      client: none
-      lint:
-        extends: recommended
-        rules:
-          noDeprecated: off
+      graphql-analyzer:
+        client: none
+        lint:
+          extends: recommended
+          rules:
+            noDeprecated: off
 
   client:
     schema: client/schema.graphql
     documents: "client/**/*.{ts,tsx}"
     extensions:
-      client: apollo
-      extractConfig:
-        tagIdentifiers: ["gql"]
-        modules: ["@apollo/client"]
-      lint: recommended
+      graphql-analyzer:
+        client: apollo
+        extractConfig:
+          tagIdentifiers: ["gql"]
+          modules: ["@apollo/client"]
+        lint: recommended
 ```
 
 ### Custom Extract Configuration
@@ -97,12 +100,13 @@ projects:
 schema: schema.graphql
 documents: "**/*.ts"
 extensions:
-  client: apollo
-  extractConfig:
-    magicComment: "MyGraphQL"
-    tagIdentifiers: ["myGql", "graphql"]
-    modules: ["my-graphql-lib"]
-    allowGlobalIdentifiers: true
+  graphql-analyzer:
+    client: apollo
+    extractConfig:
+      magicComment: "MyGraphQL"
+      tagIdentifiers: ["myGql", "graphql"]
+      modules: ["my-graphql-lib"]
+      allowGlobalIdentifiers: true
 ```
 
 ### Lint Rules with Options
@@ -111,14 +115,15 @@ extensions:
 schema: schema.graphql
 documents: "**/*.graphql"
 extensions:
-  client: none
-  lint:
-    extends: recommended
-    rules:
-      uniqueNames: error
-      noDeprecated: warn
-      # ESLint-style array format with options
-      requireIdField: [warn, { fields: ["id", "nodeId"] }]
+  graphql-analyzer:
+    client: none
+    lint:
+      extends: recommended
+      rules:
+        uniqueNames: error
+        noDeprecated: warn
+        # ESLint-style array format with options
+        requireIdField: [warn, { fields: ["id", "nodeId"] }]
 ```
 
 ### Preset with Overrides
@@ -127,11 +132,12 @@ extensions:
 schema: schema.graphql
 documents: "**/*.graphql"
 extensions:
-  client: none
-  lint:
-    extends: recommended
-    rules:
-      noDeprecated: off # Override to disable this rule
+  graphql-analyzer:
+    client: none
+    lint:
+      extends: recommended
+      rules:
+        noDeprecated: off # Override to disable this rule
 ```
 
 ## Schema Features
@@ -151,12 +157,14 @@ The schema provides:
 - `documents`: String or array of document file patterns
 - `include`: String or array of file patterns to include
 - `exclude`: String or array of file patterns to exclude
-- `extensions`: Object containing tool-specific configuration
+- `extensions`: Object containing tool-specific configuration (namespaced by tool)
 - `projects`: Object mapping project names to project configurations (for multi-project setups)
 
 ### Extensions
 
-#### `extensions.client` (required)
+All graphql-analyzer extensions are namespaced under `extensions.graphql-analyzer`.
+
+#### `extensions.graphql-analyzer.client`
 
 Specifies the GraphQL client library used in the project. This determines which client-side directives are available for validation.
 
@@ -170,10 +178,11 @@ Values: `apollo`, `relay`, `none`
 
 ```yaml
 extensions:
-  client: apollo
+  graphql-analyzer:
+    client: apollo
 ```
 
-#### `extensions.lint`
+#### `extensions.graphql-analyzer.lint`
 
 Linting configuration. Can be:
 
@@ -197,10 +206,10 @@ Available lint rules (use camelCase in config):
 | `noAnonymousOperations` | Require all operations to have names                              |
 | `uniqueNames`           | Ensure operation and fragment names are unique across the project |
 | `requireIdField`        | Require selection of ID fields on object types                    |
-| `unusedFragments`       | Warn about fragments that are defined but never used              |
-| `unusedFields`          | Warn about fields that are selected but unused                    |
+| `noUnusedFragments`     | Warn about fragments that are defined but never used              |
+| `noUnusedFields`        | Warn about fields that are selected but unused                    |
 | `redundantFields`       | Warn about redundant field selections                             |
-| `unusedVariables`       | Warn about variables that are declared but never used             |
+| `noUnusedVariables`     | Warn about variables that are declared but never used             |
 | `operationNameSuffix`   | Require operation names to have a specific suffix                 |
 
 Severity values: `off`, `warn`, `error`
@@ -221,7 +230,7 @@ requireIdField:
 requireIdField: [warn, { fields: ["id", "nodeId"] }]
 ```
 
-#### `extensions.extractConfig`
+#### `extensions.graphql-analyzer.extractConfig`
 
 Configuration for extracting GraphQL from TypeScript/JavaScript files:
 
@@ -229,6 +238,12 @@ Configuration for extracting GraphQL from TypeScript/JavaScript files:
 - `tagIdentifiers`: Array of tag names to extract (default: `["gql", "graphql"]`)
 - `modules`: Array of module names to recognize (default: graphql-tag, @apollo/client, etc.)
 - `allowGlobalIdentifiers`: Boolean to allow extraction without imports (default: `false`)
+
+#### `extensions.graphql-analyzer.resolvedSchema`
+
+Path to a resolved/final schema file. When set, queries are validated against this schema instead of the source schema files. Source files are still used for go-to-definition navigation.
+
+This is useful when your build pipeline transforms the schema (e.g. directive-based transforms) and the source SDL doesn't match the runtime schema.
 
 ## Updating the Schema
 

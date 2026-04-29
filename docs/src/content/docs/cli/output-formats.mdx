@@ -1,9 +1,9 @@
 ---
 title: Output Formats
-description: Human-readable, JSON, and GitHub Actions output formats.
+description: Human-readable, JSON, GitHub Actions, and SARIF output formats.
 ---
 
-All CLI commands support three output formats via the `--format` flag.
+All CLI commands support four output formats via the `--format` flag.
 
 ## Human (default)
 
@@ -27,12 +27,15 @@ Colorized, human-readable output with source context:
 Machine-readable JSON for CI/CD pipelines and custom tooling:
 
 ```sh
-graphql validate --format json
+graphql check --format json
 ```
+
+The `check` command emits an object with per-file `errors` and `warnings` arrays and a unified `stats` block:
 
 ```json
 {
   "success": false,
+  "schema_loaded": true,
   "files": [
     {
       "file": "src/queries.graphql",
@@ -40,17 +43,23 @@ graphql validate --format json
         {
           "message": "Cannot query field \"invalidField\" on type \"User\"",
           "severity": "error",
+          "source": "validation",
+          "rule": null,
           "location": {
             "start": { "line": 5, "column": 3 },
             "end": { "line": 5, "column": 15 }
           }
         }
-      ]
+      ],
+      "warnings": []
     }
   ],
   "stats": {
     "total_files": 1,
-    "total_errors": 1
+    "total_errors": 1,
+    "total_warnings": 0,
+    "validation_errors": 1,
+    "lint_errors": 0
   }
 }
 ```
@@ -64,7 +73,58 @@ graphql validate --format github
 ```
 
 ```
-::error file=src/queries.graphql,line=5,col=3::Cannot query field "invalidField" on type "User"
+::error file=src/queries.graphql,line=5,col=3,endLine=5,endColumn=15::Cannot query field "invalidField" on type "User"
 ```
 
 See [CI/CD Integration](/graphql-analyzer/cli/ci-cd/) for a full GitHub Actions workflow.
+
+## SARIF
+
+[SARIF](https://docs.oasis-open.org/sarif/sarif/v2.1.0/sarif-v2.1.0.html) (Static Analysis Results Interchange Format) for GitHub code scanning integration. Enables rich PR annotations and populates the Security tab:
+
+```sh
+graphql check --format sarif > results.sarif
+```
+
+```json
+{
+  "$schema": "https://raw.githubusercontent.com/oasis-tcs/sarif-spec/main/sarif-2.1/schema/sarif-schema-2.1.0.json",
+  "version": "2.1.0",
+  "runs": [
+    {
+      "tool": {
+        "driver": {
+          "name": "graphql-analyzer",
+          "rules": [{ "id": "noAnonymousOperations", "shortDescription": { "text": "..." } }]
+        }
+      },
+      "results": [
+        {
+          "ruleId": "noAnonymousOperations",
+          "level": "error",
+          "message": { "text": "All operations must be named" },
+          "locations": [
+            {
+              "physicalLocation": {
+                "artifactLocation": { "uri": "src/queries.graphql" },
+                "region": { "startLine": 1, "startColumn": 1 }
+              }
+            }
+          ]
+        }
+      ]
+    }
+  ]
+}
+```
+
+Upload to GitHub code scanning:
+
+```yaml
+- run: graphql check -f sarif > results.sarif
+- uses: github/codeql-action/upload-sarif@v3
+  with:
+    sarif_file: results.sarif
+```
+
+See [CI/CD Integration](/graphql-analyzer/cli/ci-cd/) for a full workflow example.

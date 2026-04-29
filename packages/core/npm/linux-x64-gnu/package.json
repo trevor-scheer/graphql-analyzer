@@ -1,0 +1,27 @@
+{
+  "name": "@graphql-analyzer/core-linux-x64-gnu",
+  "version": "0.1.1",
+  "description": "graphql-analyzer native addon (linux x64 gnu)",
+  "license": "MIT OR Apache-2.0",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/trevor-scheer/graphql-analyzer.git",
+    "directory": "packages/core/npm/linux-x64-gnu"
+  },
+  "files": [
+    "graphql-analyzer.linux-x64-gnu.node"
+  ],
+  "os": [
+    "linux"
+  ],
+  "cpu": [
+    "x64"
+  ],
+  "main": "graphql-analyzer.linux-x64-gnu.node",
+  "publishConfig": {
+    "access": "public"
+  },
+  "engines": {
+    "node": ">=18"
+  }
+}

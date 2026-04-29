@@ -37,16 +37,28 @@ cargo install --git https://github.com/trevor-scheer/graphql-analyzer graphql-cl
 
 ## Testing
 
+This project uses [cargo-nextest](https://nexte.st/) for running tests. It runs
+test binaries in parallel and provides better output than `cargo test`.
+
 ```bash
+# Install nextest
+cargo install cargo-nextest
+
 # Run all tests
-cargo test --workspace
+cargo nextest run --workspace
 
 # Run tests for a specific crate
-cargo test --package graphql-linter
+cargo nextest run --package graphql-linter
 
-# Run with output
-cargo test -- --nocapture
+# Run a specific test by name
+cargo nextest run --workspace test_name
+
+# Run with output (stdout visible)
+cargo nextest run --workspace --no-capture
 ```
+
+> **Note:** nextest doesn't support doctests. Run `cargo test --workspace --doc`
+> separately if needed.
 
 ## Linting and Formatting
 
@@ -57,6 +69,38 @@ cargo fmt
 # Lint with Clippy
 cargo clippy --workspace
 ```
+
+## npm workspaces
+
+The repo is a single npm workspace root. All JavaScript/TypeScript packages
+are workspaces referenced from the root `package.json`:
+
+| Workspace                    | Contents                                      |
+| ---------------------------- | --------------------------------------------- |
+| `editors/vscode`             | VS Code extension                             |
+| `packages/core`              | `@graphql-analyzer/core` dispatcher (napi-rs) |
+| `packages/core/npm/<triple>` | Per-platform native addon stubs (5 packages)  |
+| `packages/eslint-plugin`     | `@graphql-analyzer/eslint-plugin`             |
+| `test-workspace/<project>`   | Fixture projects for LSP/CLI tests            |
+
+One `npm install` at the repo root wires everything together — workspace deps
+resolve via symlinks rather than going through the registry.
+
+### Root scripts
+
+| Script                | Runs                                                   |
+| --------------------- | ------------------------------------------------------ |
+| `npm run build`       | `build` in every workspace that defines it             |
+| `npm run build:debug` | `build:debug` in every workspace that defines it       |
+| `npm run compile`     | `compile` in every workspace that defines it (VS Code) |
+| `npm run watch`       | `watch` in every workspace that defines it (VS Code)   |
+| `npm run typecheck`   | `tsc -b` across the TypeScript project graph           |
+| `npm run lint`        | `oxlint .`                                             |
+| `npm run package`     | Package the VS Code extension                          |
+| `npm run test:unit`   | `test:unit` in every workspace that defines it         |
+| `npm run test:e2e`    | `test:e2e` in every workspace that defines it          |
+| `npm run fmt`         | `oxfmt --write .`                                      |
+| `npm run fmt:check`   | `oxfmt --check .` (CI-friendly; no writes)             |
 
 ## VS Code Extension Development
 
@@ -91,6 +135,83 @@ To test a platform-specific extension build from a PR, comment `/build-extension
 - Build LSP binaries for all platforms
 - Package platform-specific VSIXs
 - Post a comment with download links
+
+## ESLint Plugin Development
+
+The ESLint plugin (`@graphql-analyzer/eslint-plugin`) is a thin TypeScript
+layer on top of `@graphql-analyzer/core`, which is the Rust analyzer compiled
+to a native Node addon via napi-rs.
+
+### One-time setup
+
+```bash
+# Build the native addon (debug — fast rebuilds; use `build` for release)
+npm run build:debug --workspace=@graphql-analyzer/core
+
+# Build the ESLint plugin TS sources
+npm run build --workspace=@graphql-analyzer/eslint-plugin
+```
+
+The debug build produces `packages/core/graphql-analyzer.<triple>.node`; the
+platform stubs under `packages/core/npm/<triple>/` pick up the `.node` file
+from there.
+
+### Testing changes end-to-end
+
+The `test-workspace/eslint-migration` project is a demo workspace configured
+to run both `@graphql-eslint/eslint-plugin` and `@graphql-analyzer/eslint-plugin`
+against the same fixtures for comparison.
+
+```bash
+# Run graphql-analyzer plugin
+npm run lint:after --workspace=eslint-migration
+
+# Run graphql-eslint for comparison
+npm run lint:before --workspace=eslint-migration
+```
+
+### Watch mode
+
+```bash
+# napi-rs doesn't have a watch mode; install cargo-watch (`cargo install cargo-watch`)
+# if you want auto-rebuild on Rust source changes.
+cargo watch -p graphql-analyzer-napi -s 'npm run build:debug --workspace=@graphql-analyzer/core'
+
+# Plugin TS watch
+npm run dev --workspace=@graphql-analyzer/eslint-plugin
+```
+
+## Web Playground
+
+The `packages/web-ide` package hosts a Monaco-based browser playground wired to a wasm build of the language server. Useful for demos, prototyping, and validating cross-target behavior without spinning up VS Code.
+
+### Prerequisites
+
+```bash
+rustup target add wasm32-unknown-unknown
+cargo install wasm-pack
+```
+
+### Build and run
+
+```bash
+cargo xtask web --dev    # opens http://localhost:5173 with hot reload
+cargo xtask web          # static build under packages/web-ide/dist/
+```
+
+`xtask web` runs `wasm-pack build` for `crates/lsp-wasm` and then either `npm run dev` (when `--dev`) or `npm run build` against `packages/web-ide`. Vite serves the worker, the wasm bundle, and Monaco from a single dev server.
+
+### End-to-end tests
+
+The playground has a small Playwright suite at `packages/web-ide/tests/web-ide.spec.ts`:
+
+```bash
+cd packages/web-ide
+npx playwright install chromium
+npm run test:e2e
+```
+
+The tests run against the same Vite dev server as `xtask web --dev`.
 
 ## Benchmarking
 
@@ -249,9 +370,13 @@ graphql-analyzer/
 │   ├── linter/       # Lint rules engine
 │   ├── lsp/          # LSP server
 │   ├── mcp/          # MCP server
+│   ├── napi/         # napi-rs native addon bindings
 │   └── syntax/       # Parsing layer
 ├── editors/
 │   └── vscode/       # VS Code extension
+├── packages/
+│   ├── core/         # @graphql-analyzer/core (dispatcher + platform stubs)
+│   └── eslint-plugin/# @graphql-analyzer/eslint-plugin
 ├── benches/          # Performance benchmarks
 └── tests/            # Integration tests
 ```
@@ -277,7 +402,7 @@ graphql-db (Salsa database)
 Key technologies:
 
 - **Salsa** - Incremental computation framework
-- **tower-lsp** - LSP framework
+- **lsp-server** + **crossbeam-channel** + **threadpool** - sync LSP main loop and worker pool (rust-analyzer-style)
 - **apollo-compiler** - GraphQL parsing and validation
 
 ## Creating Releases
@@ -297,11 +422,23 @@ Changeset format:
 
 ```markdown
 ---
-graphql-lsp: minor
+graphql-analyzer-lsp: minor
 ---
 
 Add support for feature X
 ```
+
+Target one or more knope package names:
+
+| Change                                 | Target                           |
+| -------------------------------------- | -------------------------------- |
+| CLI feature or bug fix                 | `graphql-analyzer-cli`           |
+| LSP or VS Code extension change        | `graphql-analyzer-lsp` (coupled) |
+| MCP server change                      | `graphql-analyzer-mcp`           |
+| Native addon (Rust or any npm package) | `graphql-analyzer-core`          |
+| ESLint plugin (JS-only change)         | `graphql-analyzer-eslint-plugin` |
+
+See [`RELEASES.md`](./RELEASES.md) for the full release pipeline.
 
 ### Release Flow
 

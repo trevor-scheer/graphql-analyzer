@@ -1,0 +1,75 @@
+# Triggers relayArguments: connection fields must have pagination arguments
+
+# Missing all pagination arguments - should warn
+type Author {
+  """
+  Posts written by this author
+  """
+  posts: PostConnection
+}
+
+# Has all pagination arguments - no warning
+type Reader {
+  """
+  Reading list
+  """
+  readingList(first: Int, after: String, last: Int, before: String): PostConnection
+}
+
+# Missing backward pagination arguments - should warn (with includeBoth: true)
+type Editor {
+  """
+  Edited posts
+  """
+  editedPosts(first: Int, after: String): PostConnection
+}
+
+"""
+A connection of posts
+"""
+type PostConnection {
+  """
+  The edges
+  """
+  edges: [PostEdge!]!
+  """
+  Page info
+  """
+  pageInfo: PageInfo!
+}
+
+"""
+A post edge
+"""
+type PostEdge {
+  """
+  The post node
+  """
+  node: Post!
+  """
+  The cursor
+  """
+  cursor: String!
+}
+
+"""
+Pagination info
+"""
+type PageInfo {
+  """
+  Whether there are more items
+  """
+  hasNextPage: Boolean!
+  """
+  Whether there are previous items
+  """
+  hasPreviousPage: Boolean!
+  """
+  The start cursor
+  """
+  startCursor: String
+  """
+  The end cursor
+  """
+  endCursor: String
+}

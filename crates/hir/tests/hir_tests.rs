@@ -717,7 +717,18 @@ mod caching_tests {
         let document_file_ids = DocumentFileIds::new(db, Arc::new(doc_ids));
         let file_entry_map = FileEntryMap::new(db, Arc::new(entries));
 
-        graphql_base_db::ProjectFiles::new(db, schema_file_ids, document_file_ids, file_entry_map)
+        graphql_base_db::ProjectFiles::new(
+            db,
+            schema_file_ids,
+            document_file_ids,
+            graphql_base_db::ResolvedSchemaFileIds::new(db, std::sync::Arc::new(vec![])),
+            file_entry_map,
+            graphql_base_db::FilePathMap::new(
+                db,
+                std::sync::Arc::new(std::collections::HashMap::new()),
+                std::sync::Arc::new(std::collections::HashMap::new()),
+            ),
+        )
     }
 
     #[test]
@@ -1744,7 +1755,18 @@ mod issue_646_per_file_linting {
         let document_file_ids = DocumentFileIds::new(db, Arc::new(doc_ids));
         let file_entry_map = FileEntryMap::new(db, Arc::new(entries));
 
-        graphql_base_db::ProjectFiles::new(db, schema_file_ids, document_file_ids, file_entry_map)
+        graphql_base_db::ProjectFiles::new(
+            db,
+            schema_file_ids,
+            document_file_ids,
+            graphql_base_db::ResolvedSchemaFileIds::new(db, std::sync::Arc::new(vec![])),
+            file_entry_map,
+            graphql_base_db::FilePathMap::new(
+                db,
+                std::sync::Arc::new(std::collections::HashMap::new()),
+                std::sync::Arc::new(std::collections::HashMap::new()),
+            ),
+        )
     }
 
     #[test]

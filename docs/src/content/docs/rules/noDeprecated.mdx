@@ -1,0 +1,56 @@
+---
+slug: rules/noDeprecated
+title: noDeprecated
+description: Warn when using deprecated fields.
+---
+
+| Property         | Value           |
+| ---------------- | --------------- |
+| Config name      | `noDeprecated`  |
+| Default severity | `warn`          |
+| Context          | Document-Schema |
+| In recommended   | Yes             |
+
+## What it checks
+
+Warns when your operations use fields marked as `@deprecated` in the schema.
+
+## Examples
+
+Given this schema:
+
+```graphql
+type User {
+  id: ID!
+  name: String! @deprecated(reason: "Use fullName instead")
+  fullName: String!
+}
+```
+
+```graphql
+# ⚠️ Warning — name is deprecated
+query {
+  user {
+    name # Warning: Field 'name' is deprecated: Use fullName instead
+  }
+}
+```
+
+```graphql
+# ✅ Good — using the replacement field
+query {
+  user {
+    fullName
+  }
+}
+```
+
+## Configuration
+
+```yaml
+extensions:
+  graphql-analyzer:
+    lint:
+      rules:
+        noDeprecated: warn # or error, off
+```

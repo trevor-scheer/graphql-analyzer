@@ -2,6 +2,72 @@
 
 All notable changes to the GraphQL VSCode extension will be documented in this file.
 
+## 0.2.2 (2026-04-19)
+
+### Features
+
+- Add help text, related locations, and documentation URLs to diagnostics ([#934](https://github.com/trevor-scheer/graphql-analyzer/pull/934))
+- Add `matchDocumentFilename` lint rule that enforces operation and fragment names match their filename
+- Add `relayArguments` lint rule to enforce Relay-compliant pagination arguments on connection fields ([#988](https://github.com/trevor-scheer/graphql-analyzer/pull/988))
+- Add `relayConnectionTypes` lint rule ([#984](https://github.com/trevor-scheer/graphql-analyzer/pull/984))
+- Add `relayEdgeTypes` lint rule to enforce Relay-compliant edge type definitions ([#992](https://github.com/trevor-scheer/graphql-analyzer/pull/992))
+- Add `relayPageInfo` lint rule to enforce Relay PageInfo type specification ([#986](https://github.com/trevor-scheer/graphql-analyzer/pull/986))
+- Add `requireDeprecationDate` lint rule
+- Add `requireImportFragment` lint rule ([#991](https://github.com/trevor-scheer/graphql-analyzer/pull/991))
+- Add `requireTypePatternWithOneof` lint rule enforcing that types with `@oneOf` contain both `ok` and `error` fields
+
+### Fixes
+
+- Add `noRootType` lint rule to disallow certain root type definitions in the schema
+- Add `requireNullableFieldsWithOneof` lint rule ([#985](https://github.com/trevor-scheer/graphql-analyzer/pull/985))
+- Add `requireNullableResultInRoot` lint rule ([#994](https://github.com/trevor-scheer/graphql-analyzer/pull/994))
+- Validate that `resolvedSchema` paths point to existing files ([#982](https://github.com/trevor-scheer/graphql-analyzer/pull/982))
+
+## 0.2.1 (2026-04-16)
+
+### Fixes
+
+- Publish to Open VSX Registry ([#979](https://github.com/trevor-scheer/graphql-analyzer/pull/979))
+
+## 0.2.0 (2026-04-12)
+
+### Breaking Changes
+
+#### Namespace extensions under `extensions.graphql-analyzer` and add resolved schema support ([#966](https://github.com/trevor-scheer/graphql-analyzer/pull/966))
+
+BREAKING: `client`, `lint`, and `extractConfig` must now be nested under `extensions.graphql-analyzer` in `.graphqlrc.yaml`.
+
+New: `resolvedSchema` config option to validate queries against a build-generated schema while keeping source files for navigation.
+
+### Features
+
+- Add directive IDE features: go-to-definition, hover, find references, and document/workspace symbols ([#969](https://github.com/trevor-scheer/graphql-analyzer/pull/969))
+- Show inlay type hints on non-leaf (object type) fields in queries ([#970](https://github.com/trevor-scheer/graphql-analyzer/pull/970))
+
+## 0.1.18 (2026-04-10)
+
+### Fixes
+
+- Bundle the LSP fix for panics during rapid schema edits.
+
+## 0.1.17 (2026-04-07)
+
+### Fixes
+
+- Bundle updated LSP server with lock acquire/release tracing to help diagnose deadlocks during rapid consecutive schema file edits ([#958](https://github.com/trevor-scheer/graphql-analyzer/pull/958))
+
+## 0.1.16 (2026-04-04)
+
+### Features
+
+- Add `require-selections` lint rule for cache normalization ([#944](https://github.com/trevor-scheer/graphql-analyzer/pull/944))
+
+### Fixes
+
+- Add "did you mean?" suggestions for config typos ([#932](https://github.com/trevor-scheer/graphql-analyzer/pull/932))
+- Fix LSP deadlock during rapid schema edits in large codebases ([#949](https://github.com/trevor-scheer/graphql-analyzer/pull/949))
+- Improve VS Code extension marketplace metadata ([#935](https://github.com/trevor-scheer/graphql-analyzer/pull/935))
+
 ## 0.1.15 (2026-03-29)
 
 ### Features

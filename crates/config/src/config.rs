@@ -1,6 +1,7 @@
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::path::Path;
+use std::sync::OnceLock;
 
 /// Top-level GraphQL configuration.
 /// Either a single project or multiple named projects.
@@ -60,7 +61,7 @@ impl GraphQLConfig {
     /// For single-project configs, returns the project's lint config from extensions
     /// For multi-project configs, returns None (each project has its own)
     #[must_use]
-    pub fn lint_config(&self) -> Option<&serde_json::Value> {
+    pub fn lint_config(&self) -> Option<serde_json::Value> {
         match self {
             Self::Single(config) => config.lint(),
             Self::Multi { .. } => None,
@@ -141,6 +142,25 @@ impl GraphQLConfig {
         Self::get_file_type_for_project(doc_path, workspace_root, config)
     }
 
+    /// Determine the file type for a file given its workspace-relative path string.
+    ///
+    /// Useful for non-`file://` URIs (wasm/in-memory documents) where filesystem
+    /// path conversion isn't available; the caller supplies a path string derived
+    /// from the URI directly.
+    #[must_use]
+    pub fn get_file_type_by_rel_path(
+        &self,
+        rel_path: &str,
+        project_name: &str,
+    ) -> Option<crate::FileType> {
+        let config = match self {
+            Self::Single(config) if project_name == "default" => config,
+            Self::Single(_) => return None,
+            Self::Multi { projects } => projects.get(project_name)?,
+        };
+        Self::match_file_type(rel_path, config)
+    }
+
     /// Internal helper to determine file type for a specific project config.
     fn get_file_type_for_project(
         doc_path: &Path,
@@ -149,61 +169,29 @@ impl GraphQLConfig {
     ) -> Option<crate::FileType> {
         let rel_path = doc_path.strip_prefix(workspace_root).ok()?;
         let rel_path_str = rel_path.to_string_lossy();
+        Self::match_file_type(&rel_path_str, config)
+    }
 
-        // Check explicit excludes first
-        if let Some(ref excludes) = config.exclude {
-            for pattern in excludes {
-                for expanded in Self::expand_braces(pattern) {
-                    if let Ok(glob_pattern) = glob::Pattern::new(&expanded) {
-                        if glob_pattern.matches(&rel_path_str) {
-                            return None;
-                        }
-                    }
-                }
-            }
+    /// Pattern-match a relative path string against a project's compiled globs.
+    fn match_file_type(rel_path: &str, config: &ProjectConfig) -> Option<crate::FileType> {
+        let compiled = config.compiled_patterns();
+
+        if compiled.exclude.iter().any(|p| p.matches(rel_path)) {
+            return None;
         }
 
-        // Check if file is in include scope
-        let in_include_scope = config.include.as_ref().is_none_or(|includes| {
-            for pattern in includes {
-                for expanded in Self::expand_braces(pattern) {
-                    if let Ok(glob_pattern) = glob::Pattern::new(&expanded) {
-                        if glob_pattern.matches(&rel_path_str) {
-                            return true;
-                        }
-                    }
-                }
-            }
-            false
-        });
-
+        let in_include_scope =
+            config.include.is_none() || compiled.include.iter().any(|p| p.matches(rel_path));
         if !in_include_scope {
             return None;
         }
 
-        // Check schema patterns first
-        let schema_patterns = config.schema.paths();
-        for pattern in &schema_patterns {
-            for expanded in Self::expand_braces(pattern) {
-                if let Ok(glob_pattern) = glob::Pattern::new(&expanded) {
-                    if glob_pattern.matches(&rel_path_str) {
-                        return Some(crate::FileType::Schema);
-                    }
-                }
-            }
+        if compiled.schema.iter().any(|p| p.matches(rel_path)) {
+            return Some(crate::FileType::Schema);
         }
 
-        // Check document patterns
-        if let Some(ref documents) = config.documents {
-            for pattern in documents.patterns() {
-                for expanded in Self::expand_braces(pattern) {
-                    if let Ok(glob_pattern) = glob::Pattern::new(&expanded) {
-                        if glob_pattern.matches(&rel_path_str) {
-                            return Some(crate::FileType::Document);
-                        }
-                    }
-                }
-            }
+        if compiled.documents.iter().any(|p| p.matches(rel_path)) {
+            return Some(crate::FileType::Document);
         }
 
         None
@@ -230,80 +218,49 @@ impl GraphQLConfig {
             config.documents.as_ref().map_or(0, |d| d.patterns().len())
         );
 
+        let compiled = config.compiled_patterns();
+
         // Check explicit excludes first
-        if let Some(ref excludes) = config.exclude {
-            tracing::debug!("Checking exclude patterns: {:?}", excludes);
-            for pattern in excludes {
-                for expanded in Self::expand_braces(pattern) {
-                    if let Ok(glob_pattern) = glob::Pattern::new(&expanded) {
-                        if glob_pattern.matches(&rel_path_str) {
-                            return false;
-                        }
-                    }
-                }
-            }
+        if compiled.exclude.iter().any(|p| p.matches(&rel_path_str)) {
+            return false;
         }
 
         // Determine if file is in project scope based on include/exclude patterns
-        let in_include_scope = config.include.as_ref().is_none_or(|includes| {
-            tracing::debug!("Checking include patterns: {:?}", includes);
-            let mut matched = false;
-            for pattern in includes {
-                for expanded in Self::expand_braces(pattern) {
-                    tracing::debug!("  Testing include pattern: {}", expanded);
-                    if let Ok(glob_pattern) = glob::Pattern::new(&expanded) {
-                        if glob_pattern.matches(&rel_path_str) {
-                            tracing::debug!("    ✓ Matched include pattern: {}", expanded);
-                            matched = true;
-                            break;
-                        }
-                    }
-                }
+        let in_include_scope = config.include.is_none()
+            || compiled.include.iter().any(|p| {
+                let matched = p.matches(&rel_path_str);
                 if matched {
-                    break;
+                    tracing::debug!("    Matched include pattern: {}", p);
                 }
-            }
-            if !matched {
-                tracing::debug!("No include patterns matched, file excluded");
-            }
-            matched
-        });
+                matched
+            });
 
         // If file is not in include scope, it doesn't match this project
         if !in_include_scope {
+            tracing::debug!("No include patterns matched, file excluded");
             return false;
         }
 
         // Check if file matches schema patterns
-        let schema_patterns = config.schema.paths();
-        tracing::debug!("Checking schema patterns: {:?}", schema_patterns);
-        for pattern in &schema_patterns {
-            for expanded in Self::expand_braces(pattern) {
-                tracing::debug!("  Testing schema pattern: {}", expanded);
-                if let Ok(glob_pattern) = glob::Pattern::new(&expanded) {
-                    if glob_pattern.matches(&rel_path_str) {
-                        tracing::debug!("    ✓ Matched schema pattern: {}", expanded);
-                        return true;
-                    }
-                }
+        if compiled.schema.iter().any(|p| {
+            let matched = p.matches(&rel_path_str);
+            if matched {
+                tracing::debug!("    Matched schema pattern: {}", p);
             }
+            matched
+        }) {
+            return true;
         }
 
-        // Check if file matches document patterns (if specified)
-        if let Some(ref documents) = config.documents {
-            let patterns = documents.patterns();
-            tracing::debug!("Checking document patterns: {:?}", patterns);
-            for pattern in patterns {
-                for expanded in Self::expand_braces(pattern) {
-                    tracing::debug!("  Testing document pattern: {}", expanded);
-                    if let Ok(glob_pattern) = glob::Pattern::new(&expanded) {
-                        if glob_pattern.matches(&rel_path_str) {
-                            tracing::debug!("    ✓ Matched document pattern: {}", expanded);
-                            return true;
-                        }
-                    }
-                }
+        // Check if file matches document patterns
+        if compiled.documents.iter().any(|p| {
+            let matched = p.matches(&rel_path_str);
+            if matched {
+                tracing::debug!("    Matched document pattern: {}", p);
             }
+            matched
+        }) {
+            return true;
         }
 
         // Neither schema nor document patterns matched
@@ -363,8 +320,59 @@ impl GraphQLConfig {
     }
 }
 
+/// Pre-compiled glob patterns for a project, cached to avoid repeated
+/// brace expansion and pattern compilation on every file-match check.
+#[derive(Clone)]
+struct CompiledPatterns {
+    exclude: Vec<glob::Pattern>,
+    include: Vec<glob::Pattern>,
+    schema: Vec<glob::Pattern>,
+    documents: Vec<glob::Pattern>,
+}
+
+impl CompiledPatterns {
+    fn compile(config: &ProjectConfig) -> Self {
+        let compile_list = |raw_patterns: &[String]| -> Vec<glob::Pattern> {
+            raw_patterns
+                .iter()
+                .flat_map(|p| GraphQLConfig::expand_braces(p))
+                .filter_map(|expanded| glob::Pattern::new(&expanded).ok())
+                .collect()
+        };
+
+        let exclude = config
+            .exclude
+            .as_deref()
+            .map_or_else(Vec::new, compile_list);
+        let include = config
+            .include
+            .as_deref()
+            .map_or_else(Vec::new, compile_list);
+
+        let schema_paths: Vec<String> = config
+            .schema
+            .paths()
+            .into_iter()
+            .map(String::from)
+            .collect();
+        let schema = compile_list(&schema_paths);
+
+        let doc_patterns: Vec<String> = config.documents.as_ref().map_or_else(Vec::new, |d| {
+            d.patterns().into_iter().map(String::from).collect()
+        });
+        let documents = compile_list(&doc_patterns);
+
+        Self {
+            exclude,
+            include,
+            schema,
+            documents,
+        }
+    }
+}
+
 /// Configuration for a single GraphQL project
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct ProjectConfig {
     /// Schema source(s)
@@ -385,46 +393,172 @@ pub struct ProjectConfig {
     /// Tool-specific extensions (includes lint configuration)
     #[serde(skip_serializing_if = "Option::is_none")]
     pub extensions: Option<HashMap<String, serde_json::Value>>,
+
+    /// Cached compiled glob patterns (lazily initialized on first use)
+    #[serde(skip)]
+    compiled_patterns: OnceLock<CompiledPatterns>,
 }
 
-impl ProjectConfig {
-    /// Get the lint configuration from extensions.
-    ///
-    /// Lint configuration should be specified under `extensions.lint`:
-    /// ```yaml
-    /// extensions:
-    ///   lint:
-    ///     extends: recommended
-    ///     rules:
-    ///       noDeprecated: warn
-    /// ```
-    #[must_use]
-    pub fn lint(&self) -> Option<&serde_json::Value> {
-        self.extensions.as_ref().and_then(|ext| ext.get("lint"))
+impl std::fmt::Debug for ProjectConfig {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("ProjectConfig")
+            .field("schema", &self.schema)
+            .field("documents", &self.documents)
+            .field("include", &self.include)
+            .field("exclude", &self.exclude)
+            .field("extensions", &self.extensions)
+            .finish_non_exhaustive()
     }
+}
 
-    /// Get the client configuration from extensions.
-    ///
-    /// Client configuration specifies which GraphQL client library is being used,
-    /// which determines the built-in client directives available for validation:
-    /// ```yaml
-    /// extensions:
-    ///   client: apollo
-    /// ```
-    #[must_use]
-    pub fn client(&self) -> Option<ClientConfig> {
-        let value = self.extensions.as_ref().and_then(|ext| ext.get("client"))?;
-
-        if let Ok(config) = serde_json::from_value(value.clone()) {
-            Some(config)
-        } else {
-            tracing::warn!(
-                "Unrecognized client config value: {}. Expected one of: apollo, relay, none",
-                value
-            );
-            None
+impl Clone for ProjectConfig {
+    fn clone(&self) -> Self {
+        Self {
+            schema: self.schema.clone(),
+            documents: self.documents.clone(),
+            include: self.include.clone(),
+            exclude: self.exclude.clone(),
+            extensions: self.extensions.clone(),
+            compiled_patterns: OnceLock::new(),
         }
     }
+}
+
+impl PartialEq for ProjectConfig {
+    fn eq(&self, other: &Self) -> bool {
+        self.schema == other.schema
+            && self.documents == other.documents
+            && self.include == other.include
+            && self.exclude == other.exclude
+            && self.extensions == other.extensions
+    }
+}
+
+impl Eq for ProjectConfig {}
+
+impl ProjectConfig {
+    /// Create a new `ProjectConfig`.
+    #[must_use]
+    pub fn new(
+        schema: SchemaConfig,
+        documents: Option<DocumentsConfig>,
+        include: Option<Vec<String>>,
+        exclude: Option<Vec<String>>,
+        extensions: Option<HashMap<String, serde_json::Value>>,
+    ) -> Self {
+        Self {
+            schema,
+            documents,
+            include,
+            exclude,
+            extensions,
+            compiled_patterns: OnceLock::new(),
+        }
+    }
+
+    /// Get the compiled glob patterns, lazily initializing on first access.
+    fn compiled_patterns(&self) -> &CompiledPatterns {
+        self.compiled_patterns
+            .get_or_init(|| CompiledPatterns::compile(self))
+    }
+
+    /// Check whether `file_path` belongs to this project, given the workspace
+    /// root (typically the directory containing the `.graphqlrc` file).
+    ///
+    /// Mirrors graphql-config's per-file project resolution: a file matches if
+    /// it isn't in `exclude`, IS in `include` (or `include` is unset), and
+    /// matches at least one of the project's schema or document patterns.
+    /// Used by callers (e.g. the `ESLint` plugin's napi binding) that route
+    /// each file to the project that owns it in multi-project configs.
+    #[must_use]
+    pub fn matches_file(&self, file_path: &Path, workspace_root: &Path) -> bool {
+        let Ok(rel_path) = file_path.strip_prefix(workspace_root) else {
+            return false;
+        };
+        let rel_path_str = rel_path.to_string_lossy();
+        let compiled = self.compiled_patterns();
+
+        if compiled.exclude.iter().any(|p| p.matches(&rel_path_str)) {
+            return false;
+        }
+        let in_include_scope =
+            self.include.is_none() || compiled.include.iter().any(|p| p.matches(&rel_path_str));
+        if !in_include_scope {
+            return false;
+        }
+        compiled.schema.iter().any(|p| p.matches(&rel_path_str))
+            || compiled.documents.iter().any(|p| p.matches(&rel_path_str))
+    }
+
+    /// Whether this project has any include/exclude/schema/document
+    /// constraints. A project with none acts as the default catch-all in
+    /// multi-project routing — used as a fallback when no other project
+    /// claims the file.
+    #[must_use]
+    pub fn has_file_constraints(&self) -> bool {
+        let compiled = self.compiled_patterns();
+        !compiled.exclude.is_empty()
+            || !compiled.include.is_empty()
+            || !compiled.schema.is_empty()
+            || !compiled.documents.is_empty()
+    }
+
+    /// Get the parsed `graphql-analyzer` extensions block, if present.
+    fn analyzer_extensions(&self) -> Option<AnalyzerExtensions> {
+        let ext = self.extensions.as_ref()?;
+        let analyzer_value = ext.get("graphql-analyzer")?;
+        serde_json::from_value(analyzer_value.clone()).ok()
+    }
+
+    /// Get the lint configuration from `extensions.graphql-analyzer.lint`.
+    #[must_use]
+    pub fn lint(&self) -> Option<serde_json::Value> {
+        self.analyzer_extensions()?.lint
+    }
+
+    /// Get the client configuration from `extensions.graphql-analyzer.client`.
+    #[must_use]
+    pub fn client(&self) -> Option<ClientConfig> {
+        self.analyzer_extensions()?.client
+    }
+
+    /// Get the resolved schema path from extensions.
+    ///
+    /// When configured, queries are validated against this built-generated schema
+    /// instead of the source schema files.
+    /// ```yaml
+    /// extensions:
+    ///   graphql-analyzer:
+    ///     resolvedSchema: "generated/schema.graphql"
+    /// ```
+    #[must_use]
+    pub fn resolved_schema(&self) -> Option<String> {
+        self.analyzer_extensions()?.resolved_schema
+    }
+
+    /// Get the extract configuration from `extensions.graphql-analyzer.extractConfig`.
+    #[must_use]
+    pub fn extract_config(&self) -> Option<serde_json::Value> {
+        self.analyzer_extensions()?.extract_config
+    }
+}
+
+/// Typed deserialization of `extensions.graphql-analyzer` block.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct AnalyzerExtensions {
+    /// Path to a build-generated resolved schema file.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub resolved_schema: Option<String>,
+    /// Client library configuration.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub client: Option<ClientConfig>,
+    /// Lint configuration.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub lint: Option<serde_json::Value>,
+    /// Extract configuration for TS/JS files.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub extract_config: Option<serde_json::Value>,
 }
 
 /// GraphQL client library configuration.
@@ -649,6 +783,7 @@ mod tests {
             include: None,
             exclude: None,
             extensions: None,
+            compiled_patterns: OnceLock::new(),
         }));
 
         assert!(!config.is_multi_project());
@@ -668,6 +803,7 @@ mod tests {
                 include: None,
                 exclude: None,
                 extensions: None,
+                compiled_patterns: OnceLock::new(),
             },
         );
         projects.insert(
@@ -678,6 +814,7 @@ mod tests {
                 include: None,
                 exclude: None,
                 extensions: None,
+                compiled_patterns: OnceLock::new(),
             },
         );
 
@@ -732,9 +869,10 @@ mod tests {
         let yaml = r"
 schema: schema.graphql
 extensions:
-  client: apollo
+  graphql-analyzer:
+    client: apollo
 ";
-        let config: ProjectConfig = serde_yml::from_str(yaml).unwrap();
+        let config: ProjectConfig = serde_saphyr::from_str(yaml).unwrap();
         assert_eq!(config.client(), Some(ClientConfig::Apollo));
     }
 
@@ -743,9 +881,10 @@ extensions:
         let yaml = r"
 schema: schema.graphql
 extensions:
-  client: relay
+  graphql-analyzer:
+    client: relay
 ";
-        let config: ProjectConfig = serde_yml::from_str(yaml).unwrap();
+        let config: ProjectConfig = serde_saphyr::from_str(yaml).unwrap();
         assert_eq!(config.client(), Some(ClientConfig::Relay));
     }
 
@@ -754,9 +893,10 @@ extensions:
         let yaml = r"
 schema: schema.graphql
 extensions:
-  client: none
+  graphql-analyzer:
+    client: none
 ";
-        let config: ProjectConfig = serde_yml::from_str(yaml).unwrap();
+        let config: ProjectConfig = serde_saphyr::from_str(yaml).unwrap();
         assert_eq!(config.client(), Some(ClientConfig::None));
     }
 
@@ -765,7 +905,7 @@ extensions:
         let yaml = r"
 schema: schema.graphql
 ";
-        let config: ProjectConfig = serde_yml::from_str(yaml).unwrap();
+        let config: ProjectConfig = serde_saphyr::from_str(yaml).unwrap();
         assert_eq!(config.client(), None);
     }
 
@@ -781,7 +921,7 @@ extensions:
   otherExtension:
     someKey: "someValue"
 "#;
-        let config: ProjectConfig = serde_yml::from_str(yaml).unwrap();
+        let config: ProjectConfig = serde_saphyr::from_str(yaml).unwrap();
         assert!(config.extensions.is_some());
         let extensions = config.extensions.unwrap();
         assert!(extensions.contains_key("extractConfig"));
@@ -798,6 +938,7 @@ extensions:
             include: None,
             exclude: None,
             extensions: None,
+            compiled_patterns: OnceLock::new(),
         }));
 
         let workspace_root = PathBuf::from("/workspace");
@@ -822,6 +963,7 @@ extensions:
                 include: None,
                 exclude: None,
                 extensions: None,
+                compiled_patterns: OnceLock::new(),
             },
         );
         projects.insert(
@@ -832,6 +974,7 @@ extensions:
                 include: None,
                 exclude: None,
                 extensions: None,
+                compiled_patterns: OnceLock::new(),
             },
         );
 
@@ -870,6 +1013,7 @@ extensions:
                 include: Some(vec!["src/**".to_string()]),
                 exclude: Some(vec!["**/__tests__/**".to_string()]),
                 extensions: None,
+                compiled_patterns: OnceLock::new(),
             },
         );
 
@@ -944,6 +1088,7 @@ extensions:
                 include: None,
                 exclude: None,
                 extensions: None,
+                compiled_patterns: OnceLock::new(),
             },
         );
 
@@ -983,6 +1128,7 @@ extensions:
                 include: None,
                 exclude: None,
                 extensions: None,
+                compiled_patterns: OnceLock::new(),
             },
         );
 
@@ -1026,7 +1172,7 @@ schema:
   retry: 3
 documents: "**/*.graphql"
 "#;
-        let config: ProjectConfig = serde_yml::from_str(yaml).unwrap();
+        let config: ProjectConfig = serde_saphyr::from_str(yaml).unwrap();
 
         assert!(config.schema.is_introspection());
         assert!(config.schema.has_remote_schema());
@@ -1051,7 +1197,7 @@ documents: "**/*.graphql"
 schema:
   url: https://api.example.com/graphql
 ";
-        let config: ProjectConfig = serde_yml::from_str(yaml).unwrap();
+        let config: ProjectConfig = serde_saphyr::from_str(yaml).unwrap();
 
         assert!(config.schema.is_introspection());
         let introspection = config.schema.introspection_config().unwrap();
@@ -1090,7 +1236,7 @@ schema:
       X-API-Key: my-key
 documents: "**/*.graphql"
 "#;
-        let config: ProjectConfig = serde_yml::from_str(yaml).unwrap();
+        let config: ProjectConfig = serde_saphyr::from_str(yaml).unwrap();
 
         assert!(config.schema.is_introspection());
         assert!(config.schema.has_remote_schema());
@@ -1113,7 +1259,7 @@ documents: "**/*.graphql"
 schema:
   https://api.example.com/graphql: {}
 ";
-        let config: ProjectConfig = serde_yml::from_str(yaml).unwrap();
+        let config: ProjectConfig = serde_saphyr::from_str(yaml).unwrap();
 
         assert!(config.schema.is_introspection());
         let introspection = config.schema.introspection_config().unwrap();
@@ -1131,7 +1277,7 @@ schema:
     timeout: 60
     retry: 3
 ";
-        let config: ProjectConfig = serde_yml::from_str(yaml).unwrap();
+        let config: ProjectConfig = serde_saphyr::from_str(yaml).unwrap();
 
         let introspection = config.schema.introspection_config().unwrap();
         assert_eq!(introspection.url, "https://api.example.com/graphql");
@@ -1147,7 +1293,7 @@ schema:
       headers:
         Authorization: "Bearer token"
 "#;
-        let config: ProjectConfig = serde_yml::from_str(yaml).unwrap();
+        let config: ProjectConfig = serde_saphyr::from_str(yaml).unwrap();
 
         assert!(config.schema.is_introspection());
         let introspection = config.schema.introspection_config().unwrap();
@@ -1164,7 +1310,7 @@ schema:
 schema:
   - https://api.example.com/graphql: {}
 ";
-        let config: ProjectConfig = serde_yml::from_str(yaml).unwrap();
+        let config: ProjectConfig = serde_saphyr::from_str(yaml).unwrap();
 
         assert!(config.schema.is_introspection());
         let introspection = config.schema.introspection_config().unwrap();
@@ -1195,11 +1341,11 @@ mod schema_sync_tests {
     /// Validate a YAML config string against both serde and JSON schema
     fn validate_config(yaml: &str) -> (bool, bool, String) {
         // Try serde deserialization
-        let serde_result = serde_yml::from_str::<GraphQLConfig>(yaml);
+        let serde_result = serde_saphyr::from_str::<GraphQLConfig>(yaml);
         let serde_valid = serde_result.is_ok();
 
         // Convert to JSON for schema validation
-        let json_value: Result<serde_json::Value, _> = serde_yml::from_str(yaml);
+        let json_value: Result<serde_json::Value, _> = serde_saphyr::from_str(yaml);
         let schema_valid = if let Ok(value) = json_value {
             let schema = load_schema();
             let compiled = jsonschema::draft7::new(&schema).expect("Failed to compile JSON schema");
@@ -1288,7 +1434,8 @@ schema:
             r"
 schema: schema.graphql
 extensions:
-  client: apollo
+  graphql-analyzer:
+    client: apollo
 ",
             "client: apollo",
         );
@@ -1300,7 +1447,8 @@ extensions:
             r"
 schema: schema.graphql
 extensions:
-  client: relay
+  graphql-analyzer:
+    client: relay
 ",
             "client: relay",
         );
@@ -1312,7 +1460,8 @@ extensions:
             r"
 schema: schema.graphql
 extensions:
-  client: none
+  graphql-analyzer:
+    client: none
 ",
             "client: none",
         );
@@ -1324,8 +1473,9 @@ extensions:
             r"
 schema: schema.graphql
 extensions:
-  client: apollo
-  lint: recommended
+  graphql-analyzer:
+    client: apollo
+    lint: recommended
 ",
             "lint preset as string",
         );
@@ -1337,8 +1487,9 @@ extensions:
             r"
 schema: schema.graphql
 extensions:
-  client: relay
-  lint: [recommended]
+  graphql-analyzer:
+    client: relay
+    lint: [recommended]
 ",
             "lint preset as array",
         );
@@ -1350,12 +1501,13 @@ extensions:
             r"
 schema: schema.graphql
 extensions:
-  client: none
-  lint:
-    extends: recommended
-    rules:
-      noDeprecated: warn
-      uniqueNames: error
+  graphql-analyzer:
+    client: none
+    lint:
+      extends: recommended
+      rules:
+        noDeprecated: warn
+        uniqueNames: error
 ",
             "lint extends with rules",
         );
@@ -1367,10 +1519,11 @@ extensions:
             r#"
 schema: schema.graphql
 extensions:
-  client: apollo
-  lint:
-    rules:
-      requireIdField: [warn, { fields: ["id", "nodeId"] }]
+  graphql-analyzer:
+    client: apollo
+    lint:
+      rules:
+        requireIdField: [warn, { fields: ["id", "nodeId"] }]
 "#,
             "lint ESLint array style",
         );
@@ -1382,13 +1535,14 @@ extensions:
             r#"
 schema: schema.graphql
 extensions:
-  client: apollo
-  lint:
-    rules:
-      requireIdField:
-        severity: error
-        options:
-          fields: ["id"]
+  graphql-analyzer:
+    client: apollo
+    lint:
+      rules:
+        requireIdField:
+          severity: error
+          options:
+            fields: ["id"]
 "#,
             "lint object style with options",
         );
@@ -1400,11 +1554,12 @@ extensions:
             r#"
 schema: schema.graphql
 extensions:
-  client: apollo
-  extractConfig:
-    tagIdentifiers: ["gql", "graphql"]
-    modules: ["@apollo/client"]
-    allowGlobalIdentifiers: true
+  graphql-analyzer:
+    client: apollo
+    extractConfig:
+      tagIdentifiers: ["gql", "graphql"]
+      modules: ["@apollo/client"]
+      allowGlobalIdentifiers: true
 "#,
             "extract config",
         );
@@ -1417,8 +1572,9 @@ extensions:
             r"
 schema: schema.graphql
 extensions:
-  client: none
-  lint: recommended
+  graphql-analyzer:
+    client: none
+    lint: recommended
   customTool:
     setting: value
 ",

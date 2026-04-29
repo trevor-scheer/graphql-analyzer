@@ -78,6 +78,12 @@ fn syntax_diagnostics(
             },
             source: "graphql-parser".into(),
             code: None,
+            message_id: None,
+            fix: None,
+            suggestions: Vec::new(),
+            help: None,
+            url: None,
+            tags: Vec::new(),
         });
     }
 
@@ -121,6 +127,12 @@ fn file_validation_diagnostics_impl(
             },
             source: "graphql-parser".into(),
             code: None,
+            message_id: None,
+            fix: None,
+            suggestions: Vec::new(),
+            help: None,
+            url: None,
+            tags: Vec::new(),
         });
     }
 
@@ -132,13 +144,17 @@ fn file_validation_diagnostics_impl(
     );
 
     if metadata.is_schema(db) {
-        // Schema files only need syntax validation (handled above) plus merged schema diagnostics.
-        // Individual schema files don't need to be spec-valid on their own - only the
-        // merged schema needs spec validation. Filter to only show errors from this file.
-        let file_uri = metadata.uri(db);
-        let schema_diagnostics =
-            merged_schema::merged_schema_diagnostics_for_file(db, project_files, file_uri.as_str());
-        diagnostics.extend(schema_diagnostics);
+        // When a resolved schema is configured, skip SDL validation on source schema
+        // files. They may be intentionally incomplete (only valid after build step).
+        if !graphql_hir::has_resolved_schema(db, project_files) {
+            let file_uri = metadata.uri(db);
+            let schema_diagnostics = merged_schema::merged_schema_diagnostics_for_file(
+                db,
+                project_files,
+                file_uri.as_str(),
+            );
+            diagnostics.extend(schema_diagnostics);
+        }
     } else if metadata.is_document(db) {
         tracing::debug!("Running document validation");
         let doc_diagnostics = validation::validate_file(db, content, metadata, project_files);

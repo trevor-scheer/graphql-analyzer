@@ -368,18 +368,49 @@ impl FileWatcher {
                         };
                         let line = diag.range.start.line + 1;
                         let col = diag.range.start.character + 1;
+                        let end_line = diag.range.end.line + 1;
+                        let end_col = diag.range.end.character + 1;
                         let rule_suffix = diag
                             .code
                             .as_ref()
                             .map(|r| format!(" [{r}]"))
                             .unwrap_or_default();
                         println!(
-                            "::{level} file={},line={line},col={col}::{}{rule_suffix}",
+                            "::{level} file={},line={line},col={col},endLine={end_line},endColumn={end_col}::{}{rule_suffix}",
                             file_path.display(),
                             diag.message
                         );
                     }
                 }
+            }
+            OutputFormat::Sarif => {
+                use crate::commands::sarif::{self, SarifLevel, SarifResult};
+
+                let sarif_results: Vec<SarifResult> = diagnostics
+                    .iter()
+                    .flat_map(|(file_path, diags)| {
+                        diags.iter().map(move |diag| SarifResult {
+                            rule_id: diag.code.clone().unwrap_or_else(|| source.to_string()),
+                            message: diag.message.clone(),
+                            level: match diag.severity {
+                                DiagnosticSeverity::Error => SarifLevel::Error,
+                                DiagnosticSeverity::Warning => SarifLevel::Warning,
+                                _ => SarifLevel::Note,
+                            },
+                            file_path: file_path.to_string_lossy().to_string(),
+                            start_line: (diag.range.start.line + 1) as usize,
+                            start_column: (diag.range.start.character + 1) as usize,
+                            end_line: (diag.range.end.line + 1) as usize,
+                            end_column: (diag.range.end.character + 1) as usize,
+                        })
+                    })
+                    .collect();
+
+                let output = sarif::format_sarif(&sarif_results, &self.config.base_dir);
+                println!(
+                    "{}",
+                    serde_json::to_string_pretty(&output).unwrap_or_default()
+                );
             }
         }
     }
@@ -412,8 +443,8 @@ impl FileWatcher {
                     })
                 );
             }
-            OutputFormat::Github => {
-                // GitHub Actions format uses human-readable header
+            OutputFormat::Github | OutputFormat::Sarif => {
+                // GitHub Actions / SARIF format uses human-readable header
                 let mode_name = match self.config.mode {
                     WatchMode::Validate => "validation",
                     WatchMode::Lint => "linting",
@@ -498,8 +529,8 @@ impl FileWatcher {
                     })
                 );
             }
-            OutputFormat::Github => {
-                // GitHub Actions format uses human-readable result summary
+            OutputFormat::Github | OutputFormat::Sarif => {
+                // GitHub Actions / SARIF format uses human-readable result summary
                 let timestamp = format!("[{}]", chrono_now()).dimmed();
 
                 if !is_initial && !result.changed_files.is_empty() {

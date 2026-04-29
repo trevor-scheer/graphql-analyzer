@@ -20,26 +20,24 @@ Edit schema → All documents re-validated (schema is a shared dependency)
 | Rule budget     | Fast rules only      | All rules   |
 | Typical latency | Milliseconds         | Seconds     |
 
-## Disabling expensive rules in the LSP
+## Expensive rules
 
-Project-wide rules analyze all documents together and can be slow. Disable them in the LSP and run them in CI:
+Project-wide rules like `noUnusedFields` and `noUnusedFragments` analyze all documents together and can be slow in very large projects. If you experience latency in the editor, disable them in your config and run them in CI instead:
 
 ```yaml
 extensions:
-  lint:
-    extends: recommended
-
-  lsp:
+  graphql-analyzer:
     lint:
+      extends: recommended
       rules:
-        unusedFields: off
-        unusedFragments: off
+        noUnusedFields: off
+        noUnusedFragments: off
+```
 
-  cli:
-    lint:
-      rules:
-        unusedFields: error
-        unusedFragments: error
+Then in CI, enable them explicitly:
+
+```bash
+graphql check --rule noUnusedFields=error --rule noUnusedFragments=error
 ```
 
 ## Structure/body separation
@@ -56,25 +54,32 @@ This is key to keeping the IDE responsive in large codebases.
 
 ### Enable OpenTelemetry tracing
 
+In VS Code settings (`Preferences: Open User Settings (JSON)`):
+
+```json
+{
+  "graphql-analyzer.debug.otelEnabled": true,
+  "graphql-analyzer.debug.otelEndpoint": "http://localhost:4317"
+}
+```
+
+`4317` is the OTLP gRPC ingestion endpoint (the collector). View traces in Jaeger's UI at `http://localhost:16686` (requires Jaeger running locally — these are two different ports with different purposes).
+
+### Enable debug logging
+
 In VS Code settings:
 
 ```json
 {
+  "graphql-analyzer.debug.logLevel": "debug",
   "graphql-analyzer.server.env": {
-    "OTEL_TRACES_ENABLED": "1",
     "RUST_LOG": "debug"
   }
 }
 ```
 
-View traces in Jaeger at `http://localhost:16686` (requires Jaeger running locally).
-
-### Enable debug logging
+For the CLI:
 
 ```sh
-# CLI
 RUST_LOG=debug graphql validate
-
-# LSP
-RUST_LOG=debug graphql-lsp 2> lsp.log
 ```

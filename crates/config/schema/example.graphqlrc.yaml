@@ -23,22 +23,30 @@ documents:
 #   - "**/*.test.ts"
 #   - "**/__tests__/**"
 
-# Tool-specific extensions
+# Tool-specific extensions (namespaced by tool)
 extensions:
-  # Configuration for extracting GraphQL from TypeScript/JavaScript
-  extractConfig:
-    magicComment: "GraphQL"
-    tagIdentifiers:
-      - "gql"
-      - "graphql"
-    modules:
-      - "graphql-tag"
-      - "@apollo/client"
-    allowGlobalIdentifiers: false
+  graphql-analyzer:
+    # GraphQL client library (apollo, relay, none)
+    client: apollo
 
-  # Lint configuration
-  lint:
-    extends: recommended
-    rules:
-      noDeprecated: warn
-      uniqueNames: error
+    # Path to a build-generated schema for validation (optional).
+    # When set, queries validate against this file instead of source schema files.
+    # resolvedSchema: "generated/schema.graphql"
+
+    # Configuration for extracting GraphQL from TypeScript/JavaScript
+    extractConfig:
+      magicComment: "GraphQL"
+      tagIdentifiers:
+        - "gql"
+        - "graphql"
+      modules:
+        - "graphql-tag"
+        - "@apollo/client"
+      allowGlobalIdentifiers: false
+
+    # Lint configuration
+    lint:
+      extends: recommended
+      rules:
+        noDeprecated: warn
+        uniqueNames: error

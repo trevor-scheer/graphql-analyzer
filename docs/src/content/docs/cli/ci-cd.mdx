@@ -24,6 +24,31 @@ jobs:
 
 Using `--format github` turns errors into pull request annotations.
 
+### GitHub Code Scanning (SARIF)
+
+For richer integration with GitHub's Security tab, use SARIF output:
+
+```yaml
+name: GraphQL Validation
+on: [pull_request]
+
+jobs:
+  graphql:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install GraphQL CLI
+        run: |
+          curl --proto '=https' --tlsv1.2 -LsSf \
+            https://github.com/trevor-scheer/graphql-analyzer/releases/latest/download/graphql-cli-installer.sh | sh
+      - name: Check GraphQL
+        run: graphql check --format sarif > results.sarif
+      - name: Upload SARIF
+        uses: github/codeql-action/upload-sarif@v3
+        with:
+          sarif_file: results.sarif
+```
+
 To run validation and linting as separate steps:
 
 ```yaml
@@ -74,20 +99,27 @@ fi
 
 ## Enabling expensive rules in CI
 
-Some lint rules (like `unusedFields`) are too expensive for real-time editor feedback but work well in CI. Use [tool-specific overrides](/graphql-analyzer/configuration/tool-overrides/):
+Some lint rules (like `noUnusedFields`) are too expensive for real-time editor feedback but work well in CI. Enable them via CLI-specific config overrides in `.graphqlrc.yaml`:
 
 ```yaml
 extensions:
   lint:
     extends: recommended
-
   cli:
     lint:
       rules:
-        unusedFields: error # Enable in CI
-
-  lsp:
-    lint:
-      rules:
-        unusedFields: off # Disable in editor
+        noUnusedFields: error
+        noUnusedFragments: error
 ```
+
+The `extensions.cli.lint.rules` block applies only when running the CLI, so the LSP and editor stays fast.
+
+## Enforcing zero warnings in CI
+
+Use `--max-warnings 0` to treat any warning as a failure:
+
+```bash
+graphql check --max-warnings 0
+```
+
+This returns exit code 6 if any warnings are found, making CI strict about warnings without promoting them all to errors in the config.

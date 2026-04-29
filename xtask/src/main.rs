@@ -20,6 +20,12 @@ enum Commands {
         #[arg(long)]
         release: bool,
     },
+    /// Build the wasm LSP and run/build the web playground.
+    Web {
+        /// Run the Vite dev server (default: build only)
+        #[arg(long)]
+        dev: bool,
+    },
     /// Build release artifacts locally (cargo-dist + `VSCode` extension)
     Release {
         /// Specific target triple to build for (defaults to host target)
@@ -58,6 +64,7 @@ fn main() -> Result<()> {
 
     match cli.command {
         Commands::Install { release } => install(release),
+        Commands::Web { dev } => cmd_web(dev),
         Commands::Release {
             target,
             all_targets,
@@ -82,6 +89,47 @@ fn project_root() -> PathBuf {
         .parent()
         .expect("xtask should be in project root")
         .to_path_buf()
+}
+
+fn cmd_web(dev: bool) -> Result<()> {
+    let workspace = project_root();
+    let pkg_dir = workspace.join("packages/web-ide/src/wasm");
+
+    if !workspace.join("node_modules").exists() {
+        let status = Command::new("npm")
+            .arg("install")
+            .current_dir(&workspace)
+            .status()
+            .context("running npm install")?;
+        if !status.success() {
+            bail!("npm install failed");
+        }
+    }
+
+    let mut cmd = Command::new("wasm-pack");
+    cmd.args(["build", "crates/lsp-wasm", "--target", "web", "--out-dir"]);
+    cmd.arg(&pkg_dir);
+    if dev {
+        cmd.arg("--dev");
+    }
+    let status = cmd
+        .current_dir(&workspace)
+        .status()
+        .context("running wasm-pack")?;
+    if !status.success() {
+        bail!("wasm-pack failed");
+    }
+
+    let script = if dev { "dev" } else { "build" };
+    let status = Command::new("npm")
+        .args(["--workspace=packages/web-ide", "run", script])
+        .current_dir(&workspace)
+        .status()
+        .context("running npm script")?;
+    if !status.success() {
+        bail!("npm {script} failed");
+    }
+    Ok(())
 }
 
 fn install(release: bool) -> Result<()> {

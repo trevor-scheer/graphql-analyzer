@@ -11,13 +11,19 @@ fn print_version() {
     println!("graphql-lsp {version} ({git_sha}{dirty_suffix})");
 }
 
-#[tokio::main]
-async fn main() {
+fn main() {
     let args: Vec<String> = std::env::args().collect();
     if args.iter().any(|a| a == "--version" || a == "-V") {
         print_version();
         return;
     }
 
-    graphql_lsp::run_server().await;
+    #[cfg(feature = "native")]
+    graphql_lsp::run_server();
+
+    // Without the native feature there is no stdio entrypoint. The binary
+    // target exists for completeness but is not intended to be run directly
+    // in this configuration.
+    #[cfg(not(feature = "native"))]
+    eprintln!("graphql-lsp: native feature is required to run the server");
 }

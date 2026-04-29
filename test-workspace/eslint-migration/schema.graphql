@@ -1,0 +1,37 @@
+type Query {
+  user(id: ID!): User
+  users: [User!]!
+  # Non-null named scalar — exercises `require-nullable-result-in-root`.
+  # Built-in scalar (vs custom type) avoids an upstream graphql-eslint bug
+  # where the diagnostic message drops the inner type name when the wrapper
+  # is `NonNullType` of a custom `NamedType`.
+  version: String!
+}
+
+"A user account"
+type User {
+  id: ID!
+  name: String!
+  email: String!
+  posts: [Post!]!
+}
+
+# This should trigger no-hashtag-description
+# A blog post
+type Post {
+  id: ID!
+  # Intentionally violates the naming-convention rule (fields should be
+  # camelCase). Leave as-is — the fixture exercises lint-rule detection.
+  PostTitle: String!
+  content: String!
+  author: User!
+}
+
+type Mutation {
+  deleteUser(id: ID!): Boolean
+  createUser(name: String!): CreateUserResult
+}
+
+type CreateUserResult {
+  user: User
+}

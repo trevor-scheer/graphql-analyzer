@@ -110,16 +110,70 @@ fn check_operation_has_name(
             },
         );
 
+        // Message format mirrors `@graphql-eslint/eslint-plugin`'s
+        // `no-anonymous-operations` so the two plugins emit equivalent text.
         let message = format!(
-            "Anonymous {operation_type} operation. All operations should have explicit names for better monitoring and debugging"
+            "Anonymous GraphQL operations are forbidden. Make sure to name your {operation_type}!"
         );
 
-        diagnostics.push(LintDiagnostic::new(
-            doc.span(start_offset, end_offset),
-            LintSeverity::Error,
-            message,
-            "noAnonymousOperations",
-        ));
+        // Mirror upstream's suggest: use the first selection's alias/name (if
+        // it's a Field) as the suggested name; otherwise fall back to the
+        // operation kind (`query`/`mutation`/`subscription`).
+        let suggested_name = operation
+            .selection_set()
+            .and_then(|ss| ss.selections().next())
+            .and_then(|sel| match sel {
+                cst::Selection::Field(field) => field
+                    .alias()
+                    .and_then(|a| a.name())
+                    .or_else(|| field.name())
+                    .map(|n| n.text().to_string()),
+                _ => None,
+            })
+            .unwrap_or_else(|| operation_type.to_string());
+
+        // Mirror upstream's fix:
+        //   has-keyword:   insertTextAfter(opTypeKeyword, ` ${suggestedName}`)
+        //   shorthand `{`: insertTextBefore(`{`, `query ${suggestedName} `)
+        // Both translate to a zero-width replacement at the right offset.
+        let suggestion = if let Some(op_type) = operation.operation_type() {
+            // hasQueryKeyword branch
+            let op_type_end: usize = op_type.syntax().text_range().end().into();
+            crate::diagnostics::CodeSuggestion::replace(
+                format!("Rename to `{suggested_name}`"),
+                op_type_end,
+                op_type_end,
+                format!(" {suggested_name}"),
+            )
+        } else if let Some(ss) = operation.selection_set() {
+            // shorthand `{`: insert before opening brace
+            let brace_start: usize = ss.syntax().text_range().start().into();
+            crate::diagnostics::CodeSuggestion::replace(
+                format!("Rename to `{suggested_name}`"),
+                brace_start,
+                brace_start,
+                format!("query {suggested_name} "),
+            )
+        } else {
+            crate::diagnostics::CodeSuggestion::replace(
+                format!("Rename to `{suggested_name}`"),
+                start_offset,
+                start_offset,
+                format!("query {suggested_name} "),
+            )
+        };
+
+        diagnostics.push(
+            LintDiagnostic::new(
+                doc.span(start_offset, end_offset),
+                LintSeverity::Error,
+                message,
+                "noAnonymousOperations",
+            )
+            .with_message_id("no-anonymous-operations")
+            .with_help("Add a name to your operation, e.g. 'query MyQuery { ... }'")
+            .with_suggestion(suggestion),
+        );
     }
 }
 
@@ -149,7 +203,18 @@ mod tests {
         let document_file_ids = graphql_base_db::DocumentFileIds::new(db, Arc::new(vec![]));
         let file_entry_map =
             graphql_base_db::FileEntryMap::new(db, Arc::new(std::collections::HashMap::new()));
-        ProjectFiles::new(db, schema_file_ids, document_file_ids, file_entry_map)
+        ProjectFiles::new(
+            db,
+            schema_file_ids,
+            document_file_ids,
+            graphql_base_db::ResolvedSchemaFileIds::new(db, std::sync::Arc::new(vec![])),
+            file_entry_map,
+            graphql_base_db::FilePathMap::new(
+                db,
+                Arc::new(std::collections::HashMap::new()),
+                Arc::new(std::collections::HashMap::new()),
+            ),
+        )
     }
 
     #[test]
@@ -180,7 +245,9 @@ query {
         let diagnostics = rule.check(&db, file_id, content, metadata, project_files, None);
 
         assert_eq!(diagnostics.len(), 1);
-        assert!(diagnostics[0].message.contains("Anonymous query operation"));
+        assert!(diagnostics[0]
+            .message
+            .contains("Anonymous GraphQL operations are forbidden. Make sure to name your query"));
         assert_eq!(diagnostics[0].severity, LintSeverity::Error);
     }
 
@@ -212,7 +279,9 @@ query {
         let diagnostics = rule.check(&db, file_id, content, metadata, project_files, None);
 
         assert_eq!(diagnostics.len(), 1);
-        assert!(diagnostics[0].message.contains("Anonymous query operation"));
+        assert!(diagnostics[0]
+            .message
+            .contains("Anonymous GraphQL operations are forbidden. Make sure to name your query"));
         assert_eq!(diagnostics[0].severity, LintSeverity::Error);
     }
 
@@ -244,9 +313,9 @@ mutation {
         let diagnostics = rule.check(&db, file_id, content, metadata, project_files, None);
 
         assert_eq!(diagnostics.len(), 1);
-        assert!(diagnostics[0]
-            .message
-            .contains("Anonymous mutation operation"));
+        assert!(diagnostics[0].message.contains(
+            "Anonymous GraphQL operations are forbidden. Make sure to name your mutation"
+        ));
         assert_eq!(diagnostics[0].severity, LintSeverity::Error);
     }
 
@@ -278,9 +347,9 @@ subscription {
         let diagnostics = rule.check(&db, file_id, content, metadata, project_files, None);
 
         assert_eq!(diagnostics.len(), 1);
-        assert!(diagnostics[0]
-            .message
-            .contains("Anonymous subscription operation"));
+        assert!(diagnostics[0].message.contains(
+            "Anonymous GraphQL operations are forbidden. Make sure to name your subscription"
+        ));
         assert_eq!(diagnostics[0].severity, LintSeverity::Error);
     }
 
@@ -416,10 +485,10 @@ query {
         assert_eq!(diagnostics.len(), 2);
         assert!(diagnostics
             .iter()
-            .any(|d| d.message.contains("Anonymous mutation")));
+            .any(|d| d.message.contains("name your mutation")));
         assert!(diagnostics
             .iter()
-            .any(|d| d.message.contains("Anonymous query")));
+            .any(|d| d.message.contains("name your query")));
     }
 
     #[test]
@@ -487,7 +556,9 @@ query {
 
         // Even a single anonymous operation should fail (per user's request)
         assert_eq!(diagnostics.len(), 1);
-        assert!(diagnostics[0].message.contains("Anonymous query operation"));
+        assert!(diagnostics[0]
+            .message
+            .contains("Anonymous GraphQL operations are forbidden. Make sure to name your query"));
     }
 
     #[test]
@@ -548,7 +619,9 @@ query($id: ID!) {
         let diagnostics = rule.check(&db, file_id, content, metadata, project_files, None);
 
         assert_eq!(diagnostics.len(), 1);
-        assert!(diagnostics[0].message.contains("Anonymous query operation"));
+        assert!(diagnostics[0]
+            .message
+            .contains("Anonymous GraphQL operations are forbidden. Make sure to name your query"));
     }
 
     /// Snapshot test demonstrating insta for diagnostic output

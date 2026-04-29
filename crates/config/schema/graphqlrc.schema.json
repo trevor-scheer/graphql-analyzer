@@ -66,19 +66,30 @@
         },
         "extensions": {
           "type": "object",
-          "description": "Tool-specific extensions",
+          "description": "Tool-specific extensions (namespaced by tool)",
           "properties": {
-            "client": {
-              "$ref": "#/definitions/ClientConfig",
-              "description": "GraphQL client library used in this project, determines available client-side directives"
-            },
-            "lint": {
-              "$ref": "#/definitions/LintConfig",
-              "description": "Linting configuration for GraphQL documents"
-            },
-            "extractConfig": {
-              "$ref": "#/definitions/ExtractConfig",
-              "description": "Configuration for extracting GraphQL from TypeScript/JavaScript files"
+            "graphql-analyzer": {
+              "type": "object",
+              "description": "GraphQL Analyzer configuration",
+              "properties": {
+                "client": {
+                  "$ref": "#/definitions/ClientConfig",
+                  "description": "GraphQL client library used in this project, determines available client-side directives"
+                },
+                "lint": {
+                  "$ref": "#/definitions/LintConfig",
+                  "description": "Linting configuration for GraphQL documents"
+                },
+                "extractConfig": {
+                  "$ref": "#/definitions/ExtractConfig",
+                  "description": "Configuration for extracting GraphQL from TypeScript/JavaScript files"
+                },
+                "resolvedSchema": {
+                  "type": "string",
+                  "description": "Path to a resolved/final schema file. When set, queries are validated against this schema instead of the source schema files. Source files are still used for go-to-definition navigation. Useful when a build pipeline transforms the schema (e.g. directive-based transforms)."
+                }
+              },
+              "additionalProperties": false
             }
           },
           "additionalProperties": true
@@ -244,11 +255,19 @@
               "$ref": "#/definitions/LintRuleConfig",
               "description": "Require selection of ID fields on object types"
             },
-            "unusedFragments": {
+            "requireImportFragment": {
+              "$ref": "#/definitions/LintRuleConfig",
+              "description": "Require fragment spreads to have a corresponding import comment"
+            },
+            "requireSelections": {
+              "$ref": "#/definitions/LintRuleConfig",
+              "description": "Enforce required field selections (e.g. id, __typename) on object types for cache normalization"
+            },
+            "noUnusedFragments": {
               "$ref": "#/definitions/LintRuleConfig",
               "description": "Warn about fragments that are defined but never used"
             },
-            "unusedFields": {
+            "noUnusedFields": {
               "$ref": "#/definitions/LintRuleConfig",
               "description": "Warn about fields that are selected but unused"
             },
@@ -256,7 +275,11 @@
               "$ref": "#/definitions/LintRuleConfig",
               "description": "Warn about redundant field selections"
             },
-            "unusedVariables": {
+            "relayEdgeTypes": {
+              "$ref": "#/definitions/LintRuleConfig",
+              "description": "Enforces Relay-compliant edge type definitions"
+            },
+            "noUnusedVariables": {
               "$ref": "#/definitions/LintRuleConfig",
               "description": "Warn about variables that are declared but never used"
             },
@@ -271,6 +294,10 @@
             "loneExecutableDefinition": {
               "$ref": "#/definitions/LintRuleConfig",
               "description": "Requires each file to contain only one executable definition (operation or fragment)"
+            },
+            "matchDocumentFilename": {
+              "$ref": "#/definitions/LintRuleConfig",
+              "description": "Enforces that operation and fragment names match the filename"
             },
             "namingConvention": {
               "$ref": "#/definitions/LintRuleConfig",
@@ -300,6 +327,10 @@
               "$ref": "#/definitions/LintRuleConfig",
               "description": "Disallows using # comments as type descriptions in schema"
             },
+            "noRootType": {
+              "$ref": "#/definitions/LintRuleConfig",
+              "description": "Disallows certain root type definitions in the schema"
+            },
             "noTypenamePrefix": {
               "$ref": "#/definitions/LintRuleConfig",
               "description": "Disallows field names that are prefixed with their parent type name"
@@ -311,6 +342,10 @@
             "uniqueEnumValueNames": {
               "$ref": "#/definitions/LintRuleConfig",
               "description": "Detects duplicate enum value names across different enum types"
+            },
+            "relayConnectionTypes": {
+              "$ref": "#/definitions/LintRuleConfig",
+              "description": "Enforces Relay connection type conventions on types ending in 'Connection'"
             },
             "requireDeprecationReason": {
               "$ref": "#/definitions/LintRuleConfig",
@@ -324,6 +359,18 @@
               "$ref": "#/definitions/LintRuleConfig",
               "description": "Requires mutation result types to include a field of the Query type"
             },
+            "requireNullableFieldsWithOneof": {
+              "$ref": "#/definitions/LintRuleConfig",
+              "description": "Requires all fields in @oneOf input types to be nullable"
+            },
+            "requireNullableResultInRoot": {
+              "$ref": "#/definitions/LintRuleConfig",
+              "description": "Requires root type fields to return nullable types for error resilience"
+            },
+            "requireTypePatternWithOneof": {
+              "$ref": "#/definitions/LintRuleConfig",
+              "description": "Enforces that types with @oneOf directive contain both 'ok' and 'error' fields"
+            },
             "strictIdInTypes": {
               "$ref": "#/definitions/LintRuleConfig",
               "description": "Requires object types to have an ID field"
@@ -331,6 +378,18 @@
             "noScalarResultTypeOnMutation": {
               "$ref": "#/definitions/LintRuleConfig",
               "description": "Disallows scalar return types on mutation fields"
+            },
+            "relayArguments": {
+              "$ref": "#/definitions/LintRuleConfig",
+              "description": "Enforces Relay-compliant pagination arguments on connection fields"
+            },
+            "requireDeprecationDate": {
+              "$ref": "#/definitions/LintRuleConfig",
+              "description": "Requires @deprecated directives to include a deletion date"
+            },
+            "relayPageInfo": {
+              "$ref": "#/definitions/LintRuleConfig",
+              "description": "Enforces Relay PageInfo type requirements"
             }
           },
           "additionalProperties": {

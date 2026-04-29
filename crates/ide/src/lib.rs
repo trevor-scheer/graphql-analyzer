@@ -40,6 +40,7 @@ mod diagnostics_for_change_tests;
 
 // Infrastructure modules
 mod database;
+mod db_files;
 mod discovery;
 mod file_registry;
 mod helpers;
@@ -66,18 +67,21 @@ mod symbols;
 
 // Re-export types from the types module
 pub use types::{
-    CodeFix, CodeLens, CodeLensCommand, CodeLensInfo, CompletionItem, CompletionKind,
-    ComplexityAnalysis, Diagnostic, DiagnosticSeverity, DocumentLoadResult, DocumentSymbol,
-    FieldComplexity, FieldCoverageReport, FieldUsageInfo, FilePath, FoldingRange, FoldingRangeKind,
-    FragmentReference, FragmentUsage, HoverResult, InlayHint, InlayHintKind, InsertTextFormat,
-    Location, ParameterInformation, PendingIntrospection, Position, ProjectStatus, Range,
-    RenameResult, SchemaContentError, SchemaLoadResult, SchemaStats, SelectionRange, SemanticToken,
-    SemanticTokenModifiers, SemanticTokenType, SignatureHelp, SignatureInformation, SymbolKind,
-    TextEdit, TypeCoverageInfo, WorkspaceSymbol,
+    CodeFix, CodeLens, CodeLensCommand, CodeLensInfo, CodeSuggestion, CompletionItem,
+    CompletionKind, ComplexityAnalysis, Diagnostic, DiagnosticSeverity, DiagnosticTag,
+    DocumentLoadResult, DocumentSymbol, FieldComplexity, FieldCoverageReport, FieldUsageInfo,
+    FilePath, FoldingRange, FoldingRangeKind, FragmentReference, FragmentUsage, HoverResult,
+    InlayHint, InlayHintKind, InsertTextFormat, Location, OperationSummary, OperationVariableInfo,
+    ParameterInformation, PendingIntrospection, Position, ProjectStatus, Range, RenameResult,
+    SchemaContentError, SchemaLoadResult, SchemaStats, SchemaTypeEntry, SelectionRange,
+    SemanticToken, SemanticTokenModifiers, SemanticTokenType, SignatureHelp, SignatureInformation,
+    SymbolKind, TextEdit, TypeArgumentInfo, TypeCoverageInfo, TypeDirectiveArgumentInfo,
+    TypeDirectiveInfo, TypeEnumValueInfo, TypeFieldInfo, TypeInfo, WorkspaceSymbol,
 };
 
-// Re-export file registry
-pub use file_registry::FileRegistry;
+// `FileRegistry` is owned by `AnalysisHost` and not exposed publicly. Snapshots
+// access file lookups through the `DbFiles` Salsa-backed view.
+pub(crate) use db_files::DbFiles;
 
 // Re-export for use in symbol module and LSP
 pub use helpers::{path_to_file_uri, unwrap_type_to_name};
@@ -1258,6 +1262,76 @@ type User implements Node & Timestamped { id: ID!, createdAt: String! }"#;
         assert_eq!(locations.len(), 1);
         assert_eq!(locations[0].file.as_str(), schema_file.as_str());
         // Should point to "Node" interface definition on line 0
+        assert_eq!(locations[0].range.start.line, 0);
+    }
+
+    #[test]
+    fn test_goto_definition_directive_name() {
+        let mut host = AnalysisHost::new();
+        let schema_path = FilePath::new("file:///schema.graphql");
+        host.add_file(
+            &schema_path,
+            "directive @cacheControl(maxAge: Int) on FIELD_DEFINITION\n\ntype Query {\n  hello: String @cacheControl(maxAge: 30)\n}",
+            Language::GraphQL,
+            DocumentKind::Schema,
+        );
+        host.rebuild_project_files();
+
+        let snapshot = host.snapshot();
+        // Cursor on "cacheControl" in the field usage (line 3, after the @)
+        let result = snapshot.goto_definition(&schema_path, Position::new(3, 18));
+        assert!(result.is_some());
+        let locations = result.unwrap();
+        assert_eq!(locations.len(), 1);
+        assert_eq!(locations[0].range.start.line, 0);
+    }
+
+    #[test]
+    fn test_goto_definition_directive_argument_name() {
+        let mut host = AnalysisHost::new();
+        let schema_path = FilePath::new("file:///schema.graphql");
+        host.add_file(
+            &schema_path,
+            "directive @cacheControl(maxAge: Int) on FIELD_DEFINITION\n\ntype Query {\n  hello: String @cacheControl(maxAge: 30)\n}",
+            Language::GraphQL,
+            DocumentKind::Schema,
+        );
+        host.rebuild_project_files();
+
+        let snapshot = host.snapshot();
+        // Cursor on "maxAge" in usage (line 3)
+        let result = snapshot.goto_definition(&schema_path, Position::new(3, 31));
+        assert!(result.is_some());
+        let locations = result.unwrap();
+        assert_eq!(locations.len(), 1);
+        assert_eq!(locations[0].range.start.line, 0);
+    }
+
+    #[test]
+    fn test_goto_definition_directive_on_operation() {
+        let mut host = AnalysisHost::new();
+        let schema_path = FilePath::new("file:///schema.graphql");
+        host.add_file(
+            &schema_path,
+            "directive @myDirective on QUERY\n\ntype Query { hello: String }",
+            Language::GraphQL,
+            DocumentKind::Schema,
+        );
+        let doc_path = FilePath::new("file:///query.graphql");
+        host.add_file(
+            &doc_path,
+            "query MyQuery @myDirective {\n  hello\n}",
+            Language::GraphQL,
+            DocumentKind::Executable,
+        );
+        host.rebuild_project_files();
+
+        let snapshot = host.snapshot();
+        let result = snapshot.goto_definition(&doc_path, Position::new(0, 17));
+        assert!(result.is_some());
+        let locations = result.unwrap();
+        assert_eq!(locations.len(), 1);
+        assert_eq!(locations[0].file.as_str(), "file:///schema.graphql");
         assert_eq!(locations[0].range.start.line, 0);
     }
 
@@ -3355,6 +3429,7 @@ query GetUser {
         );
     }
 
+    #[cfg(feature = "extract")]
     #[test]
     fn test_typescript_graphql_extraction() {
         use graphql_extract::{extract_from_source, ExtractConfig, Language};
@@ -3579,6 +3654,7 @@ export const GET_POKEMON = gql`
         use super::*;
         use std::io::Write;
 
+        #[cfg(feature = "extract")]
         #[test]
         fn test_load_typescript_schema() {
             let temp_dir = tempfile::tempdir().unwrap();
@@ -3604,13 +3680,13 @@ export const typeDefs = gql`
             file.write_all(ts_schema_content.as_bytes()).unwrap();
 
             // Create config
-            let config = graphql_config::ProjectConfig {
-                schema: graphql_config::SchemaConfig::Path("schema.ts".to_string()),
-                documents: None,
-                include: None,
-                exclude: None,
-                extensions: None,
-            };
+            let config = graphql_config::ProjectConfig::new(
+                graphql_config::SchemaConfig::Path("schema.ts".to_string()),
+                None,
+                None,
+                None,
+                None,
+            );
 
             // Load schemas
             let mut host = AnalysisHost::new();
@@ -3667,13 +3743,13 @@ export const postType = gql`
             let mut file = std::fs::File::create(&ts_path).unwrap();
             file.write_all(ts_content.as_bytes()).unwrap();
 
-            let config = graphql_config::ProjectConfig {
-                schema: graphql_config::SchemaConfig::Path("schema.ts".to_string()),
-                documents: None,
-                include: None,
-                exclude: None,
-                extensions: None,
-            };
+            let config = graphql_config::ProjectConfig::new(
+                graphql_config::SchemaConfig::Path("schema.ts".to_string()),
+                None,
+                None,
+                None,
+                None,
+            );
 
             let mut host = AnalysisHost::new();
             let result = host
@@ -3722,13 +3798,13 @@ export const postType = gql`
             let mut file = std::fs::File::create(&ts_path).unwrap();
             file.write_all(ts_content.as_bytes()).unwrap();
 
-            let config = graphql_config::ProjectConfig {
-                schema: graphql_config::SchemaConfig::Path("schema.ts".to_string()),
-                documents: None,
-                include: None,
-                exclude: None,
-                extensions: None,
-            };
+            let config = graphql_config::ProjectConfig::new(
+                graphql_config::SchemaConfig::Path("schema.ts".to_string()),
+                None,
+                None,
+                None,
+                None,
+            );
 
             let mut host = AnalysisHost::new();
             let _ = host
@@ -3794,16 +3870,16 @@ export const typeDefs = gql`
             file.write_all(ts_content.as_bytes()).unwrap();
 
             // Use multiple schema paths
-            let config = graphql_config::ProjectConfig {
-                schema: graphql_config::SchemaConfig::Paths(vec![
+            let config = graphql_config::ProjectConfig::new(
+                graphql_config::SchemaConfig::Paths(vec![
                     "base.graphql".to_string(),
                     "types.ts".to_string(),
                 ]),
-                documents: None,
-                include: None,
-                exclude: None,
-                extensions: None,
-            };
+                None,
+                None,
+                None,
+                None,
+            );
 
             let mut host = AnalysisHost::new();
             let result = host
@@ -3842,13 +3918,13 @@ export function greet(name: string) {
             let mut file = std::fs::File::create(&ts_path).unwrap();
             file.write_all(ts_content.as_bytes()).unwrap();
 
-            let config = graphql_config::ProjectConfig {
-                schema: graphql_config::SchemaConfig::Path("utils.ts".to_string()),
-                documents: None,
-                include: None,
-                exclude: None,
-                extensions: None,
-            };
+            let config = graphql_config::ProjectConfig::new(
+                graphql_config::SchemaConfig::Path("utils.ts".to_string()),
+                None,
+                None,
+                None,
+                None,
+            );
 
             let mut host = AnalysisHost::new();
             let result = host
@@ -3886,13 +3962,13 @@ export const typeDefs = gql`
             let mut file = std::fs::File::create(&js_path).unwrap();
             file.write_all(js_content.as_bytes()).unwrap();
 
-            let config = graphql_config::ProjectConfig {
-                schema: graphql_config::SchemaConfig::Path("schema.js".to_string()),
-                documents: None,
-                include: None,
-                exclude: None,
-                extensions: None,
-            };
+            let config = graphql_config::ProjectConfig::new(
+                graphql_config::SchemaConfig::Path("schema.js".to_string()),
+                None,
+                None,
+                None,
+                None,
+            );
 
             let mut host = AnalysisHost::new();
             let result = host
@@ -3918,8 +3994,8 @@ export const typeDefs = gql`
             let temp_dir = tempfile::tempdir().unwrap();
 
             // Config with introspection endpoint
-            let config = graphql_config::ProjectConfig {
-                schema: graphql_config::SchemaConfig::Introspection(
+            let config = graphql_config::ProjectConfig::new(
+                graphql_config::SchemaConfig::Introspection(
                     graphql_config::IntrospectionSchemaConfig {
                         url: "https://api.example.com/graphql".to_string(),
                         headers: Some(
@@ -3931,11 +4007,11 @@ export const typeDefs = gql`
                         retry: Some(3),
                     },
                 ),
-                documents: None,
-                include: None,
-                exclude: None,
-                extensions: None,
-            };
+                None,
+                None,
+                None,
+                None,
+            );
 
             let mut host = AnalysisHost::new();
             let result = host
@@ -3973,15 +4049,13 @@ export const typeDefs = gql`
             let temp_dir = tempfile::tempdir().unwrap();
 
             // Config with URL pattern (simpler than full introspection config)
-            let config = graphql_config::ProjectConfig {
-                schema: graphql_config::SchemaConfig::Path(
-                    "https://api.example.com/graphql".to_string(),
-                ),
-                documents: None,
-                include: None,
-                exclude: None,
-                extensions: None,
-            };
+            let config = graphql_config::ProjectConfig::new(
+                graphql_config::SchemaConfig::Path("https://api.example.com/graphql".to_string()),
+                None,
+                None,
+                None,
+                None,
+            );
 
             let mut host = AnalysisHost::new();
             let result = host
@@ -4047,16 +4121,17 @@ export const typeDefs = gql`
             let schema_path = temp_dir.path().join("schema.graphql");
             std::fs::write(&schema_path, schema_content).unwrap();
 
-            let config = graphql_config::ProjectConfig {
-                schema: graphql_config::SchemaConfig::Path("schema.graphql".to_string()),
-                documents: None,
-                include: None,
-                exclude: None,
-                extensions: Some(HashMap::from([(
-                    "client".to_string(),
-                    serde_json::Value::String("apollo".to_string()),
+            let analyzer_ext = serde_json::json!({"client": "apollo"});
+            let config = graphql_config::ProjectConfig::new(
+                graphql_config::SchemaConfig::Path("schema.graphql".to_string()),
+                None,
+                None,
+                None,
+                Some(HashMap::from([(
+                    "graphql-analyzer".to_string(),
+                    analyzer_ext,
                 )])),
-            };
+            );
 
             let mut host = AnalysisHost::new();
             let result = host
@@ -4085,16 +4160,17 @@ export const typeDefs = gql`
             let schema_path = temp_dir.path().join("schema.graphql");
             std::fs::write(&schema_path, schema_content).unwrap();
 
-            let config = graphql_config::ProjectConfig {
-                schema: graphql_config::SchemaConfig::Path("schema.graphql".to_string()),
-                documents: None,
-                include: None,
-                exclude: None,
-                extensions: Some(HashMap::from([(
-                    "client".to_string(),
-                    serde_json::Value::String("relay".to_string()),
+            let analyzer_ext = serde_json::json!({"client": "relay"});
+            let config = graphql_config::ProjectConfig::new(
+                graphql_config::SchemaConfig::Path("schema.graphql".to_string()),
+                None,
+                None,
+                None,
+                Some(HashMap::from([(
+                    "graphql-analyzer".to_string(),
+                    analyzer_ext,
                 )])),
-            };
+            );
 
             let mut host = AnalysisHost::new();
             let result = host
@@ -4122,16 +4198,16 @@ export const typeDefs = gql`
             let schema_path = temp_dir.path().join("schema.graphql");
             std::fs::write(&schema_path, schema_content).unwrap();
 
-            let config = graphql_config::ProjectConfig {
-                schema: graphql_config::SchemaConfig::Path("schema.graphql".to_string()),
-                documents: None,
-                include: None,
-                exclude: None,
-                extensions: Some(HashMap::from([(
+            let config = graphql_config::ProjectConfig::new(
+                graphql_config::SchemaConfig::Path("schema.graphql".to_string()),
+                None,
+                None,
+                None,
+                Some(HashMap::from([(
                     "client".to_string(),
                     serde_json::Value::String("none".to_string()),
                 )])),
-            };
+            );
 
             let mut host = AnalysisHost::new();
             let result = host
@@ -4356,15 +4432,15 @@ query GetUser {
         let mut doc_file = std::fs::File::create(&doc_path).unwrap();
         doc_file.write_all(doc_content.as_bytes()).unwrap();
 
-        let config = graphql_config::ProjectConfig {
-            schema: graphql_config::SchemaConfig::Path("schema.graphql".to_string()),
-            documents: Some(graphql_config::DocumentsConfig::Pattern(
+        let config = graphql_config::ProjectConfig::new(
+            graphql_config::SchemaConfig::Path("schema.graphql".to_string()),
+            Some(graphql_config::DocumentsConfig::Pattern(
                 "*.graphql".to_string(),
             )),
-            include: None,
-            exclude: None,
-            extensions: None,
-        };
+            None,
+            None,
+            None,
+        );
 
         let mut host = AnalysisHost::new();
         host.load_schemas_from_config(&config, temp_dir.path())
@@ -5019,7 +5095,7 @@ query GetUsers {
     #[test]
     fn test_unused_fields_lint_with_typescript_file() {
         // Test that fields used in TypeScript embedded GraphQL are correctly tracked
-        // and NOT flagged as unused by the unusedFields lint
+        // and NOT flagged as unused by the noUnusedFields lint
         let mut host = AnalysisHost::new();
         host.set_lint_config(graphql_linter::LintConfig::recommended());
 
@@ -5066,11 +5142,11 @@ export const RATE_LIMIT_QUERY = gql`
         let snapshot = host.snapshot();
         let project_diagnostics = snapshot.project_lint_diagnostics();
 
-        // Check for unusedFields warnings
+        // Check for noUnusedFields warnings
         let unused_fields_errors: Vec<_> = project_diagnostics
             .values()
             .flatten()
-            .filter(|d| d.code.as_deref() == Some("unusedFields"))
+            .filter(|d| d.code.as_deref() == Some("noUnusedFields"))
             .collect();
 
         // nodeCount should NOT be flagged as unused since it's used in the TS file
@@ -5088,7 +5164,7 @@ export const RATE_LIMIT_QUERY = gql`
                 .collect::<Vec<_>>()
         );
 
-        // All fields (cost, limit, nodeCount) are used, so there should be no unusedFields warnings
+        // All fields (cost, limit, nodeCount) are used, so there should be no noUnusedFields warnings
         // for RateLimit type fields
         let ratelimit_errors: Vec<_> = unused_fields_errors
             .iter()
@@ -5105,6 +5181,7 @@ export const RATE_LIMIT_QUERY = gql`
         );
     }
 
+    #[cfg(feature = "extract")]
     #[test]
     fn test_unused_fields_lint_with_config_loaded_typescript() {
         use std::io::Write;
@@ -5144,13 +5221,13 @@ export const RATE_LIMIT_QUERY = gql`
         ts_file.write_all(ts_content.as_bytes()).unwrap();
 
         // Create config that includes both schema and TS documents
-        let config = graphql_config::ProjectConfig {
-            schema: graphql_config::SchemaConfig::Path("schema.graphql".to_string()),
-            documents: Some(graphql_config::DocumentsConfig::Pattern("*.ts".to_string())),
-            include: None,
-            exclude: None,
-            extensions: None,
-        };
+        let config = graphql_config::ProjectConfig::new(
+            graphql_config::SchemaConfig::Path("schema.graphql".to_string()),
+            Some(graphql_config::DocumentsConfig::Pattern("*.ts".to_string())),
+            None,
+            None,
+            None,
+        );
 
         // Create host and load files from config (simulating LSP initialization)
         let mut host = AnalysisHost::new();
@@ -5169,11 +5246,11 @@ export const RATE_LIMIT_QUERY = gql`
         let snapshot = host.snapshot();
         let project_diagnostics = snapshot.project_lint_diagnostics();
 
-        // Check for unusedFields warnings
+        // Check for noUnusedFields warnings
         let unused_fields_errors: Vec<_> = project_diagnostics
             .values()
             .flatten()
-            .filter(|d| d.code.as_deref() == Some("unusedFields"))
+            .filter(|d| d.code.as_deref() == Some("noUnusedFields"))
             .collect();
 
         // nodeCount should NOT be flagged as unused
@@ -5189,6 +5266,7 @@ export const RATE_LIMIT_QUERY = gql`
         );
     }
 
+    #[cfg(feature = "extract")]
     #[test]
     fn test_unused_fields_lint_simulating_save_after_open() {
         use std::io::Write;
@@ -5234,13 +5312,13 @@ export const RATE_LIMIT_QUERY = gql`
         ts_file.write_all(ts_content.as_bytes()).unwrap();
 
         // Create config
-        let config = graphql_config::ProjectConfig {
-            schema: graphql_config::SchemaConfig::Path("schema.graphql".to_string()),
-            documents: Some(graphql_config::DocumentsConfig::Pattern("*.ts".to_string())),
-            include: None,
-            exclude: None,
-            extensions: None,
-        };
+        let config = graphql_config::ProjectConfig::new(
+            graphql_config::SchemaConfig::Path("schema.graphql".to_string()),
+            Some(graphql_config::DocumentsConfig::Pattern("*.ts".to_string())),
+            None,
+            None,
+            None,
+        );
 
         // Create host and load files from config (simulating LSP initialization)
         let mut host = AnalysisHost::new();
@@ -5300,11 +5378,11 @@ export const RATE_LIMIT_QUERY = gql`
             }
         }
 
-        // Check for unusedFields warnings
+        // Check for noUnusedFields warnings
         let unused_fields_errors: Vec<_> = project_diagnostics
             .values()
             .flatten()
-            .filter(|d| d.code.as_deref() == Some("unusedFields"))
+            .filter(|d| d.code.as_deref() == Some("noUnusedFields"))
             .collect();
 
         // nodeCount should NOT be flagged as unused
@@ -5353,7 +5431,7 @@ export const RATE_LIMIT_QUERY = gql`
         // all_diagnostics_for_file should include project-wide diagnostics
         let schema_diags = snapshot.all_diagnostics_for_file(&schema_file);
         let has_unused_field = schema_diags.iter().any(|d| {
-            d.code.as_deref() == Some("unusedFields") && d.message.contains("unusedField")
+            d.code.as_deref() == Some("noUnusedFields") && d.message.contains("unusedField")
         });
 
         assert!(
@@ -5651,13 +5729,17 @@ type Post {
         let snapshot = host.snapshot();
         let hints = snapshot.inlay_hints(&doc_path, None);
 
-        // Should have hints for both __typename and name
+        // Should have hints for user (object type), __typename, and name
         assert_eq!(
             hints.len(),
-            2,
-            "Expected 2 inlay hints (for __typename and name), got {}",
+            3,
+            "Expected 3 inlay hints (user, __typename, name), got {}",
             hints.len()
         );
+
+        // Check user shows User type hint
+        let user_hint = hints.iter().find(|h| h.label == ": User");
+        assert!(user_hint.is_some(), "Expected user hint with 'User' type");
 
         // Check __typename shows String! hint
         let typename_hint = hints.iter().find(|h| h.label == ": String!");
@@ -5665,6 +5747,67 @@ type Post {
             typename_hint.is_some(),
             "Expected __typename hint with 'String!' type"
         );
+    }
+
+    #[test]
+    fn test_inlay_hints_object_type_fields() {
+        let mut host = AnalysisHost::new();
+
+        let schema_path = FilePath::new("file:///schema.graphql");
+        host.add_file(
+            &schema_path,
+            r#"type Query { user(id: ID!): User }
+type User {
+  name: String!
+  posts: [Post!]!
+}
+type Post {
+  title: String!
+}"#,
+            Language::GraphQL,
+            DocumentKind::Schema,
+        );
+
+        let doc_path = FilePath::new("file:///query.graphql");
+        host.add_file(
+            &doc_path,
+            // Non-leaf fields with and without arguments
+            r#"query {
+  user(id: "1") {
+    name
+    posts {
+      title
+    }
+  }
+}"#,
+            Language::GraphQL,
+            DocumentKind::Executable,
+        );
+
+        host.rebuild_project_files();
+
+        let snapshot = host.snapshot();
+        let hints = snapshot.inlay_hints(&doc_path, None);
+
+        let hint_labels: Vec<&str> = hints.iter().map(|h| h.label.as_str()).collect();
+
+        // Non-leaf fields should get type hints too
+        assert!(
+            hint_labels.contains(&": User"),
+            "Expected User type hint for user field, got: {hint_labels:?}"
+        );
+        assert!(
+            hint_labels.contains(&": [Post]!"),
+            "Expected [Post]! type hint for posts field, got: {hint_labels:?}"
+        );
+
+        // user(id: "1") hint should appear after the arguments
+        let user_hint = hints.iter().find(|h| h.label == ": User").unwrap();
+        let name_hint = hints.iter().find(|h| h.label == ": String!").unwrap();
+        // user hint should be on line 1, after the closing paren of args
+        assert_eq!(user_hint.position.line, 1);
+        // name hint should be on a later line
+        assert!(name_hint.position.line > user_hint.position.line);
     }
 
     // =============================================================================
@@ -6639,5 +6782,222 @@ directive @skip(if: Boolean!) on FIELD"#,
             "Should have 1 declaration in extension file"
         );
         assert_eq!(query_refs.len(), 1, "Should have 1 usage in query file");
+    }
+
+    #[test]
+    fn test_hover_on_directive_usage() {
+        let mut host = AnalysisHost::new();
+        let schema_path = FilePath::new("file:///schema.graphql");
+        host.add_file(
+            &schema_path,
+            "\"Cache control directive\"\ndirective @cacheControl(maxAge: Int) repeatable on FIELD_DEFINITION\n\ntype Query {\n  hello: String @cacheControl(maxAge: 30)\n}",
+            Language::GraphQL,
+            DocumentKind::Schema,
+        );
+        host.rebuild_project_files();
+
+        let snapshot = host.snapshot();
+        let result = snapshot.hover(&schema_path, Position::new(4, 18));
+        assert!(result.is_some());
+        let hover = result.unwrap();
+        assert!(hover.contents.contains("@cacheControl"));
+        assert!(hover.contents.contains("FIELD_DEFINITION"));
+        assert!(hover.contents.contains("Repeatable"));
+    }
+
+    #[test]
+    fn test_hover_on_directive_argument() {
+        let mut host = AnalysisHost::new();
+        let schema_path = FilePath::new("file:///schema.graphql");
+        host.add_file(
+            &schema_path,
+            "\"Cache control\"\ndirective @cacheControl(\"Max age in seconds\" maxAge: Int = 60) on FIELD_DEFINITION\n\ntype Query {\n  hello: String @cacheControl(maxAge: 30)\n}",
+            Language::GraphQL,
+            DocumentKind::Schema,
+        );
+        host.rebuild_project_files();
+
+        let snapshot = host.snapshot();
+        let result = snapshot.hover(&schema_path, Position::new(4, 31));
+        assert!(result.is_some());
+        let hover = result.unwrap();
+        assert!(hover.contents.contains("maxAge"));
+        assert!(hover.contents.contains("Int"));
+    }
+
+    #[test]
+    fn test_document_symbols_includes_directives() {
+        let mut host = AnalysisHost::new();
+        let path = FilePath::new("file:///schema.graphql");
+        host.add_file(
+            &path,
+            "directive @cacheControl(maxAge: Int) on FIELD_DEFINITION\n\ntype Query {\n  hello: String\n}",
+            Language::GraphQL,
+            DocumentKind::Schema,
+        );
+        host.rebuild_project_files();
+
+        let snapshot = host.snapshot();
+        let symbols = snapshot.document_symbols(&path);
+        let directive_sym = symbols.iter().find(|s| s.name == "@cacheControl");
+        assert!(
+            directive_sym.is_some(),
+            "Should include directive definition in document symbols"
+        );
+        assert_eq!(directive_sym.unwrap().kind, SymbolKind::Directive);
+    }
+
+    #[test]
+    fn test_workspace_symbols_includes_directives() {
+        let mut host = AnalysisHost::new();
+        let path = FilePath::new("file:///schema.graphql");
+        host.add_file(
+            &path,
+            "directive @cacheControl(maxAge: Int) on FIELD_DEFINITION\n\ntype Query {\n  hello: String\n}",
+            Language::GraphQL,
+            DocumentKind::Schema,
+        );
+        host.rebuild_project_files();
+
+        let snapshot = host.snapshot();
+        let symbols = snapshot.workspace_symbols("cache");
+        let directive_sym = symbols.iter().find(|s| s.name == "@cacheControl");
+        assert!(
+            directive_sym.is_some(),
+            "Should include directive definition in workspace symbols"
+        );
+        assert_eq!(directive_sym.unwrap().kind, SymbolKind::Directive);
+    }
+
+    #[test]
+    fn test_find_references_directive() {
+        let mut host = AnalysisHost::new();
+        let schema_path = FilePath::new("file:///schema.graphql");
+        host.add_file(
+            &schema_path,
+            "directive @deprecated(reason: String) on FIELD_DEFINITION\n\ntype Query {\n  oldField: String @deprecated(reason: \"use newField\")\n  newField: String\n}",
+            Language::GraphQL,
+            DocumentKind::Schema,
+        );
+        host.rebuild_project_files();
+
+        let snapshot = host.snapshot();
+        // Without declaration - just usages
+        // Position on @deprecated usage: line 3, inside "deprecated"
+        let result = snapshot.find_references(&schema_path, Position::new(3, 21), false);
+        assert!(result.is_some());
+        let locations = result.unwrap();
+        assert_eq!(locations.len(), 1);
+        assert_eq!(locations[0].range.start.line, 3);
+    }
+
+    #[test]
+    fn test_find_references_directive_with_declaration() {
+        let mut host = AnalysisHost::new();
+        let schema_path = FilePath::new("file:///schema.graphql");
+        // "directive @tag(name: String!) on FIELD_DEFINITION\n\ntype Query {\n  a: String @tag(name: \"public\")\n  b: Int @tag(name: \"internal\")\n}"
+        host.add_file(
+            &schema_path,
+            "directive @tag(name: String!) on FIELD_DEFINITION\n\ntype Query {\n  a: String @tag(name: \"public\")\n  b: Int @tag(name: \"internal\")\n}",
+            Language::GraphQL,
+            DocumentKind::Schema,
+        );
+        host.rebuild_project_files();
+
+        let snapshot = host.snapshot();
+        // Position on @tag usage: line 3 "  a: String @tag(...)" -> "@tag" starts at col 12, "tag" at col 13
+        let result = snapshot.find_references(&schema_path, Position::new(3, 13), true);
+        assert!(result.is_some());
+        let locations = result.unwrap();
+        assert_eq!(locations.len(), 3); // declaration + 2 usages
+    }
+
+    #[test]
+    fn test_find_references_directive_from_definition() {
+        let mut host = AnalysisHost::new();
+        let schema_path = FilePath::new("file:///schema.graphql");
+        host.add_file(
+            &schema_path,
+            "directive @tag(name: String!) on FIELD_DEFINITION\n\ntype Query {\n  a: String @tag(name: \"public\")\n  b: Int @tag(name: \"internal\")\n}",
+            Language::GraphQL,
+            DocumentKind::Schema,
+        );
+        host.rebuild_project_files();
+
+        let snapshot = host.snapshot();
+        // Cursor on "tag" in the directive DEFINITION (line 0, col 11 = 't' in 'tag')
+        let result = snapshot.find_references(&schema_path, Position::new(0, 11), true);
+        assert!(result.is_some());
+        let locations = result.unwrap();
+        assert_eq!(locations.len(), 3); // declaration + 2 usages
+    }
+
+    #[test]
+    fn test_goto_definition_from_directive_definition() {
+        let mut host = AnalysisHost::new();
+        let schema_path = FilePath::new("file:///schema.graphql");
+        host.add_file(
+            &schema_path,
+            "directive @cacheControl(maxAge: Int) on FIELD_DEFINITION\n\ntype Query {\n  hello: String @cacheControl(maxAge: 30)\n}",
+            Language::GraphQL,
+            DocumentKind::Schema,
+        );
+        host.rebuild_project_files();
+
+        let snapshot = host.snapshot();
+        // Cursor on "cacheControl" in the directive definition (line 0)
+        let result = snapshot.goto_definition(&schema_path, Position::new(0, 12));
+        assert!(result.is_some());
+        let locations = result.unwrap();
+        assert_eq!(locations.len(), 1);
+        assert_eq!(locations[0].range.start.line, 0);
+    }
+
+    #[test]
+    fn test_hover_on_directive_definition() {
+        let mut host = AnalysisHost::new();
+        let schema_path = FilePath::new("file:///schema.graphql");
+        host.add_file(
+            &schema_path,
+            "\"Cache control\"\ndirective @cacheControl(maxAge: Int) on FIELD_DEFINITION\n\ntype Query {\n  hello: String\n}",
+            Language::GraphQL,
+            DocumentKind::Schema,
+        );
+        host.rebuild_project_files();
+
+        let snapshot = host.snapshot();
+        // Cursor on "cacheControl" in the directive definition (line 1)
+        let result = snapshot.hover(&schema_path, Position::new(1, 12));
+        assert!(result.is_some());
+        let hover = result.unwrap();
+        assert!(hover.contents.contains("@cacheControl"));
+        assert!(hover.contents.contains("FIELD_DEFINITION"));
+    }
+
+    #[test]
+    fn test_find_references_directive_across_files() {
+        let mut host = AnalysisHost::new();
+        let schema_path = FilePath::new("file:///schema.graphql");
+        host.add_file(
+            &schema_path,
+            "directive @myDir on QUERY\n\ntype Query { hello: String }",
+            Language::GraphQL,
+            DocumentKind::Schema,
+        );
+        let doc_path = FilePath::new("file:///query.graphql");
+        host.add_file(
+            &doc_path,
+            "query Foo @myDir {\n  hello\n}",
+            Language::GraphQL,
+            DocumentKind::Executable,
+        );
+        host.rebuild_project_files();
+
+        let snapshot = host.snapshot();
+        // Position on @myDir usage in query file: "query Foo @myDir" -> "myDir" starts at col 11
+        let result = snapshot.find_references(&doc_path, Position::new(0, 11), true);
+        assert!(result.is_some());
+        let locations = result.unwrap();
+        assert_eq!(locations.len(), 2); // declaration + usage in query file
     }
 }

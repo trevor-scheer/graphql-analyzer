@@ -7,10 +7,12 @@ Right-click → "Find All References" (or `Shift+F12`) to see everywhere a Graph
 
 ## Supported targets
 
-| Definition          | Finds                                                                     |
-| ------------------- | ------------------------------------------------------------------------- |
-| Fragment definition | All fragment spreads across the project                                   |
-| Type definition     | Usages in field types, union members, implements, input fields, arguments |
+| Definition           | Finds                                                                                                                                  |
+| -------------------- | -------------------------------------------------------------------------------------------------------------------------------------- |
+| Fragment definition  | All fragment spreads across the project                                                                                                |
+| Type definition      | Usages in field types, union members, implements, input fields, arguments (schema files only; inline fragment usages are not returned) |
+| Field definition     | All selections of that field across documents                                                                                          |
+| Directive definition | All usages across schema and document files                                                                                            |
 
 ## Examples
 

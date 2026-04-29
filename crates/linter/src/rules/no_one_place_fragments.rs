@@ -35,25 +35,11 @@ impl ProjectLintRule for NoOnePlaceFragmentsRuleImpl {
         let mut diagnostics_by_file: HashMap<FileId, Vec<LintDiagnostic>> = HashMap::new();
         let doc_ids = project_files.document_file_ids(db).ids(db);
 
-        // Step 1: Count how many times each fragment is spread
+        // Step 1: Count raw spread occurrences and record the first usage file
+        // per fragment for error messages. We walk the CST ourselves rather than
+        // using `file_used_fragment_names` (which returns a deduplicated HashSet
+        // and would count a fragment spread twice in one operation as only 1).
         let mut fragment_usage_count: HashMap<String, usize> = HashMap::new();
-
-        for file_id in doc_ids.iter() {
-            let Some((content, metadata)) =
-                graphql_base_db::file_lookup(db, project_files, *file_id)
-            else {
-                continue;
-            };
-            let used = graphql_hir::file_used_fragment_names(db, *file_id, content, metadata);
-            for fragment_name in used.iter() {
-                *fragment_usage_count
-                    .entry(fragment_name.to_string())
-                    .or_insert(0) += 1;
-            }
-        }
-
-        // Step 2: Find one-place fragments by collecting all fragment definitions and
-        // counting unique usage sites
         let mut fragment_spread_sites: HashMap<String, HashSet<(FileId, String)>> = HashMap::new();
 
         for file_id in doc_ids.iter() {
@@ -69,7 +55,6 @@ impl ProjectLintRule for NoOnePlaceFragmentsRuleImpl {
             }
 
             for doc in parse.documents() {
-                // Track which definition uses which fragments
                 for def in doc.tree.document().definitions() {
                     let def_name = match &def {
                         apollo_parser::cst::Definition::OperationDefinition(op) => {
@@ -87,6 +72,7 @@ impl ProjectLintRule for NoOnePlaceFragmentsRuleImpl {
                         &def,
                         *file_id,
                         &def_name,
+                        &mut fragment_usage_count,
                         &mut fragment_spread_sites,
                     );
                 }
@@ -112,20 +98,35 @@ impl ProjectLintRule for NoOnePlaceFragmentsRuleImpl {
                         continue;
                     };
 
-                    if let Some(sites) = fragment_spread_sites.get(&name) {
-                        if sites.len() == 1 {
-                            let Some(name_range) = frag.name_range() else {
-                                continue;
+                    let usage_count = fragment_usage_count.get(&name).copied().unwrap_or(0);
+                    if usage_count == 1 {
+                        if let Some(name_range) = frag.name_range() {
+                            // Mirror graphql-eslint's message: `Inline him in "{filePath}".`,
+                            // where `filePath` is the usage site's path relative to CWD.
+                            let usage_file_id = fragment_spread_sites
+                                .get(&name)
+                                .and_then(|sites| sites.iter().next())
+                                .map(|(id, _)| *id);
+                            let usage_path = usage_file_id.and_then(|id| {
+                                graphql_base_db::file_lookup(db, project_files, id)
+                                    .map(|(_, meta)| meta.uri(db).as_str().to_string())
+                            });
+                            let message = match usage_path.as_deref().map(cwd_relative_path) {
+                                Some(rel) => format!(
+                                    "Fragment `{name}` used only once. Inline him in \"{rel}\"."
+                                ),
+                                None => format!("Fragment `{name}` used only once."),
                             };
 
                             diagnostics_by_file.entry(*file_id).or_default().push(
                                 LintDiagnostic::warning(
                                     doc.span(name_range.start, name_range.end),
-                                    format!(
-                                        "Fragment '{name}' is used in only one place. Consider inlining it."
-                                    ),
+                                    message,
                                     "noOnePlaceFragments",
-                                ),
+                                )
+                                .with_message_id("no-one-place-fragments")
+                                .with_help("Inline the fragment at its single usage site")
+                                .with_tag(crate::diagnostics::DiagnosticTag::Unnecessary),
                             );
                         }
                     }
@@ -141,6 +142,7 @@ fn collect_fragment_spreads_from_definition(
     def: &apollo_parser::cst::Definition,
     file_id: FileId,
     def_name: &str,
+    fragment_usage_count: &mut HashMap<String, usize>,
     fragment_spread_sites: &mut HashMap<String, HashSet<(FileId, String)>>,
 ) {
     use apollo_parser::cst;
@@ -152,7 +154,13 @@ fn collect_fragment_spreads_from_definition(
     };
 
     if let Some(selection_set) = selection_set {
-        collect_spreads_in_selection_set(&selection_set, file_id, def_name, fragment_spread_sites);
+        collect_spreads_in_selection_set(
+            &selection_set,
+            file_id,
+            def_name,
+            fragment_usage_count,
+            fragment_spread_sites,
+        );
     }
 }
 
@@ -160,6 +168,7 @@ fn collect_spreads_in_selection_set(
     selection_set: &apollo_parser::cst::SelectionSet,
     file_id: FileId,
     def_name: &str,
+    fragment_usage_count: &mut HashMap<String, usize>,
     fragment_spread_sites: &mut HashMap<String, HashSet<(FileId, String)>>,
 ) {
     use apollo_parser::cst;
@@ -172,6 +181,7 @@ fn collect_spreads_in_selection_set(
                         &nested,
                         file_id,
                         def_name,
+                        fragment_usage_count,
                         fragment_spread_sites,
                     );
                 }
@@ -179,6 +189,9 @@ fn collect_spreads_in_selection_set(
             cst::Selection::FragmentSpread(spread) => {
                 if let Some(name) = spread.fragment_name().and_then(|fn_| fn_.name()) {
                     let frag_name = name.text().to_string();
+                    // Count every raw occurrence so two spreads in the same
+                    // operation are distinct uses (matches upstream semantics).
+                    *fragment_usage_count.entry(frag_name.clone()).or_insert(0) += 1;
                     fragment_spread_sites
                         .entry(frag_name)
                         .or_default()
@@ -191,11 +204,56 @@ fn collect_spreads_in_selection_set(
                         &nested,
                         file_id,
                         def_name,
+                        fragment_usage_count,
                         fragment_spread_sites,
                     );
                 }
             }
         }
+    }
+}
+
+/// Convert a file URI or absolute path to a CWD-relative path, mirroring
+/// graphql-eslint's `path.relative(process.cwd(), filePath)` behaviour.
+///
+/// Falls back to the original string when the URI can't be resolved against the
+/// current working directory (e.g. virtual `file:///` paths in tests where the
+/// usage site lives outside CWD, or when `current_dir()` fails).
+fn cwd_relative_path(uri_or_path: &str) -> String {
+    use std::path::{Component, Path, PathBuf};
+
+    let path_str = uri_or_path.strip_prefix("file://").unwrap_or(uri_or_path);
+    let target = Path::new(path_str);
+    let Ok(cwd) = std::env::current_dir() else {
+        return path_str.to_string();
+    };
+
+    // Only meaningful when both paths are absolute; otherwise just echo the input
+    // (matches Node's behaviour of resolving relative-to-cwd, which is a no-op here).
+    if !target.is_absolute() {
+        return path_str.to_string();
+    }
+
+    let cwd_components: Vec<Component> = cwd.components().collect();
+    let target_components: Vec<Component> = target.components().collect();
+    let common = cwd_components
+        .iter()
+        .zip(target_components.iter())
+        .take_while(|(a, b)| a == b)
+        .count();
+
+    let mut out = PathBuf::new();
+    for _ in common..cwd_components.len() {
+        out.push("..");
+    }
+    for comp in &target_components[common..] {
+        out.push(comp.as_os_str());
+    }
+
+    if out.as_os_str().is_empty() {
+        String::new()
+    } else {
+        out.to_string_lossy().into_owned()
     }
 }
 
@@ -224,7 +282,18 @@ mod tests {
             Arc::new(doc_files.iter().map(|(id, _, _)| *id).collect()),
         );
         let file_entry_map = FileEntryMap::new(db, Arc::new(entries));
-        ProjectFiles::new(db, schema_file_ids, document_file_ids, file_entry_map)
+        ProjectFiles::new(
+            db,
+            schema_file_ids,
+            document_file_ids,
+            graphql_base_db::ResolvedSchemaFileIds::new(db, std::sync::Arc::new(vec![])),
+            file_entry_map,
+            graphql_base_db::FilePathMap::new(
+                db,
+                Arc::new(std::collections::HashMap::new()),
+                Arc::new(std::collections::HashMap::new()),
+            ),
+        )
     }
 
     #[test]
@@ -250,6 +319,22 @@ mod tests {
         assert!(
             file_diags.is_some_and(|d| d.len() == 1),
             "Expected one diagnostic for one-place fragment"
+        );
+        let diag = &file_diags.unwrap()[0];
+        assert!(
+            diag.message.starts_with("Fragment `F` used only once."),
+            "unexpected message: {}",
+            diag.message
+        );
+        assert!(
+            diag.message.contains("Inline him in \""),
+            "missing `Inline him in` suffix; got: {}",
+            diag.message
+        );
+        assert!(
+            diag.message.contains("test.graphql"),
+            "expected usage-site path in message; got: {}",
+            diag.message
         );
     }
 

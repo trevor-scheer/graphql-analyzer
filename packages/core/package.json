@@ -1,0 +1,47 @@
+{
+  "name": "@graphql-analyzer/core",
+  "version": "0.1.1",
+  "description": "Rust-powered GraphQL analyzer, callable from Node.js",
+  "license": "MIT OR Apache-2.0",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/trevor-scheer/graphql-analyzer.git",
+    "directory": "packages/core"
+  },
+  "files": [
+    "index.js",
+    "index.d.ts"
+  ],
+  "main": "index.js",
+  "types": "index.d.ts",
+  "publishConfig": {
+    "access": "public"
+  },
+  "scripts": {
+    "build": "napi build --cargo-cwd ../../crates/napi --platform --release",
+    "build:debug": "napi build --cargo-cwd ../../crates/napi --platform"
+  },
+  "devDependencies": {
+    "@napi-rs/cli": "^2.18.0"
+  },
+  "optionalDependencies": {
+    "@graphql-analyzer/core-darwin-arm64": "0.1.1",
+    "@graphql-analyzer/core-darwin-x64": "0.1.1",
+    "@graphql-analyzer/core-linux-arm64-gnu": "0.1.1",
+    "@graphql-analyzer/core-linux-x64-gnu": "0.1.1",
+    "@graphql-analyzer/core-win32-x64-msvc": "0.1.1"
+  },
+  "napi": {
+    "name": "graphql-analyzer",
+    "triples": {
+      "defaults": true,
+      "additional": [
+        "aarch64-apple-darwin",
+        "aarch64-unknown-linux-gnu"
+      ]
+    }
+  },
+  "engines": {
+    "node": ">=18"
+  }
+}

@@ -11,8 +11,10 @@ fn apply_env_interpolation(contents: &str, path: &Path) -> Result<String> {
     })
 }
 
-/// Config file names to search for, in order of preference
-const CONFIG_FILES: &[&str] = &[
+/// Config file names to search for, in order of preference.
+///
+/// Does not include `package.json` (checked separately for a `"graphql"` key).
+pub const CONFIG_FILES: &[&str] = &[
     ".graphqlrc.yml",
     ".graphqlrc.yaml",
     ".graphqlrc.json",
@@ -143,7 +145,7 @@ pub fn load_config_from_str(contents: &str, path: &Path) -> Result<GraphQLConfig
 
 /// Parse YAML configuration
 fn parse_yaml(contents: &str, path: &Path) -> Result<GraphQLConfig> {
-    serde_yml::from_str(contents).map_err(|e| ConfigError::Invalid {
+    serde_saphyr::from_str(contents).map_err(|e| ConfigError::Invalid {
         path: path.to_path_buf(),
         message: format!("YAML parse error: {e}"),
     })

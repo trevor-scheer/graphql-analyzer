@@ -217,24 +217,73 @@ pub fn file_type_name_references(
 // They depend on file IDs (stable) and call per-file queries (granular caching)
 // ============================================================================
 
-/// Get all types in the schema
+/// Check whether a resolved schema is configured for this project.
+pub fn has_resolved_schema(
+    db: &dyn GraphQLHirDatabase,
+    project_files: graphql_base_db::ProjectFiles,
+) -> bool {
+    !project_files
+        .resolved_schema_file_ids(db)
+        .ids(db)
+        .is_empty()
+}
+
+/// Returns true for virtual URIs that represent built-in definitions.
+fn is_builtin_uri(uri: &str) -> bool {
+    uri.ends_with("schema_builtins.graphql") || uri.ends_with("client_builtins.graphql")
+}
+
+/// Get all types used for query validation and completions.
 ///
-/// This query uses granular dependencies:
-/// - Depends on `SchemaFileIds` (only changes when files are added/removed)
-/// - Calls `file_type_defs` per-file (each cached independently)
-///
-/// When a single schema file changes, only that file's `file_type_defs` is recomputed.
-/// Other files' results come from cache.
+/// When a resolved schema is configured, this returns types from the resolved
+/// schema plus builtins. Otherwise it delegates to `source_schema_types`.
 #[salsa::tracked(returns(ref))]
 pub fn schema_types(
     db: &dyn GraphQLHirDatabase,
     project_files: graphql_base_db::ProjectFiles,
 ) -> TypeDefMap {
+    if has_resolved_schema(db, project_files) {
+        // Collect builtin file IDs from the source schema list
+        let source_ids = project_files.schema_file_ids(db).ids(db);
+        let resolved_ids = project_files.resolved_schema_file_ids(db).ids(db);
+
+        let mut combined: Vec<FileId> = source_ids
+            .iter()
+            .copied()
+            .filter(|fid| {
+                graphql_base_db::file_lookup(db, project_files, *fid)
+                    .is_some_and(|(_, meta)| is_builtin_uri(meta.uri(db).as_str()))
+            })
+            .collect();
+        combined.extend(resolved_ids.iter().copied());
+
+        build_type_map(db, project_files, &combined)
+    } else {
+        source_schema_types(db, project_files).clone()
+    }
+}
+
+/// Get all types from the source schema files (always uses `schema_file_ids`).
+///
+/// Used for navigation (goto-definition, hover) which should prefer source files.
+#[salsa::tracked(returns(ref))]
+pub fn source_schema_types(
+    db: &dyn GraphQLHirDatabase,
+    project_files: graphql_base_db::ProjectFiles,
+) -> TypeDefMap {
     let schema_ids = project_files.schema_file_ids(db).ids(db);
+    build_type_map(db, project_files, &schema_ids)
+}
+
+/// Shared logic for building a type definition map from a set of file IDs.
+fn build_type_map(
+    db: &dyn GraphQLHirDatabase,
+    project_files: graphql_base_db::ProjectFiles,
+    file_ids: &[FileId],
+) -> TypeDefMap {
     let mut types: HashMap<Arc<str>, TypeDef> = HashMap::new();
 
-    for file_id in schema_ids.iter() {
-        // Use per-file lookup for granular caching
+    for file_id in file_ids {
         if let Some((content, metadata)) = graphql_base_db::file_lookup(db, project_files, *file_id)
         {
             let file_types = file_type_defs(db, *file_id, content, metadata);
@@ -307,22 +356,54 @@ pub fn schema_types(
     types
 }
 
-/// Get all directive definitions from the schema
+/// Get directive definitions used for query validation.
 ///
-/// This query aggregates directive definitions from all schema files.
-/// Later definitions with the same name overwrite earlier ones (last-wins).
-///
-/// Uses granular per-file caching: when a single schema file changes,
-/// only that file's `file_directive_defs` is recomputed.
+/// When a resolved schema is configured, uses resolved schema + builtins.
+/// Otherwise delegates to `source_schema_directives`.
 #[salsa::tracked(returns(ref))]
 pub fn schema_directives(
     db: &dyn GraphQLHirDatabase,
     project_files: graphql_base_db::ProjectFiles,
 ) -> DirectiveDefMap {
+    if has_resolved_schema(db, project_files) {
+        let source_ids = project_files.schema_file_ids(db).ids(db);
+        let resolved_ids = project_files.resolved_schema_file_ids(db).ids(db);
+
+        let mut combined: Vec<FileId> = source_ids
+            .iter()
+            .copied()
+            .filter(|fid| {
+                graphql_base_db::file_lookup(db, project_files, *fid)
+                    .is_some_and(|(_, meta)| is_builtin_uri(meta.uri(db).as_str()))
+            })
+            .collect();
+        combined.extend(resolved_ids.iter().copied());
+
+        build_directive_map(db, project_files, &combined)
+    } else {
+        source_schema_directives(db, project_files).clone()
+    }
+}
+
+/// Get directive definitions from source schema files only.
+#[salsa::tracked(returns(ref))]
+pub fn source_schema_directives(
+    db: &dyn GraphQLHirDatabase,
+    project_files: graphql_base_db::ProjectFiles,
+) -> DirectiveDefMap {
     let schema_ids = project_files.schema_file_ids(db).ids(db);
+    build_directive_map(db, project_files, &schema_ids)
+}
+
+/// Shared logic for building a directive definition map from a set of file IDs.
+fn build_directive_map(
+    db: &dyn GraphQLHirDatabase,
+    project_files: graphql_base_db::ProjectFiles,
+    file_ids: &[FileId],
+) -> DirectiveDefMap {
     let mut directives: HashMap<Arc<str>, DirectiveDef> = HashMap::new();
 
-    for file_id in schema_ids.iter() {
+    for file_id in file_ids {
         if let Some((content, metadata)) = graphql_base_db::file_lookup(db, project_files, *file_id)
         {
             let file_dirs = file_directive_defs(db, *file_id, content, metadata);
@@ -738,7 +819,7 @@ pub fn project_operation_name_index(
 
 /// Per-file query for fragment names used (spread) in a file.
 /// Returns all fragment spread names found in operations and fragments.
-/// This enables incremental computation for the `unused_fragments` lint rule.
+/// This enables incremental computation for the `no_unused_fragments` lint rule.
 #[salsa::tracked]
 #[allow(clippy::items_after_statements)]
 pub fn file_used_fragment_names(
@@ -835,7 +916,7 @@ pub fn file_operation_fragment_spreads(
 
 /// Per-file query for defined fragment names in a file.
 /// Returns `fragment_name` for all fragments defined in the file.
-/// This enables incremental computation for the `unused_fragments` lint rule.
+/// This enables incremental computation for the `no_unused_fragments` lint rule.
 #[salsa::tracked]
 pub fn file_defined_fragment_names(
     db: &dyn GraphQLHirDatabase,
@@ -946,7 +1027,7 @@ pub struct SchemaCoordinate {
 
 /// Per-file query for schema coordinates used in a file.
 /// Returns all `Type.field` coordinates referenced in operations and fragments.
-/// This enables incremental computation for the `unused_fields` lint rule.
+/// This enables incremental computation for the `no_unused_fields` lint rule.
 ///
 /// Note: This query requires schema types to resolve field return types.
 /// If schema is not available, it uses heuristics based on selection patterns.

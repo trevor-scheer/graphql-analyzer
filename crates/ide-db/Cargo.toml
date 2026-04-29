@@ -17,11 +17,12 @@ graphql-syntax = { path = "../syntax" }
 graphql-hir = { path = "../hir" }
 graphql-analysis = { path = "../analysis" }
 
-# For ExtractConfig in GraphQLSyntaxDatabase
-graphql-extract = { path = "../extract" }
-
 # Salsa for incremental computation
 salsa = { workspace = true }
+
+[features]
+default = ["extract"]
+extract = ["graphql-syntax/extract", "graphql-hir/extract"]
 
 [lints]
 workspace = true

@@ -111,33 +111,46 @@ Look for:
 3. Test LSP directly (see above)
 4. Check for panics in logs
 
+### Panics in worker-pool tasks
+
+**Symptoms**: `tracing::error!` from the global panic hook, then an `InternalError` JSON-RPC response (id intact). Individual requests fail but the server stays up.
+
+**What to look for**:
+
+- The threadpool worker wraps each task in `std::panic::catch_unwind(AssertUnwindSafe(...))` (see `GlobalState::spawn_with_snapshot`). On a caught panic the worker sends back a `Response::new_err(id, ErrorCode::InternalError, "internal error: handler panicked")`, so the request id always gets a response and `in_flight` is cleared.
+- The global panic hook (installed in `install_panic_hook` in `crates/lsp/src/lib.rs`) emits `tracing::error!` with the message, source location, and a backtrace if `RUST_BACKTRACE=1` is set. Set the env var on the LSP server process to get backtraces.
+- Common offenders: stale byte offsets in cached lint diagnostics colliding with a freshly-built `LineIndex` after rapid edits. `LineIndex::line_col` clamps and warns rather than panicking, but if you see `LineIndex::line_col offset is past end of source` or `landed mid-character` warnings, that's a pre-existing bug somewhere in the diagnostics pipeline that needs investigation.
+
 ### Hangs / Deadlocks
 
-**Symptoms**: LSP stops responding, CPU stays high
+**Symptoms**: LSP stops responding, CPU stays low.
 
-**Likely cause**: Salsa deadlock from concurrent access
+**Background**: After the sync-LSP migration, `GlobalState`/`AnalysisHost` mutations only happen on the main thread, and snapshots live on workers. The whole pre-migration deadlock class (snapshot blocked on a side-channel `RwLock` while the main thread held the writer) is gone. A hang today is much more likely to be:
+
+- The main thread is stuck inside a `select!` arm — e.g. a notification handler is running a long Salsa query inline instead of using `spawn_diagnostics_for_uri` / `spawn_with_snapshot`. Workers idle while the main thread blocks; the `recv(connection.receiver)` arm never fires.
+- A worker is parked inside a Salsa setter. This shouldn't happen, because setters only run on the main thread — if you see it, somebody added a setter to a `threadpool::execute` closure. Don't.
+- The introspection thread blocked on a request whose result the main thread isn't draining (look for `recv(state.introspection_result_receiver)` not firing).
 
 **Debug steps**:
 
-1. Enable RUST_LOG=debug
-2. Look for "acquiring lock" messages without corresponding releases
-3. Check for snapshot not being dropped before setter calls
-4. Consult `salsa.md` agent for deadlock patterns
+1. Enable `RUST_LOG=debug`. Look at which `select!` arm last fired in the main loop.
+2. If a notification handler is taking a long time, check whether it's running Salsa queries inline. Move them onto the pool with `spawn_diagnostics_for_uri` / `spawn_diagnostics_batch`.
+3. If a request never gets a response, check `state.in_flight` — the request is either still in flight on a worker, or its response was dropped because the id was no longer in `in_flight` (cancelled).
+4. If a snapshot is blocking a setter, find the worker that's still holding it and confirm it isn't itself trying to call a setter. The "use a snapshot, drop it, then mutate" lifecycle rule still applies on the main thread.
 
-**Common fix**: Ensure snapshots are dropped before mutations:
+**The structural rule** (see `crates/CLAUDE.md` "Snapshot Safety"): `Analysis` snapshots and `AnalysisHost` must not share any non-Salsa lock. If you need snapshot-visible data, put it in a Salsa input. If you find yourself adding an `Arc<RwLock<...>>` to `AnalysisHost` whose contents a snapshot would also read, **stop and reach for a `#[salsa::input]` instead**.
+
+**The lifecycle rule** still applies on the main thread when a notification handler holds a snapshot and then writes:
 
 ```rust
 // WRONG
-let snapshot = db.clone();
+let snapshot = host.snapshot();
 let result = snapshot.some_query();
-db.set_input(...); // Deadlock!
+host.add_file(...); // Hangs: snapshot still alive on this thread
 
-// RIGHT
-let result = {
-    let snapshot = db.clone();
-    snapshot.some_query()
-}; // snapshot dropped
-db.set_input(...); // Safe
+// RIGHT — let update_file_and_snapshot do the write+snapshot atomically:
+let (_is_new, snapshot) = host.update_file_and_snapshot(&file_path, &content, lang, kind);
+// snapshot is now safe to send to a worker
 ```
 
 ### Incorrect Diagnostics

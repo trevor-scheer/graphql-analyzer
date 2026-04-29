@@ -1,0 +1,24 @@
+# Demonstrates: requireDescription
+# Every type, field, argument, input value, enum value, and directive
+# definition needs a description. Operations also need a `#` comment
+# directly above them (see src/requireDescription.graphql).
+
+type UndocumentedType {
+  id: ID!
+  value(format: String): String!
+}
+
+enum UndocumentedEnum {
+  FOO
+  BAR
+}
+
+interface UndocumentedInterface {
+  id: ID!
+}
+
+input UndocumentedInput {
+  id: ID
+}
+
+directive @undocumented(seconds: Int) on FIELD_DEFINITION

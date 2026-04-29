@@ -1,0 +1,119 @@
+---
+slug: rules/matchDocumentFilename
+title: matchDocumentFilename
+description: Enforce that operation and fragment names match the filename.
+---
+
+| Property         | Value                   |
+| ---------------- | ----------------------- |
+| Config name      | `matchDocumentFilename` |
+| Default severity | —                       |
+| Context          | Document                |
+| In recommended   | No                      |
+
+## What it checks
+
+Enforces that GraphQL operation and fragment names match the filename they are defined in. For example, a file named `GetUser.graphql` should contain an operation named `GetUser`. This helps with code organization and makes operations easy to find.
+
+The rule checks all named operations (queries, mutations, subscriptions) and fragment definitions. Anonymous operations and shorthand queries are ignored.
+
+## Examples
+
+```graphql
+# File: GetUser.graphql
+
+# ✅ Good — operation name matches filename
+query GetUser {
+  user {
+    id
+    name
+  }
+}
+```
+
+```graphql
+# File: GetUser.graphql
+
+# ⚠️ Warning — operation name doesn't match filename
+query FetchUser {
+  user {
+    id
+    name
+  }
+}
+```
+
+```graphql
+# File: UserFields.graphql
+
+# ✅ Good — fragment name matches filename
+fragment UserFields on User {
+  id
+  name
+}
+```
+
+## Options
+
+Each definition type (`query`, `mutation`, `subscription`, `fragment`) can be configured independently with the following options:
+
+| Option   | Type     | Default              | Description                              |
+| -------- | -------- | -------------------- | ---------------------------------------- |
+| `style`  | `string` | `matchDocumentStyle` | Naming style for the filename            |
+| `suffix` | `string` | `""`                 | Suffix appended to the expected filename |
+
+### Supported styles
+
+| Style                | Example input | Expected filename |
+| -------------------- | ------------- | ----------------- |
+| `matchDocumentStyle` | `GetUser`     | `GetUser`         |
+| `camelCase`          | `GetUser`     | `getUser`         |
+| `PascalCase`         | `get_user`    | `GetUser`         |
+| `snake_case`         | `GetUser`     | `get_user`        |
+| `kebab-case`         | `GetUser`     | `get-user`        |
+
+## Configuration
+
+```yaml
+# Default: filenames must match the definition name exactly
+extensions:
+  graphql-analyzer:
+    lint:
+      rules:
+        matchDocumentFilename: warn
+
+# Enforce kebab-case filenames for queries
+extensions:
+  graphql-analyzer:
+    lint:
+      rules:
+        matchDocumentFilename:
+          severity: warn
+          options:
+            query:
+              style: kebab-case
+
+# Require suffixes per definition type
+extensions:
+  graphql-analyzer:
+    lint:
+      rules:
+        matchDocumentFilename:
+          severity: warn
+          options:
+            query:
+              style: matchDocumentStyle
+              suffix: Query
+            mutation:
+              style: matchDocumentStyle
+              suffix: Mutation
+            fragment:
+              style: kebab-case
+              suffix: .fragment
+```
+
+With the suffix configuration above:
+
+- `query GetUser` expects filename `GetUserQuery.graphql`
+- `mutation UpdateUser` expects filename `UpdateUserMutation.graphql`
+- `fragment UserFields on User` expects filename `user-fields.fragment.graphql`

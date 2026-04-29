@@ -48,9 +48,12 @@ Supported file names (in priority order):
 
 1. `.graphqlrc.yml` / `.graphqlrc.yaml`
 2. `.graphqlrc.json`
-3. `.graphqlrc`
-4. `graphql.config.yml` / `graphql.config.yaml`
-5. `graphql.config.json`
+3. `.graphqlrc.toml`
+4. `.graphqlrc` (YAML or JSON, auto-detected)
+5. `graphql.config.yml` / `graphql.config.yaml`
+6. `graphql.config.json`
+7. `graphql.config.toml`
+8. `package.json` with a `"graphql"` key (lowest priority fallback)
 
 **Not supported:** `graphql.config.js`, `graphql.config.ts`
 
@@ -82,8 +85,9 @@ Add custom modules:
 
 ```yaml
 extensions:
-  extractConfig:
-    modules: ["graphql-tag", "custom-module"]
+  graphql-analyzer:
+    extractConfig:
+      modules: ["graphql-tag", "custom-module"]
 ```
 
 ## Performance issues
@@ -92,7 +96,7 @@ See [Performance Tuning](/graphql-analyzer/advanced/performance-tuning/).
 
 Quick fixes:
 
-- Disable expensive rules in the LSP: `unusedFields: off`
+- Disable expensive rules in the LSP: `noUnusedFields: off`
 - Check document patterns aren't matching too many files
 - Ensure `node_modules` isn't included in document patterns
 

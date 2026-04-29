@@ -12,7 +12,8 @@ schema: "schema.graphql"
 documents: "src/**/*.{graphql,ts,tsx}"
 
 extensions:
-  lint: recommended
+  graphql-analyzer:
+    lint: recommended
 ```
 
 See `README.md` in this crate for multi-project and advanced configuration.

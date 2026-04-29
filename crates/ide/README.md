@@ -7,7 +7,7 @@ This crate provides the API boundary between the analysis layer (validation, lin
 ## Architecture
 
 ```text
-LSP Layer (tower-lsp)
+LSP Layer (lsp-server, sync main loop)
     ↓
 graphql-ide (this crate) ← POD types, editor API
     ↓
@@ -62,8 +62,7 @@ All positions use editor coordinates (line/column), not byte offsets:
 
 The IDE layer knows nothing about the LSP protocol:
 
-- No `tower-lsp` types
-- No `lsp-types` dependencies
+- No `lsp-server` or `lsp-types` dependencies
 - Pure Rust data structures
 - Easy to test without LSP infrastructure
 
@@ -260,45 +259,30 @@ cargo tarpaulin --package graphql-ide
 
 ## Integration with LSP
 
-The graphql-lsp crate will use this API:
+The graphql-lsp crate uses this API from a sync main loop. Notification handlers mutate the host on the main thread; request handlers take a snapshot and run on a worker thread:
 
 ```rust
 // In graphql-lsp
-use graphql_ide::{AnalysisHost, Analysis, Position, FilePath};
-use tower_lsp::lsp_types;
+use graphql_ide::{AnalysisHost, FilePath};
+use lsp_types::{DidChangeTextDocumentParams, CompletionParams, CompletionResponse};
 
-struct Backend {
-    host: AnalysisHost,
+// Notification handler — runs on the main thread, mutates the host directly.
+fn handle_did_change(state: &mut GlobalState, params: DidChangeTextDocumentParams) {
+    let file_path = FilePath::new(params.text_document.uri.to_string());
+    let host = state.workspace.get_or_create_host(/* ... */);
+    let (_is_new, snapshot) = host.update_file_and_snapshot(&file_path, &content, lang, kind);
+
+    // Diagnostics computed off the main thread on the snapshot.
+    state.spawn_diagnostics_for_uri(params.text_document.uri, move || {
+        snapshot.diagnostics(&file_path).into_iter().map(to_lsp_diagnostic).collect()
+    });
 }
 
-impl LanguageServer for Backend {
-    async fn did_change(&self, params: DidChangeParams) {
-        // Update host
-        self.host.add_file(...);
-
-        // Get snapshot and publish diagnostics
-        let analysis = self.host.snapshot();
-        let diagnostics = analysis.diagnostics(...);
-
-        // Convert IDE types to LSP types
-        let lsp_diagnostics = diagnostics.iter()
-            .map(|d| to_lsp_diagnostic(d))
-            .collect();
-
-        self.client.publish_diagnostics(uri, lsp_diagnostics, None).await;
-    }
-
-    async fn completion(&self, params: CompletionParams) -> Result<CompletionList> {
-        let analysis = self.host.snapshot();
-        let file = to_file_path(params.text_document_position.uri);
-        let pos = to_position(params.text_document_position.position);
-
-        let items = analysis.completions(&file, pos)
-            .map(|items| items.iter().map(to_lsp_completion_item).collect())
-            .unwrap_or_default();
-
-        Ok(CompletionList { items, is_incomplete: false })
-    }
+// Request handler — runs on a worker thread with an immutable snapshot.
+fn handle_completion(snap: GlobalStateSnapshot, params: CompletionParams) -> Option<CompletionResponse> {
+    let pos = to_position(params.text_document_position.position);
+    let items = snap.analysis.completions(&snap.file_path, pos)?;
+    Some(CompletionResponse::Array(items.iter().map(to_lsp_completion_item).collect()))
 }
 ```
 

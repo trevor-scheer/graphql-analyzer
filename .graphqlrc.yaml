@@ -4,23 +4,25 @@ projects:
     schema: test-workspace/pokemon/schema.graphql
     documents: "test-workspace/pokemon/src/**/*.{graphql,gql,ts,tsx,js,jsx}"
     extensions:
-      client: apollo
-      lint:
-        extends: recommended
-        rules:
-          uniqueNames: error
-          requireIdField: warn
+      graphql-analyzer:
+        client: apollo
+        lint:
+          extends: recommended
+          rules:
+            uniqueNames: error
+            requireIdField: warn
 
   starwars:
     schema: "test-workspace/starwars/schema.graphql"
     documents: "test-workspace/starwars/src/**/*.{graphql,gql,ts,tsx,js,jsx}"
     extensions:
-      client: apollo
-      lint:
-        extends: recommended
-        rules:
-          uniqueNames: error
-          requireIdField: warn
+      graphql-analyzer:
+        client: apollo
+        lint:
+          extends: recommended
+          rules:
+            uniqueNames: error
+            requireIdField: warn
 
   github:
     schema:
@@ -31,28 +33,30 @@ projects:
       - "test-workspace/github/src/**/*.ts"
       - "test-workspace/github/src/**/*.tsx"
     extensions:
-      client: apollo
-      lint:
-        extends: recommended
-        rules:
-          uniqueNames: error
-          noDeprecated: warn
-          requireIdField: [warn, { fields: ["id", "databaseId"] }]
+      graphql-analyzer:
+        client: apollo
+        lint:
+          extends: recommended
+          rules:
+            uniqueNames: error
+            noDeprecated: warn
+            requireIdField: [warn, { fields: ["id", "databaseId"] }]
 
   github-admin:
     schema: "test-workspace/github/admin/schema/*.graphql"
     documents: "test-workspace/github/admin/src/**/*.graphql"
     extensions:
-      client: apollo
-      lint:
-        extends: recommended
-        rules:
-          uniqueNames: error
-          noDeprecated: error
-          requireIdField:
-            severity: error
-            options:
-              fields: ["id"]
+      graphql-analyzer:
+        client: apollo
+        lint:
+          extends: recommended
+          rules:
+            uniqueNames: error
+            noDeprecated: error
+            requireIdField:
+              severity: error
+              options:
+                fields: ["id"]
 
   countries:
     schema:
@@ -61,12 +65,13 @@ projects:
       retry: 2
     documents: "countries/src/**/*.{graphql,ts}"
     extensions:
-      client: none
-      lint:
-        extends: recommended
-        rules:
-          uniqueNames: error
-          requireIdField: warn
+      graphql-analyzer:
+        client: none
+        lint:
+          extends: recommended
+          rules:
+            uniqueNames: error
+            requireIdField: warn
 
   apollo-app:
     schema:
@@ -74,11 +79,12 @@ projects:
       - test-workspace/apollo-app/client-schema.graphql
     documents: "test-workspace/apollo-app/src/**/*.{graphql,gql,ts,tsx}"
     extensions:
-      client: apollo
-      lint:
-        extends: recommended
-        rules:
-          uniqueNames: error
+      graphql-analyzer:
+        client: apollo
+        lint:
+          extends: recommended
+          rules:
+            uniqueNames: error
 
   schema-extensions:
     schema:
@@ -86,66 +92,93 @@ projects:
       - test-workspace/schema-extensions/extensions.graphql
     documents: "test-workspace/schema-extensions/src/**/*.graphql"
     extensions:
-      client: none
-      lint:
-        extends: recommended
-        rules:
-          uniqueNames: error
+      graphql-analyzer:
+        client: none
+        lint:
+          extends: recommended
+          rules:
+            uniqueNames: error
 
   relay-app:
     schema: test-workspace/relay-app/schema.graphql
     documents: "test-workspace/relay-app/src/**/*.{graphql,gql,ts,tsx}"
     extensions:
-      client: relay
-      lint:
-        extends: recommended
-        rules:
-          uniqueNames: error
+      graphql-analyzer:
+        client: relay
+        lint:
+          extends: recommended
+          rules:
+            uniqueNames: error
 
   lint-ignores:
     schema: test-workspace/lint-ignores/schema.graphql
     documents: "test-workspace/lint-ignores/src/**/*.graphql"
     extensions:
-      lint:
-        extends: recommended
-        rules:
-          noDeprecated: warn
-          requireIdField: warn
+      graphql-analyzer:
+        lint:
+          extends: recommended
+          rules:
+            noDeprecated: warn
+            requireIdField: warn
 
   misconfigured-schema:
     # expect 2 errors: schema file does not exist, and documents file does not exist
     schema: "test-workspace/misconfigured-schema/schema.graphql"
     documents: "test-workspace/misconfigured-schema/query.graphql"
     extensions:
-      client: none
+      graphql-analyzer:
+        client: none
 
   misconfigured-documents:
     # expect 2 errors: schema file does not exist, and documents file does not exist
     schema: "test-workspace/misconfigured-documents/schema.graphql"
     documents: "test-workspace/misconfigured-documents/query.graphql"
     extensions:
-      client: none
+      graphql-analyzer:
+        client: none
 
   lint-examples:
     schema: "test-workspace/lint-examples/schema/**/*.graphql"
     documents: "test-workspace/lint-examples/src/**/*.graphql"
     extensions:
-      lint:
-        rules:
-          alphabetize: [warn, { selections: true, arguments: true, variables: true }]
-          loneExecutableDefinition: warn
-          namingConvention: warn
-          noDuplicateFields: warn
-          selectionSetDepth: [warn, { maxDepth: 3 }]
-          noOnePlaceFragments: warn
-          descriptionStyle: warn
-          inputName: warn
-          noHashtagDescription: warn
-          noTypenamePrefix: warn
-          noUnreachableTypes: warn
-          uniqueEnumValueNames: warn
-          requireDeprecationReason: warn
-          requireDescription: warn
-          requireFieldOfTypeQueryInMutationResult: warn
-          strictIdInTypes: warn
-          noScalarResultTypeOnMutation: warn
+      graphql-analyzer:
+        lint:
+          rules:
+            alphabetize: [warn, { selections: true, arguments: true, variables: true }]
+            loneExecutableDefinition: warn
+            namingConvention: warn
+            noDuplicateFields: warn
+            selectionSetDepth: [warn, { maxDepth: 3 }]
+            noOnePlaceFragments: warn
+            descriptionStyle: warn
+            inputName: warn
+            noHashtagDescription: warn
+            noTypenamePrefix: warn
+            noUnreachableTypes: warn
+            uniqueEnumValueNames: warn
+            relayConnectionTypes: warn
+            requireDeprecationReason: warn
+            requireDescription: warn
+            requireFieldOfTypeQueryInMutationResult: warn
+            requireNullableFieldsWithOneof: error
+            requireTypePatternWithOneof: warn
+            strictIdInTypes: warn
+            noScalarResultTypeOnMutation: warn
+            requireNullableResultInRoot: warn
+            relayEdgeTypes: warn
+            requireImportFragment: warn
+            noRootType: warn
+            matchDocumentFilename: warn
+            relayArguments: warn
+            requireDeprecationDate: warn
+            relayPageInfo: warn
+            requireSelections: error
+
+  resolved-schema:
+    schema: "test-workspace/resolved-schema/schema/**/*.graphql"
+    documents: "test-workspace/resolved-schema/src/**/*.graphql"
+    extensions:
+      graphql-analyzer:
+        resolvedSchema: "test-workspace/resolved-schema/generated/schema.graphql"
+        lint:
+          extends: recommended

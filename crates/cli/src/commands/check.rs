@@ -13,7 +13,7 @@ use crate::watch::{FileWatcher, WatchConfig, WatchMode};
 use crate::{ExitCode, OutputFormat, OutputOptions};
 use anyhow::Result;
 use colored::Colorize;
-use graphql_ide::DiagnosticSeverity;
+use graphql_ide::{Diagnostic, DiagnosticSeverity, DiagnosticTag};
 use std::path::PathBuf;
 
 /// Diagnostic output structure for unified display
@@ -27,6 +27,16 @@ struct DiagnosticOutput {
     severity: String,
     source: DiagnosticSource,
     rule: Option<String>,
+    help: Option<String>,
+    url: Option<String>,
+    tags: Vec<DiagnosticTag>,
+}
+
+fn tag_name(tag: &DiagnosticTag) -> &'static str {
+    match tag {
+        DiagnosticTag::Unnecessary => "unnecessary",
+        DiagnosticTag::Deprecated => "deprecated",
+    }
 }
 
 /// Source of the diagnostic (validation or lint)
@@ -58,6 +68,7 @@ pub fn run(
     project_name: Option<&str>,
     format: OutputFormat,
     watch: bool,
+    max_warnings: Option<usize>,
     output_opts: OutputOptions,
 ) -> Result<()> {
     if watch {
@@ -71,13 +82,7 @@ pub fn run(
     let ctx = CommandContext::load(config_path, project_name, "check")?;
 
     // Get project config
-    let selected_name = CommandContext::get_project_name(project_name);
-    let project_config = ctx
-        .config
-        .projects()
-        .find(|(name, _)| *name == selected_name)
-        .map(|(_, cfg)| cfg.clone())
-        .ok_or_else(|| anyhow::anyhow!("Project '{selected_name}' not found"))?;
+    let project_config = ctx.get_project_config(project_name)?;
 
     // Load and select project (shared between validate and lint)
     let spinner = if matches!(format, OutputFormat::Human) && output_opts.show_progress {
@@ -119,6 +124,9 @@ pub fn run(
 
     // Collect all diagnostics
     let mut all_issues: Vec<DiagnosticOutput> = Vec::new();
+    // Keep original diagnostics grouped by file for ariadne rendering
+    let mut original_diagnostics: std::collections::HashMap<PathBuf, Vec<Diagnostic>> =
+        std::collections::HashMap::new();
 
     // Run validation
     let spinner = if matches!(format, OutputFormat::Human) && output_opts.show_progress {
@@ -141,11 +149,18 @@ pub fn run(
                     column: (diag.range.start.character + 1) as usize,
                     end_line: (diag.range.end.line + 1) as usize,
                     end_column: (diag.range.end.character + 1) as usize,
-                    message: diag.message,
+                    message: diag.message.clone(),
                     severity: "error".to_string(),
                     source: DiagnosticSource::Validation,
-                    rule: diag.code,
+                    rule: diag.code.clone(),
+                    help: diag.help.clone(),
+                    url: diag.url.clone(),
+                    tags: diag.tags.clone(),
                 });
+                original_diagnostics
+                    .entry(file_path.clone())
+                    .or_default()
+                    .push(diag);
             }
         }
     }
@@ -172,11 +187,18 @@ pub fn run(
                 column: (diag.range.start.character + 1) as usize,
                 end_line: (diag.range.end.line + 1) as usize,
                 end_column: (diag.range.end.character + 1) as usize,
-                message: diag.message,
+                message: diag.message.clone(),
                 severity: severity_string,
                 source: DiagnosticSource::Lint,
-                rule: diag.code,
+                rule: diag.code.clone(),
+                help: diag.help.clone(),
+                url: diag.url.clone(),
+                tags: diag.tags.clone(),
             });
+            original_diagnostics
+                .entry(file_path.clone())
+                .or_default()
+                .push(diag);
         }
     }
 
@@ -256,6 +278,12 @@ pub fn run(
                 if let Some(ref rule) = issue.rule {
                     println!("  {}: {}", "rule".dimmed(), rule.dimmed());
                 }
+                if let Some(ref help) = issue.help {
+                    println!("  {}: {}", "help".cyan(), help);
+                }
+                if let Some(ref url) = issue.url {
+                    println!("  {}: {}", "docs".dimmed(), url.dimmed());
+                }
             }
         }
         OutputFormat::Json => {
@@ -265,7 +293,10 @@ pub fn run(
                     "message": issue.message,
                     "severity": issue.severity,
                     "source": issue.source.to_string(),
-                    "rule": issue.rule
+                    "rule": issue.rule,
+                    "help": issue.help,
+                    "url": issue.url,
+                    "tags": issue.tags.iter().map(tag_name).collect::<Vec<_>>(),
                 });
                 if issue.line > 0 {
                     obj["location"] = serde_json::json!({
@@ -325,11 +356,13 @@ pub fn run(
 
                 if issue.line > 0 {
                     println!(
-                        "::{} file={},line={},col={}::{}{}",
+                        "::{} file={},line={},col={},endLine={},endColumn={}::{}{}",
                         severity,
                         issue.file_path,
                         issue.line,
                         issue.column,
+                        issue.end_line,
+                        issue.end_column,
                         issue.message,
                         rule_suffix
                     );
@@ -337,6 +370,36 @@ pub fn run(
                     println!("::{}::{}{}", severity, issue.message, rule_suffix);
                 }
             }
+        }
+        OutputFormat::Sarif => {
+            use crate::commands::sarif::{self, SarifLevel, SarifResult};
+
+            let sarif_results: Vec<SarifResult> = all_issues
+                .iter()
+                .map(|issue| SarifResult {
+                    rule_id: issue
+                        .rule
+                        .clone()
+                        .unwrap_or_else(|| issue.source.to_string()),
+                    message: issue.message.clone(),
+                    level: match issue.severity.as_str() {
+                        "error" => SarifLevel::Error,
+                        "warning" => SarifLevel::Warning,
+                        _ => SarifLevel::Note,
+                    },
+                    file_path: issue.file_path.clone(),
+                    start_line: issue.line,
+                    start_column: issue.column,
+                    end_line: issue.end_line,
+                    end_column: issue.end_column,
+                })
+                .collect();
+
+            let output = sarif::format_sarif(&sarif_results, &ctx.base_dir);
+            println!(
+                "{}",
+                serde_json::to_string_pretty(&output).unwrap_or_default()
+            );
         }
     }
 
@@ -380,6 +443,15 @@ pub fn run(
         ExitCode::ValidationError.exit();
     }
 
+    if let Some(max) = max_warnings {
+        if total_warnings > max {
+            eprintln!("\ngraphql-analyzer found {total_warnings} warning(s) (threshold: {max})");
+            ExitCode::WarningThresholdExceeded.exit();
+        } else if total_warnings < max {
+            eprintln!("\nYou can lower --max-warnings to {total_warnings} (currently {max})");
+        }
+    }
+
     Ok(())
 }
 
@@ -393,13 +465,7 @@ fn run_watch_mode(
     let ctx = CommandContext::load(config_path, project_name, "check")?;
 
     // Get project config
-    let selected_name = CommandContext::get_project_name(project_name);
-    let project_config = ctx
-        .config
-        .projects()
-        .find(|(name, _)| *name == selected_name)
-        .map(|(_, cfg)| cfg.clone())
-        .ok_or_else(|| anyhow::anyhow!("Project '{selected_name}' not found"))?;
+    let project_config = ctx.get_project_config(project_name)?;
 
     // Create watch config
     let watch_config = WatchConfig {

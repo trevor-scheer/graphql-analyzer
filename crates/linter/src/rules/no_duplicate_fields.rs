@@ -1,8 +1,8 @@
-use crate::diagnostics::{LintDiagnostic, LintSeverity};
+use crate::diagnostics::{CodeSuggestion, LintDiagnostic, LintSeverity};
 use crate::traits::{LintRule, StandaloneDocumentLintRule};
 use apollo_parser::cst::{self, CstNode};
 use graphql_base_db::{FileContent, FileId, FileMetadata, ProjectFiles};
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 
 /// Lint rule that detects duplicate fields in selection sets
 ///
@@ -66,6 +66,10 @@ impl StandaloneDocumentLintRule for NoDuplicateFieldsRuleImpl {
             for definition in doc_cst.definitions() {
                 match definition {
                     cst::Definition::OperationDefinition(op) => {
+                        // Check for duplicate variable definitions.
+                        if let Some(var_defs) = op.variable_definitions() {
+                            check_variable_definitions(&var_defs, &doc, &mut diagnostics);
+                        }
                         if let Some(selection_set) = op.selection_set() {
                             check_selection_set(&selection_set, &doc, &mut diagnostics);
                         }
@@ -120,14 +124,42 @@ fn check_selection_set(
                         if let Some(name_node) = name_node {
                             let start: usize = name_node.syntax().text_range().start().into();
                             let end: usize = name_node.syntax().text_range().end().into();
-                            diagnostics.push(LintDiagnostic::new(
-                                doc.span(start, end),
-                                LintSeverity::Warning,
-                                format!("Field '{name}' is already selected in this selection set"),
-                                "noDuplicateFields",
-                            ));
+                            // Message format mirrors `@graphql-eslint/eslint-plugin`'s
+                            // `no-duplicate-fields`.
+
+                            // Mirror upstream's `fixer.remove(parent)` — for a
+                            // duplicate Field selection, parent is the Field
+                            // node itself. Use block-local offsets; the
+                            // convert_fix layer handles block→file translation.
+                            let field_range = field.syntax().text_range();
+                            let field_start: usize = field_range.start().into();
+                            let field_end: usize = field_range.end().into();
+                            let suggestion = CodeSuggestion::delete(
+                                format!("Remove `{name}` field"),
+                                field_start,
+                                field_end,
+                            );
+
+                            diagnostics.push(
+                                LintDiagnostic::new(
+                                    doc.span(start, end),
+                                    LintSeverity::Warning,
+                                    format!("Field `{name}` defined multiple times."),
+                                    "noDuplicateFields",
+                                )
+                                .with_message_id("no-duplicate-fields")
+                                .with_help(
+                                    "Remove the duplicate selection or give it a distinct alias",
+                                )
+                                .with_suggestion(suggestion),
+                            );
                         }
                     }
+                }
+
+                // Check for duplicate arguments on this field.
+                if let Some(args) = field.arguments() {
+                    check_arguments(&args, doc, diagnostics);
                 }
 
                 // Recurse into nested selection sets
@@ -147,6 +179,60 @@ fn check_selection_set(
     }
 }
 
+fn check_arguments(
+    arguments: &cst::Arguments,
+    doc: &graphql_syntax::DocumentRef<'_>,
+    diagnostics: &mut Vec<LintDiagnostic>,
+) {
+    let mut seen: HashSet<String> = HashSet::new();
+    for arg in arguments.arguments() {
+        if let Some(name_node) = arg.name() {
+            let name = name_node.text().to_string();
+            if !seen.insert(name.clone()) {
+                let start: usize = name_node.syntax().text_range().start().into();
+                let end: usize = name_node.syntax().text_range().end().into();
+                diagnostics.push(
+                    LintDiagnostic::new(
+                        doc.span(start, end),
+                        LintSeverity::Warning,
+                        format!("Argument `{name}` defined multiple times."),
+                        "noDuplicateFields",
+                    )
+                    .with_message_id("no-duplicate-fields"),
+                );
+            }
+        }
+    }
+}
+
+fn check_variable_definitions(
+    var_defs: &cst::VariableDefinitions,
+    doc: &graphql_syntax::DocumentRef<'_>,
+    diagnostics: &mut Vec<LintDiagnostic>,
+) {
+    let mut seen: HashSet<String> = HashSet::new();
+    for var_def in var_defs.variable_definitions() {
+        if let Some(var) = var_def.variable() {
+            if let Some(name_node) = var.name() {
+                let name = name_node.text().to_string();
+                if !seen.insert(name.clone()) {
+                    let start: usize = name_node.syntax().text_range().start().into();
+                    let end: usize = name_node.syntax().text_range().end().into();
+                    diagnostics.push(
+                        LintDiagnostic::new(
+                            doc.span(start, end),
+                            LintSeverity::Warning,
+                            format!("Variable `{name}` defined multiple times."),
+                            "noDuplicateFields",
+                        )
+                        .with_message_id("no-duplicate-fields"),
+                    );
+                }
+            }
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -160,7 +246,18 @@ mod tests {
         let document_file_ids = graphql_base_db::DocumentFileIds::new(db, Arc::new(vec![]));
         let file_entry_map =
             graphql_base_db::FileEntryMap::new(db, Arc::new(std::collections::HashMap::new()));
-        ProjectFiles::new(db, schema_file_ids, document_file_ids, file_entry_map)
+        ProjectFiles::new(
+            db,
+            schema_file_ids,
+            document_file_ids,
+            graphql_base_db::ResolvedSchemaFileIds::new(db, std::sync::Arc::new(vec![])),
+            file_entry_map,
+            graphql_base_db::FilePathMap::new(
+                db,
+                Arc::new(std::collections::HashMap::new()),
+                Arc::new(std::collections::HashMap::new()),
+            ),
+        )
     }
 
     fn check(source: &str) -> Vec<LintDiagnostic> {
@@ -203,7 +300,7 @@ mod tests {
     fn test_duplicate_alias() {
         let diagnostics = check("query Q { user { a: name a: email } }");
         assert_eq!(diagnostics.len(), 1);
-        assert!(diagnostics[0].message.contains("'a'"));
+        assert!(diagnostics[0].message.contains("`a`"));
     }
 
     #[test]

@@ -8,40 +8,96 @@
 #   graphql-analyzer-lsp: minor
 #   ---
 
+# We drive every release from changesets exclusively. Conventional-commit
+# parsing would otherwise also bump versions based on commit message prefixes
+# (`feat:`, `fix:`), and our commit style intentionally doesn't follow that
+# convention.
+[changes]
+ignore_conventional_commits = true
+
 [packages.graphql-analyzer-cli]
 versioned_files = ["crates/cli/Cargo.toml"]
 changelog = "crates/cli/CHANGELOG.md"
 assets = "artifacts/graphql-cli-*"
 
+# LSP + VS Code extension ship as one user-facing unit (the extension bundles
+# the LSP binary) — version bumps apply to both. The `vscode` package name is
+# retired; target `graphql-analyzer-lsp` in changesets for either side.
+#
+# Knope's `assets` field accepts EITHER a single glob string OR a list of
+# literal paths (`[[packages.X.assets]] path = ...` does NOT glob-expand). The
+# string form takes one pattern, and the underlying `glob` crate has no brace
+# expansion, so we can't combine `graphql-lsp-*` and `*.vsix` directly. The
+# `release` workflow below moves both groups into `artifacts/lsp/` first so a
+# single glob can attach them.
 [packages.graphql-analyzer-lsp]
-versioned_files = ["crates/lsp/Cargo.toml"]
+versioned_files = ["crates/lsp/Cargo.toml", "editors/vscode/package.json"]
 changelog = "crates/lsp/CHANGELOG.md"
-assets = "artifacts/graphql-lsp-*"
+assets = "artifacts/lsp/*"
 
 [packages.graphql-analyzer-mcp]
 versioned_files = ["crates/mcp/Cargo.toml"]
 changelog = "crates/mcp/CHANGELOG.md"
 assets = "artifacts/graphql-mcp-*"
 
-[packages.graphql-analyzer-vscode]
-versioned_files = ["editors/vscode/package.json"]
-changelog = "editors/vscode/CHANGELOG.md"
-assets = "artifacts/*.vsix"
+# @graphql-analyzer/core: one logical artifact published as 6 npm packages
+# (dispatcher + 5 platform stubs). Platform stubs pin the dispatcher via
+# exact-version optionalDependencies, so all 6 package.json versions + the
+# Rust crate version move in lockstep.
+[packages.graphql-analyzer-core]
+versioned_files = [
+  "crates/napi/Cargo.toml",
+  "packages/core/package.json",
+  "packages/core/npm/darwin-arm64/package.json",
+  "packages/core/npm/darwin-x64/package.json",
+  "packages/core/npm/linux-arm64-gnu/package.json",
+  "packages/core/npm/linux-x64-gnu/package.json",
+  "packages/core/npm/win32-x64-msvc/package.json",
+]
+changelog = "packages/core/CHANGELOG.md"
+
+[packages.graphql-analyzer-eslint-plugin]
+versioned_files = ["packages/eslint-plugin/package.json"]
+changelog = "packages/eslint-plugin/CHANGELOG.md"
 
 # GitHub integration for PR creation and releases
 [github]
 owner = "trevor-scheer"
 repo = "graphql-analyzer"
 
-# Prepare a release PR - consumes changesets and creates a PR with version bump
-# Currently in alpha phase. To release stable versions, remove prerelease_label.
+# Prepare a release PR - consumes changesets and creates a PR with version bump.
+# Releases are stable; reintroduce `prerelease_label` here to ship `-alpha.N`,
+# `-rc.N`, etc.
 [[workflows]]
 name = "prepare-release"
 
 [[workflows.steps]]
 type = "PrepareRelease"
-# prerelease_label = "alpha"
-ignore_conventional_commits = true
+
+# Knope only bumps `version` fields. Re-pin intra-workspace npm deps to the
+# new core version so published packages list the exact version they were
+# tested against (and so `npm ci` on the release branch can resolve via the
+# workspace).
+[[workflows.steps]]
+type = "Command"
+command = "node scripts/sync-workspace-deps.mjs"
+
+[[workflows.steps]]
+type = "Command"
+command = "npm install --package-lock-only"
+
+# Verify the regenerated lockfile is consumable by `npm ci`. Without this, a
+# lockfile that fails downstream `npm ci` (e.g. produced by an off-version npm
+# in the prepare-release runner) would still be force-pushed to release/next
+# and only blow up on the auto-generated PR's CI. This makes the prepare-release
+# job itself fail before the push, with a clear, fail-fast signal.
+[[workflows.steps]]
+type = "Command"
+command = "npm ci --ignore-scripts --no-audit --no-fund"
+
+[[workflows.steps]]
+type = "Command"
+command = "git add packages/ package-lock.json"
 
 [[workflows.steps]]
 type = "Command"
@@ -97,6 +153,14 @@ When merged, this will trigger the release workflow to:
 # Execute the release - creates GitHub releases with changelogs and uploads assets
 [[workflows]]
 name = "release"
+
+# Consolidate the LSP package's two asset groups (`graphql-lsp-*` archives +
+# `*.vsix` extensions) into a single directory so one glob can attach both.
+# See the `graphql-analyzer-lsp` package above for the rationale.
+[[workflows.steps]]
+type = "Command"
+shell = true
+command = "mkdir -p artifacts/lsp && mv artifacts/graphql-lsp-*.tar.xz artifacts/graphql-lsp-*.zip artifacts/*.vsix artifacts/lsp/"
 
 [[workflows.steps]]
 type = "Release"

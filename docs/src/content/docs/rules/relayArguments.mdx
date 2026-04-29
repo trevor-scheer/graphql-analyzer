@@ -1,0 +1,85 @@
+---
+slug: rules/relayArguments
+title: relayArguments
+description: Enforce Relay-compliant pagination arguments on connection fields.
+---
+
+| Property         | Value            |
+| ---------------- | ---------------- |
+| Config name      | `relayArguments` |
+| Default severity | —                |
+| Context          | Schema           |
+| In recommended   | No               |
+
+## What it checks
+
+Ensures that fields returning a Relay connection type (any type whose name ends with `Connection`) include the required pagination arguments. By default, the rule requires both forward pagination (`first`/`after`) and backward pagination (`last`/`before`) arguments. This can be relaxed to require only one direction.
+
+The rule checks fields on both object types and interface types.
+
+## Examples
+
+Given this schema:
+
+```graphql
+type PostConnection {
+  edges: [PostEdge]
+}
+
+type PostEdge {
+  node: Post
+  cursor: String
+}
+```
+
+```graphql
+# ⚠️ Warning — missing pagination arguments
+type User {
+  posts: PostConnection
+}
+```
+
+```graphql
+# ⚠️ Warning — missing backward pagination arguments (with default includeBoth: true)
+type User {
+  posts(first: Int, after: String): PostConnection
+}
+```
+
+```graphql
+# ✅ Good — all pagination arguments present
+type User {
+  posts(first: Int, after: String, last: Int, before: String): PostConnection
+}
+```
+
+```graphql
+# ✅ Good — extra arguments are fine
+type User {
+  posts(first: Int, after: String, last: Int, before: String, filter: String): PostConnection
+}
+```
+
+## Options
+
+| Option        | Type   | Default | Description                                                                                                     |
+| ------------- | ------ | ------- | --------------------------------------------------------------------------------------------------------------- |
+| `includeBoth` | `bool` | `true`  | When true, requires both forward and backward pagination arguments. When false, either direction is sufficient. |
+
+## Configuration
+
+```yaml
+# Require both forward and backward pagination arguments (default)
+extensions:
+  graphql-analyzer:
+    lint:
+      rules:
+        relayArguments: warn
+
+# Only require one direction (forward OR backward)
+extensions:
+  graphql-analyzer:
+    lint:
+      rules:
+        relayArguments: [warn, { includeBoth: false }]
+```

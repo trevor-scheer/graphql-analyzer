@@ -24,13 +24,7 @@ pub fn run(
     let ctx = CommandContext::load(config_path, project_name, "fragments")?;
 
     // Get project config
-    let selected_name = CommandContext::get_project_name(project_name);
-    let project_config = ctx
-        .config
-        .projects()
-        .find(|(name, _)| *name == selected_name)
-        .map(|(_, cfg)| cfg.clone())
-        .ok_or_else(|| anyhow::anyhow!("Project '{selected_name}' not found"))?;
+    let project_config = ctx.get_project_config(project_name)?;
 
     // Load project
     let spinner = if matches!(format, OutputFormat::Human) {
@@ -72,7 +66,7 @@ pub fn run(
         OutputFormat::Human => {
             display_human_format(&fragment_usages, start_time.elapsed());
         }
-        OutputFormat::Json | OutputFormat::Github => {
+        OutputFormat::Json | OutputFormat::Github | OutputFormat::Sarif => {
             display_json_format(&fragment_usages);
         }
     }

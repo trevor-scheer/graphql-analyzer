@@ -1,0 +1,885 @@
+use crate::diagnostics::{CodeSuggestion, LintDiagnostic, LintSeverity};
+use crate::schema_utils::extract_root_type_names;
+use crate::traits::{LintRule, ProjectLintRule};
+use apollo_parser::cst::{self, CstNode};
+use graphql_base_db::{FileId, ProjectFiles};
+use serde::Deserialize;
+use std::collections::{HashMap, HashSet};
+
+/// Options for the `no-unused-fields` rule.
+#[derive(Debug, Clone, Deserialize)]
+pub struct NoUnusedFieldsOptions {
+    /// ESLint-style field selectors whose matched fields are excluded from
+    /// unused-field checking. Upstream uses this for Relay pagination fields.
+    ///
+    /// Supported form: `[parent.name.value=TypeName][name.value=fieldName]`
+    /// where either value may be a `/regex/` literal.
+    #[serde(default, rename = "ignoredFieldSelectors")]
+    pub ignored_field_selectors: Vec<String>,
+
+    /// When `true`, fields on root operation types (Query, Mutation,
+    /// Subscription) are never reported as unused. Default is `true` to
+    /// preserve existing behavior — root entry-points are not canonical
+    /// "must all be called" requirements. Set to `false` for strict upstream
+    /// parity.
+    #[serde(default = "default_skip_root_types", rename = "skipRootTypes")]
+    pub skip_root_types: bool,
+}
+
+fn default_skip_root_types() -> bool {
+    true
+}
+
+impl Default for NoUnusedFieldsOptions {
+    fn default() -> Self {
+        Self {
+            ignored_field_selectors: Vec::new(),
+            skip_root_types: true,
+        }
+    }
+}
+
+impl NoUnusedFieldsOptions {
+    fn from_json(value: Option<&serde_json::Value>) -> Self {
+        value
+            .and_then(|v| serde_json::from_value(v.clone()).ok())
+            .unwrap_or_default()
+    }
+}
+
+/// A parsed form of a single `ignoredFieldSelectors` entry.
+///
+/// Supports upstream's Relay-style form:
+///   `[parent.name.value=TypeName][name.value=fieldName]`
+/// where either value may be a `/regex/` JavaScript-style literal.
+#[derive(Debug, Clone)]
+enum IgnoredFieldSelector {
+    /// Both parent type name and field name are plain string literals.
+    Exact {
+        parent_name: String,
+        field_name: String,
+    },
+    /// At least one side is a regex; the other may be a literal or regex.
+    Mixed {
+        parent: SelectorValue,
+        field: SelectorValue,
+    },
+}
+
+#[derive(Debug, Clone)]
+enum SelectorValue {
+    Literal(String),
+    Regex(regex::Regex),
+}
+
+impl SelectorValue {
+    fn matches(&self, s: &str) -> bool {
+        match self {
+            Self::Literal(lit) => lit == s,
+            Self::Regex(re) => re.is_match(s),
+        }
+    }
+}
+
+impl IgnoredFieldSelector {
+    fn parse(raw: &str) -> Option<Self> {
+        let s = raw.trim();
+        let (first_attr, rest) = parse_field_selector_attr(s)?;
+        let (second_attr, leftover) = parse_field_selector_attr(rest)?;
+        if !leftover.trim().is_empty() {
+            tracing::warn!(
+                target: "no-unused-fields",
+                "ignoredFieldSelectors: unsupported selector (trailing content): {raw}"
+            );
+            return None;
+        }
+
+        // Upstream always uses [parent.name.value=X][name.value=Y] order.
+        let (parent_val, field_val) = if let (Some(p), Some(f)) = (
+            first_attr.strip_prefix("parent.name.value="),
+            second_attr.strip_prefix("name.value="),
+        ) {
+            (p.trim(), f.trim())
+        } else {
+            tracing::warn!(
+                target: "no-unused-fields",
+                "ignoredFieldSelectors: expected `[parent.name.value=X][name.value=Y]` form: {raw}"
+            );
+            return None;
+        };
+
+        let parent = parse_selector_value(parent_val, raw, "parent.name.value")?;
+        let field = parse_selector_value(field_val, raw, "name.value")?;
+
+        Some(match (&parent, &field) {
+            (SelectorValue::Literal(p), SelectorValue::Literal(f)) => Self::Exact {
+                parent_name: p.clone(),
+                field_name: f.clone(),
+            },
+            _ => Self::Mixed { parent, field },
+        })
+    }
+
+    fn matches(&self, parent_type: &str, field_name: &str) -> bool {
+        match self {
+            Self::Exact {
+                parent_name,
+                field_name: fn_,
+            } => parent_name == parent_type && fn_ == field_name,
+            Self::Mixed { parent, field } => {
+                parent.matches(parent_type) && field.matches(field_name)
+            }
+        }
+    }
+}
+
+/// Parse a JavaScript-style regex literal (`/pattern/flags`) or a plain
+/// string literal. Returns `None` (and logs a warning) only on regex compile
+/// error.
+fn parse_selector_value(value: &str, raw: &str, attr: &str) -> Option<SelectorValue> {
+    if value.starts_with('/') {
+        let inner = value.trim_start_matches('/');
+        // Strip trailing `/` and any flags after it.
+        let end = inner.rfind('/').unwrap_or(inner.len());
+        let pattern_str = &inner[..end];
+        match regex::Regex::new(pattern_str) {
+            Ok(re) => Some(SelectorValue::Regex(re)),
+            Err(e) => {
+                tracing::warn!(
+                    target: "no-unused-fields",
+                    "ignoredFieldSelectors: invalid regex `{pattern_str}` in `{raw}` for {attr}: {e}"
+                );
+                None
+            }
+        }
+    } else {
+        Some(SelectorValue::Literal(value.to_string()))
+    }
+}
+
+/// Extract `[content]` from the start of `s`. Returns `(content, rest_of_s)`.
+fn parse_field_selector_attr(s: &str) -> Option<(&str, &str)> {
+    let s = s.trim_start();
+    if !s.starts_with('[') {
+        return None;
+    }
+    let close = s.find(']')?;
+    Some((&s[1..close], &s[close + 1..]))
+}
+
+fn parse_ignored_field_selectors(raw: &[String]) -> Vec<IgnoredFieldSelector> {
+    raw.iter()
+        .filter_map(|s| IgnoredFieldSelector::parse(s))
+        .collect()
+}
+
+/// Trait implementation for `no_unused_fields` rule
+pub struct NoUnusedFieldsRuleImpl;
+
+impl LintRule for NoUnusedFieldsRuleImpl {
+    fn name(&self) -> &'static str {
+        "noUnusedFields"
+    }
+
+    fn description(&self) -> &'static str {
+        "Detects schema fields that are never used in any operation or fragment"
+    }
+
+    fn default_severity(&self) -> LintSeverity {
+        LintSeverity::Warning
+    }
+}
+
+/// Information about a schema field for diagnostic reporting
+struct FieldInfo {
+    /// Type name containing the field
+    type_name: String,
+    /// Field name
+    field_name: String,
+    /// File where the field is defined
+    file_id: FileId,
+    /// Source span for the field name (carries block context for TS/JS)
+    span: graphql_syntax::SourceSpan,
+    /// Block-local byte range covering the entire field definition (for the
+    /// "Remove `<field>` field" suggestion fix). Mirrors upstream's
+    /// `fixer.remove(node)`.
+    def_start: usize,
+    def_end: usize,
+}
+
+impl ProjectLintRule for NoUnusedFieldsRuleImpl {
+    fn check(
+        &self,
+        db: &dyn graphql_hir::GraphQLHirDatabase,
+        project_files: ProjectFiles,
+        options: Option<&serde_json::Value>,
+    ) -> HashMap<FileId, Vec<LintDiagnostic>> {
+        let opts = NoUnusedFieldsOptions::from_json(options);
+        let ignored_selectors = parse_ignored_field_selectors(&opts.ignored_field_selectors);
+
+        let mut diagnostics_by_file: HashMap<FileId, Vec<LintDiagnostic>> = HashMap::new();
+
+        // Step 1: Collect all schema fields with their CST positions
+        let schema_ids = project_files.schema_file_ids(db).ids(db);
+        let mut all_fields: Vec<FieldInfo> = Vec::new();
+
+        for file_id in schema_ids.iter() {
+            let Some((content, metadata)) =
+                graphql_base_db::file_lookup(db, project_files, *file_id)
+            else {
+                continue;
+            };
+
+            // Parse the schema file to get CST positions
+            let parse = graphql_syntax::parse(db, content, metadata);
+            if parse.has_errors() {
+                continue;
+            }
+
+            // Iterate over all GraphQL documents (unified API)
+            for doc in parse.documents() {
+                collect_schema_fields(&doc.tree.document(), *file_id, &doc, &mut all_fields);
+            }
+        }
+
+        // Step 2: Collect all used schema coordinates using per-file cached queries
+        let mut used_coordinates: HashMap<String, HashSet<String>> = HashMap::new();
+        let doc_ids = project_files.document_file_ids(db).ids(db);
+
+        // Determine root types for skipping (supports custom schema definitions)
+        let schema_types = graphql_hir::schema_types(db, project_files);
+        let root_types = extract_root_type_names(db, project_files, schema_types);
+
+        for file_id in doc_ids.iter() {
+            let Some((content, metadata)) =
+                graphql_base_db::file_lookup(db, project_files, *file_id)
+            else {
+                continue;
+            };
+            let file_coords = graphql_hir::file_schema_coordinates(
+                db,
+                *file_id,
+                content,
+                metadata,
+                project_files,
+            );
+            for coord in file_coords.iter() {
+                used_coordinates
+                    .entry(coord.type_name.to_string())
+                    .or_default()
+                    .insert(coord.field_name.to_string());
+            }
+        }
+
+        // Step 3: Report unused fields (no auto-fix - removing schema fields is a breaking change)
+        for field_info in &all_fields {
+            // Skip introspection types
+            if is_introspection_type(&field_info.type_name) {
+                continue;
+            }
+
+            // Skip root operation types when configured to do so (default: true
+            // to preserve historical behavior — root entry-points are not
+            // required to be exhaustively called).
+            if opts.skip_root_types && root_types.is_root_type(&field_info.type_name) {
+                continue;
+            }
+
+            // Skip introspection fields
+            if is_introspection_field(&field_info.field_name) {
+                continue;
+            }
+
+            // Skip fields matched by any ignoredFieldSelectors entry.
+            if ignored_selectors
+                .iter()
+                .any(|sel| sel.matches(&field_info.type_name, &field_info.field_name))
+            {
+                continue;
+            }
+
+            let is_used = used_coordinates
+                .get(&field_info.type_name)
+                .is_some_and(|set| set.contains(&field_info.field_name));
+
+            if !is_used {
+                // Mirror graphql-eslint's `no-unused-fields` message verbatim
+                // (drop-in parity expectation: same text, same messageId).
+                let message = format!("Field \"{}\" is unused", field_info.field_name);
+
+                // Mirror upstream's `fixer.remove(isEmptyType ? node.parent : node)`:
+                // if removing this field empties the parent type, upstream
+                // removes the parent. We don't track empty-after-remove yet,
+                // so we always remove just the field. This still matches
+                // upstream byte-for-byte in the common case.
+                let suggestion = CodeSuggestion::delete(
+                    format!("Remove `{}` field", field_info.field_name),
+                    field_info.def_start,
+                    field_info.def_end,
+                );
+
+                let diag =
+                    LintDiagnostic::warning(field_info.span.clone(), message, "noUnusedFields")
+                        .with_message_id("no-unused-fields")
+                        .with_help("Remove the unused field, or add it to an operation or fragment")
+                        .with_suggestion(suggestion)
+                        .with_tag(crate::diagnostics::DiagnosticTag::Unnecessary);
+
+                diagnostics_by_file
+                    .entry(field_info.file_id)
+                    .or_default()
+                    .push(diag);
+            }
+        }
+
+        diagnostics_by_file
+    }
+}
+
+/// Collect schema field definitions from a CST document with their positions
+fn collect_schema_fields(
+    cst_doc: &cst::Document,
+    file_id: FileId,
+    doc: &graphql_syntax::DocumentRef<'_>,
+    fields: &mut Vec<FieldInfo>,
+) {
+    for definition in cst_doc.definitions() {
+        match definition {
+            cst::Definition::ObjectTypeDefinition(obj) => {
+                let Some(type_name) = obj.name() else {
+                    continue;
+                };
+                let type_name_str = type_name.text().to_string();
+
+                if let Some(fields_def) = obj.fields_definition() {
+                    collect_field_definitions(&type_name_str, file_id, doc, &fields_def, fields);
+                }
+            }
+            cst::Definition::InterfaceTypeDefinition(iface) => {
+                let Some(type_name) = iface.name() else {
+                    continue;
+                };
+                let type_name_str = type_name.text().to_string();
+
+                if let Some(fields_def) = iface.fields_definition() {
+                    collect_field_definitions(&type_name_str, file_id, doc, &fields_def, fields);
+                }
+            }
+            cst::Definition::ObjectTypeExtension(ext) => {
+                let Some(type_name) = ext.name() else {
+                    continue;
+                };
+                let type_name_str = type_name.text().to_string();
+
+                if let Some(fields_def) = ext.fields_definition() {
+                    collect_field_definitions(&type_name_str, file_id, doc, &fields_def, fields);
+                }
+            }
+            cst::Definition::InterfaceTypeExtension(ext) => {
+                let Some(type_name) = ext.name() else {
+                    continue;
+                };
+                let type_name_str = type_name.text().to_string();
+
+                if let Some(fields_def) = ext.fields_definition() {
+                    collect_field_definitions(&type_name_str, file_id, doc, &fields_def, fields);
+                }
+            }
+            _ => {}
+        }
+    }
+}
+
+/// Collect field definitions from a `FieldsDefinition` CST node
+fn collect_field_definitions(
+    type_name: &str,
+    file_id: FileId,
+    doc: &graphql_syntax::DocumentRef<'_>,
+    fields_def: &cst::FieldsDefinition,
+    fields: &mut Vec<FieldInfo>,
+) {
+    for field in fields_def.field_definitions() {
+        let Some(name) = field.name() else {
+            continue;
+        };
+
+        let name_syntax = name.syntax();
+        let name_start: usize = name_syntax.text_range().start().into();
+        let name_end: usize = name_syntax.text_range().end().into();
+        let field_range = field.syntax().text_range();
+        let def_start: usize = field_range.start().into();
+        let def_end: usize = field_range.end().into();
+
+        fields.push(FieldInfo {
+            type_name: type_name.to_string(),
+            field_name: name.text().to_string(),
+            file_id,
+            span: doc.span(name_start, name_end),
+            def_start,
+            def_end,
+        });
+    }
+}
+
+/// Check if a type is a built-in introspection type
+fn is_introspection_type(type_name: &str) -> bool {
+    matches!(
+        type_name,
+        "__Schema"
+            | "__Type"
+            | "__Field"
+            | "__InputValue"
+            | "__EnumValue"
+            | "__TypeKind"
+            | "__Directive"
+            | "__DirectiveLocation"
+    )
+}
+
+/// Check if a field name is an introspection field
+fn is_introspection_field(field_name: &str) -> bool {
+    matches!(field_name, "__typename" | "__schema" | "__type")
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::traits::ProjectLintRule;
+    use graphql_base_db::{DocumentKind, FileContent, FileId, FileMetadata, FileUri, Language};
+    use graphql_ide_db::RootDatabase;
+    use std::sync::Arc;
+
+    fn create_test_project(
+        db: &dyn graphql_hir::GraphQLHirDatabase,
+        schema_source: &str,
+        document_source: &str,
+    ) -> ProjectFiles {
+        let schema_file_id = FileId::new(0);
+        let schema_content = FileContent::new(db, Arc::from(schema_source));
+        let schema_metadata = FileMetadata::new(
+            db,
+            schema_file_id,
+            FileUri::new("file:///schema.graphql"),
+            Language::GraphQL,
+            DocumentKind::Schema,
+        );
+
+        let doc_file_id = FileId::new(1);
+        let doc_content = FileContent::new(db, Arc::from(document_source));
+        let doc_metadata = FileMetadata::new(
+            db,
+            doc_file_id,
+            FileUri::new("file:///query.graphql"),
+            Language::GraphQL,
+            DocumentKind::Executable,
+        );
+
+        let schema_file_ids =
+            graphql_base_db::SchemaFileIds::new(db, Arc::new(vec![schema_file_id]));
+        let document_file_ids =
+            graphql_base_db::DocumentFileIds::new(db, Arc::new(vec![doc_file_id]));
+        let mut file_entries = std::collections::HashMap::new();
+        let schema_entry = graphql_base_db::FileEntry::new(db, schema_content, schema_metadata);
+        let doc_entry = graphql_base_db::FileEntry::new(db, doc_content, doc_metadata);
+        file_entries.insert(schema_file_id, schema_entry);
+        file_entries.insert(doc_file_id, doc_entry);
+        let file_entry_map = graphql_base_db::FileEntryMap::new(db, Arc::new(file_entries));
+
+        ProjectFiles::new(
+            db,
+            schema_file_ids,
+            document_file_ids,
+            graphql_base_db::ResolvedSchemaFileIds::new(db, std::sync::Arc::new(vec![])),
+            file_entry_map,
+            graphql_base_db::FilePathMap::new(
+                db,
+                Arc::new(std::collections::HashMap::new()),
+                Arc::new(std::collections::HashMap::new()),
+            ),
+        )
+    }
+
+    #[test]
+    fn test_all_fields_used_no_warning() {
+        let db = RootDatabase::default();
+        let rule = NoUnusedFieldsRuleImpl;
+
+        let schema = r"
+type Query {
+    user: User
+}
+
+type User {
+    id: ID!
+    name: String!
+}
+";
+
+        let document = r"
+query GetUser {
+    user {
+        id
+        name
+    }
+}
+";
+
+        let project_files = create_test_project(&db, schema, document);
+        let diagnostics = rule.check(&db, project_files, None);
+
+        assert!(diagnostics.is_empty());
+    }
+
+    #[test]
+    fn test_unused_field_warning() {
+        let db = RootDatabase::default();
+        let rule = NoUnusedFieldsRuleImpl;
+
+        let schema = r"
+type Query {
+    user: User
+}
+
+type User {
+    id: ID!
+    name: String!
+    unusedField: String
+}
+";
+
+        let document = r"
+query GetUser {
+    user {
+        id
+        name
+    }
+}
+";
+
+        let project_files = create_test_project(&db, schema, document);
+        let diagnostics = rule.check(&db, project_files, None);
+
+        assert_eq!(diagnostics.len(), 1);
+        let file_diags = diagnostics.values().next().unwrap();
+        assert_eq!(file_diags.len(), 1);
+        assert!(file_diags[0].message.contains("\"unusedField\""));
+        assert!(file_diags[0].message.contains("is unused"));
+    }
+
+    #[test]
+    fn test_field_used_in_fragment_not_reported() {
+        let db = RootDatabase::default();
+        let rule = NoUnusedFieldsRuleImpl;
+
+        let schema = r"
+type Query {
+    user: User
+}
+
+type User {
+    id: ID!
+    name: String!
+    email: String
+}
+";
+
+        let document = r"
+fragment UserFields on User {
+    id
+    name
+    email
+}
+";
+
+        let project_files = create_test_project(&db, schema, document);
+        let diagnostics = rule.check(&db, project_files, None);
+
+        assert!(diagnostics.is_empty());
+    }
+
+    #[test]
+    fn test_root_type_fields_not_reported() {
+        let db = RootDatabase::default();
+        let rule = NoUnusedFieldsRuleImpl;
+
+        let schema = r"
+type Query {
+    user: User
+    posts: [Post!]!
+}
+
+type User {
+    id: ID!
+}
+
+type Post {
+    id: ID!
+}
+";
+
+        let document = r"
+query GetUser {
+    user {
+        id
+    }
+}
+";
+
+        let project_files = create_test_project(&db, schema, document);
+        let diagnostics = rule.check(&db, project_files, None);
+
+        let root_type_warnings: Vec<_> = diagnostics
+            .values()
+            .flatten()
+            .filter(|d| d.message.contains("Query.posts"))
+            .collect();
+        assert!(
+            root_type_warnings.is_empty(),
+            "Root type fields should not be reported as unused"
+        );
+    }
+
+    #[test]
+    fn test_introspection_types_not_reported() {
+        let db = RootDatabase::default();
+        let rule = NoUnusedFieldsRuleImpl;
+
+        let schema = r"
+type Query {
+    user: User
+}
+
+type User {
+    id: ID!
+}
+";
+
+        let document = r"
+query GetUser {
+    user {
+        id
+    }
+}
+";
+
+        let project_files = create_test_project(&db, schema, document);
+        let diagnostics = rule.check(&db, project_files, None);
+
+        let introspection_warnings: Vec<_> = diagnostics
+            .values()
+            .flatten()
+            .filter(|d| d.message.contains("__"))
+            .collect();
+        assert!(
+            introspection_warnings.is_empty(),
+            "Introspection types should not be reported as unused"
+        );
+    }
+
+    #[test]
+    fn test_multiple_unused_fields() {
+        let db = RootDatabase::default();
+        let rule = NoUnusedFieldsRuleImpl;
+
+        let schema = r"
+type Query {
+    user: User
+}
+
+type User {
+    id: ID!
+    name: String!
+    email: String
+    phone: String
+}
+";
+
+        let document = r"
+query GetUser {
+    user {
+        id
+    }
+}
+";
+
+        let project_files = create_test_project(&db, schema, document);
+        let diagnostics = rule.check(&db, project_files, None);
+
+        let total_diags: usize = diagnostics.values().map(Vec::len).sum();
+        assert_eq!(total_diags, 3);
+    }
+
+    #[test]
+    fn test_interface_field_used_through_interface() {
+        let db = RootDatabase::default();
+        let rule = NoUnusedFieldsRuleImpl;
+
+        let schema = r"
+type Query {
+    node: Node
+}
+
+interface Node {
+    id: ID!
+}
+
+type User implements Node {
+    id: ID!
+    name: String!
+}
+";
+
+        let document = r"
+query GetNode {
+    node {
+        id
+    }
+}
+";
+
+        let project_files = create_test_project(&db, schema, document);
+        let diagnostics = rule.check(&db, project_files, None);
+
+        let interface_id_warnings: Vec<_> = diagnostics
+            .values()
+            .flatten()
+            .filter(|d| d.message.contains("Node.id"))
+            .collect();
+        assert!(
+            interface_id_warnings.is_empty(),
+            "Interface Node.id field should not be reported when used"
+        );
+    }
+
+    #[test]
+    fn test_implementing_type_field_tracked_separately() {
+        let db = RootDatabase::default();
+        let rule = NoUnusedFieldsRuleImpl;
+
+        let schema = r"
+type Query {
+    user: User
+}
+
+type User {
+    id: ID!
+    name: String!
+}
+";
+
+        let document = r"
+query GetUser {
+    user {
+        id
+        name
+    }
+}
+";
+
+        let project_files = create_test_project(&db, schema, document);
+        let diagnostics = rule.check(&db, project_files, None);
+
+        assert!(
+            diagnostics.is_empty(),
+            "All fields are used, no warnings expected"
+        );
+    }
+
+    #[test]
+    fn test_nested_field_used() {
+        let db = RootDatabase::default();
+        let rule = NoUnusedFieldsRuleImpl;
+
+        let schema = r"
+type Query {
+    user: User
+}
+
+type User {
+    id: ID!
+    profile: Profile
+}
+
+type Profile {
+    bio: String
+    avatar: String
+}
+";
+
+        let document = r"
+query GetUser {
+    user {
+        id
+        profile {
+            bio
+        }
+    }
+}
+";
+
+        let project_files = create_test_project(&db, schema, document);
+        let diagnostics = rule.check(&db, project_files, None);
+
+        let avatar_warnings: Vec<_> = diagnostics
+            .values()
+            .flatten()
+            .filter(|d| d.message.contains("\"avatar\""))
+            .collect();
+        assert_eq!(
+            avatar_warnings.len(),
+            1,
+            "Unused avatar field should be reported"
+        );
+    }
+
+    #[test]
+    fn test_custom_schema_definition_root_types() {
+        let db = RootDatabase::default();
+        let rule = NoUnusedFieldsRuleImpl;
+
+        let schema = r"
+schema {
+    query: RootQuery
+    mutation: RootMutation
+}
+
+type RootQuery {
+    user: User
+    posts: [Post!]!
+}
+
+type RootMutation {
+    createUser: User
+}
+
+type User {
+    id: ID!
+}
+
+type Post {
+    id: ID!
+}
+";
+
+        let document = r"
+query GetUser {
+    user {
+        id
+    }
+}
+";
+
+        let project_files = create_test_project(&db, schema, document);
+        let diagnostics = rule.check(&db, project_files, None);
+
+        let root_query_warnings: Vec<_> = diagnostics
+            .values()
+            .flatten()
+            .filter(|d| d.message.contains("RootQuery."))
+            .collect();
+        assert!(
+            root_query_warnings.is_empty(),
+            "Custom root type fields should not be reported as unused"
+        );
+    }
+}

@@ -21,6 +21,8 @@ pub fn run(
         file_path: String,
         line: usize,
         column: usize,
+        end_line: usize,
+        end_column: usize,
         message: String,
     }
 
@@ -35,13 +37,7 @@ pub fn run(
     let ctx = CommandContext::load(config_path, project_name, "validate")?;
 
     // Get project config
-    let selected_name = CommandContext::get_project_name(project_name);
-    let project_config = ctx
-        .config
-        .projects()
-        .find(|(name, _)| *name == selected_name)
-        .map(|(_, cfg)| cfg.clone())
-        .ok_or_else(|| anyhow::anyhow!("Project '{selected_name}' not found"))?;
+    let project_config = ctx.get_project_config(project_name)?;
 
     // Load and select project
     let spinner = if matches!(format, OutputFormat::Human) && output_opts.show_progress {
@@ -169,6 +165,8 @@ pub fn run(
                     // graphql-ide uses 0-based, CLI output uses 1-based
                     line: (diag.range.start.line + 1) as usize,
                     column: (diag.range.start.character + 1) as usize,
+                    end_line: (diag.range.end.line + 1) as usize,
+                    end_column: (diag.range.end.character + 1) as usize,
                     message: diag.message,
                 };
 
@@ -257,13 +255,41 @@ pub fn run(
             for error in &all_errors {
                 if error.line > 0 {
                     println!(
-                        "::error file={},line={},col={}::{}",
-                        error.file_path, error.line, error.column, error.message
+                        "::error file={},line={},col={},endLine={},endColumn={}::{}",
+                        error.file_path,
+                        error.line,
+                        error.column,
+                        error.end_line,
+                        error.end_column,
+                        error.message
                     );
                 } else {
                     println!("::error ::{}", error.message);
                 }
             }
+        }
+        OutputFormat::Sarif => {
+            use crate::commands::sarif::{self, SarifLevel, SarifResult};
+
+            let sarif_results: Vec<SarifResult> = all_errors
+                .iter()
+                .map(|error| SarifResult {
+                    rule_id: "validation".to_string(),
+                    message: error.message.clone(),
+                    level: SarifLevel::Error,
+                    file_path: error.file_path.clone(),
+                    start_line: error.line,
+                    start_column: error.column,
+                    end_line: error.end_line,
+                    end_column: error.end_column,
+                })
+                .collect();
+
+            let output = sarif::format_sarif(&sarif_results, &ctx.base_dir);
+            println!(
+                "{}",
+                serde_json::to_string_pretty(&output).unwrap_or_default()
+            );
         }
     }
 
@@ -302,13 +328,7 @@ fn run_watch_mode(
     let ctx = CommandContext::load(config_path, project_name, "validate")?;
 
     // Get project config
-    let selected_name = CommandContext::get_project_name(project_name);
-    let project_config = ctx
-        .config
-        .projects()
-        .find(|(name, _)| *name == selected_name)
-        .map(|(_, cfg)| cfg.clone())
-        .ok_or_else(|| anyhow::anyhow!("Project '{selected_name}' not found"))?;
+    let project_config = ctx.get_project_config(project_name)?;
 
     // Create watch config
     let watch_config = WatchConfig {

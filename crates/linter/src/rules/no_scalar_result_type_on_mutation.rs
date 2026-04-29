@@ -1,4 +1,4 @@
-use crate::diagnostics::{LintDiagnostic, LintSeverity};
+use crate::diagnostics::{CodeSuggestion, LintDiagnostic, LintSeverity};
 use crate::traits::{LintRule, StandaloneSchemaLintRule};
 use graphql_base_db::{FileId, ProjectFiles};
 use graphql_hir::TypeDefKind;
@@ -63,8 +63,8 @@ impl StandaloneSchemaLintRule for NoScalarResultTypeOnMutationRuleImpl {
                     .is_some_and(|t| t.kind == TypeDefKind::Scalar);
 
             if is_scalar {
-                let start: usize = field.name_range.start().into();
-                let end: usize = field.name_range.end().into();
+                let start: usize = field.type_ref.name_range.start().into();
+                let end: usize = field.type_ref.name_range.end().into();
                 let span = graphql_syntax::SourceSpan {
                     start,
                     end,
@@ -73,18 +73,24 @@ impl StandaloneSchemaLintRule for NoScalarResultTypeOnMutationRuleImpl {
                     source: None,
                 };
 
+                let suggestion =
+                    CodeSuggestion::delete(format!("Remove `{return_type_name}`"), start, end);
                 diagnostics_by_file
                     .entry(mutation_type.file_id)
                     .or_default()
-                    .push(LintDiagnostic::new(
-                        span,
-                        LintSeverity::Warning,
-                        format!(
-                            "Mutation field '{}' returns scalar type '{}'. Mutations should return object types.",
-                            field.name, return_type_name
-                        ),
-                        "noScalarResultTypeOnMutation",
-                    ));
+                    .push(
+                        LintDiagnostic::new(
+                            span,
+                            LintSeverity::Warning,
+                            format!(
+                                "Unexpected scalar result type `{}` for field \"{}\" in type \"{}\"",
+                                return_type_name, field.name, mutation_type_name
+                            ),
+                            "noScalarResultTypeOnMutation",
+                        )
+                        .with_suggestion(suggestion)
+                        .with_help("Return an object type that wraps the result so future fields can be added without breaking clients"),
+                    );
             }
         }
 
@@ -119,7 +125,18 @@ mod tests {
         let schema_file_ids = SchemaFileIds::new(db, Arc::new(vec![file_id]));
         let document_file_ids = DocumentFileIds::new(db, Arc::new(vec![]));
         let file_entry_map = FileEntryMap::new(db, Arc::new(entries));
-        ProjectFiles::new(db, schema_file_ids, document_file_ids, file_entry_map)
+        ProjectFiles::new(
+            db,
+            schema_file_ids,
+            document_file_ids,
+            graphql_base_db::ResolvedSchemaFileIds::new(db, std::sync::Arc::new(vec![])),
+            file_entry_map,
+            graphql_base_db::FilePathMap::new(
+                db,
+                Arc::new(std::collections::HashMap::new()),
+                Arc::new(std::collections::HashMap::new()),
+            ),
+        )
     }
 
     #[test]

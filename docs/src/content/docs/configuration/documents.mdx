@@ -23,6 +23,8 @@ documents:
   - "src/**/*.gql"
   - "src/**/*.tsx"
   - "src/**/*.ts"
+  - "src/**/*.jsx"
+  - "src/**/*.js"
   - "src/**/*.vue"
   - "src/**/*.svelte"
   - "src/**/*.astro"
@@ -65,14 +67,16 @@ By default, the tool recognizes `gql` imported from common modules. You can cust
 ```yaml
 documents: "src/**/*.tsx"
 extensions:
-  extractConfig:
-    tagIdentifiers: ["gql", "graphql", "query"]
-    modules: ["graphql-tag", "@apollo/client", "custom-gql"]
-    allowGlobalIdentifiers: true
+  graphql-analyzer:
+    extractConfig:
+      tagIdentifiers: ["gql", "graphql", "query"]
+      modules: ["graphql-tag", "@apollo/client", "custom-gql"]
+      allowGlobalIdentifiers: true
 ```
 
-| Option                   | Default           | Description                      |
-| ------------------------ | ----------------- | -------------------------------- |
-| `tagIdentifiers`         | `["gql"]`         | Tag function names to recognize  |
-| `modules`                | `["graphql-tag"]` | Import sources to recognize      |
-| `allowGlobalIdentifiers` | `false`           | Allow unimported tag identifiers |
+| Option                   | Default                                                                                                | Description                                                                                                  |
+| ------------------------ | ------------------------------------------------------------------------------------------------------ | ------------------------------------------------------------------------------------------------------------ |
+| `tagIdentifiers`         | `["gql", "graphql"]`                                                                                   | Tag function names to recognize                                                                              |
+| `modules`                | `["graphql-tag", "@apollo/client", "apollo-server", "apollo-server-express", "gatsby", "react-relay"]` | Import sources to recognize                                                                                  |
+| `magicComment`           | `"GraphQL"`                                                                                            | Enables extraction from string literals and untagged template literals preceded by a `/* GraphQL */` comment |
+| `allowGlobalIdentifiers` | `false`                                                                                                | Allow unimported tag identifiers                                                                             |

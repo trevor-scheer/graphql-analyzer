@@ -1,0 +1,54 @@
+---
+slug: rules/uniqueEnumValueNames
+title: uniqueEnumValueNames
+description: Detect duplicate enum values across enums.
+---
+
+| Property         | Value                  |
+| ---------------- | ---------------------- |
+| Config name      | `uniqueEnumValueNames` |
+| Default severity | `warn`                 |
+| Context          | Schema                 |
+| In recommended   | Yes                    |
+
+## What it checks
+
+Detect duplicate enum values across enums.
+
+## Examples
+
+```graphql
+# ❌ Bad — ACTIVE appears in both enums
+enum UserStatus {
+  ACTIVE
+  INACTIVE
+}
+
+enum ProjectStatus {
+  ACTIVE
+  ARCHIVED
+}
+```
+
+```graphql
+# ✅ Good — unique values across enums
+enum UserStatus {
+  USER_ACTIVE
+  USER_INACTIVE
+}
+
+enum ProjectStatus {
+  PROJECT_ACTIVE
+  PROJECT_ARCHIVED
+}
+```
+
+## Configuration
+
+```yaml
+extensions:
+  graphql-analyzer:
+    lint:
+      rules:
+        uniqueEnumValueNames: warn
+```

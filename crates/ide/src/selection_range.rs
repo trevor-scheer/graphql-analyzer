@@ -8,7 +8,7 @@ use apollo_parser::cst::{self, CstNode};
 
 use crate::helpers::{find_block_for_position, offset_range_to_range, position_to_offset};
 use crate::types::{FilePath, Position, Range, SelectionRange};
-use crate::FileRegistry;
+use crate::DbFiles;
 
 /// Get selection ranges at multiple positions in a file.
 ///
@@ -16,7 +16,7 @@ use crate::FileRegistry;
 /// from the innermost syntax element to the outermost (document).
 pub fn selection_ranges(
     db: &dyn graphql_syntax::GraphQLSyntaxDatabase,
-    registry: &FileRegistry,
+    registry: DbFiles<'_>,
     file: &FilePath,
     positions: &[Position],
 ) -> Vec<Option<SelectionRange>> {

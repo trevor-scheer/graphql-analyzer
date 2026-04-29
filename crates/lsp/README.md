@@ -134,7 +134,7 @@ extensions:
   lsp:
     lint:
       rules:
-        unusedFields: off
+        noUnusedFields: off
 ```
 
 See [graphql-linter](../graphql-linter/README.md) for available rules.
@@ -362,7 +362,7 @@ extensions:
 
 ### Concurrent Requests
 
-Multiple LSP requests handled in parallel using async Rust and concurrent data structures.
+The server runs a sync, single-threaded main loop (`lsp-server` + `crossbeam-channel`). Read-only requests (hover, completion, goto-definition, etc.) are dispatched to a `threadpool` worker with an `Analysis` snapshot taken on the main thread; results return via a crossbeam task channel. Writes to `GlobalState` and `AnalysisHost` happen only on the main thread, so no locks are needed.
 
 ## Configuration Examples
 

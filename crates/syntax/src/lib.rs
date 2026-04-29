@@ -177,14 +177,13 @@ pub fn parse(
     metadata: FileMetadata,
 ) -> Parse {
     let uri = metadata.uri(db);
-    let language = metadata.language(db);
 
-    // Dispatch based on language: GraphQL parses directly, others need extraction
-    if language.requires_extraction() {
-        extract_and_parse(db, &content.text(db), uri.as_str())
-    } else {
-        parse_graphql(&content.text(db), uri.as_str())
+    #[cfg(feature = "extract")]
+    if metadata.language(db).requires_extraction() {
+        return extract_and_parse(db, &content.text(db), uri.as_str());
     }
+    // When the extract feature is off (wasm), all files parse as raw GraphQL.
+    parse_graphql(&content.text(db), uri.as_str())
 }
 
 /// Parse pure GraphQL content into a single block at offset 0
@@ -225,6 +224,7 @@ fn parse_graphql(content: &str, uri: &str) -> Parse {
 }
 
 /// Extract GraphQL from TypeScript/JavaScript and parse each block
+#[cfg(feature = "extract")]
 fn extract_and_parse(db: &dyn GraphQLSyntaxDatabase, content: &str, uri: &str) -> Parse {
     use graphql_extract::{extract_from_source, ExtractConfig, Language};
 
@@ -581,23 +581,69 @@ impl LineIndex {
         }
     }
 
-    /// Convert a byte offset to a line/column position (0-based)
+    /// Convert a byte offset to a line/column position (0-based).
     ///
     /// Columns are measured in UTF-16 code units, matching the LSP specification.
     /// For byte-based columns (internal use), see [`line_col_bytes`](Self::line_col_bytes).
+    ///
+    /// # Resilience to stale offsets
+    ///
+    /// LSP code paths can hand this function a byte offset that was computed
+    /// against an older revision of the source — for example, a Salsa-cached
+    /// diagnostic span that survived a content edit. Rather than panicking,
+    /// we clamp the offset to the end of the source and snap to the nearest
+    /// preceding char boundary. The returned position is "the closest valid
+    /// position to where you asked", which is the right answer for downstream
+    /// LSP position conversion.
+    ///
+    /// A `tracing::warn!` is emitted whenever clamping or snapping occurs,
+    /// because it indicates a bug somewhere upstream (the offsets *should*
+    /// always be valid for the source). The warn lets us notice the bug
+    /// without crashing the server.
     #[must_use]
     pub fn line_col(&self, offset: usize) -> (usize, usize) {
-        assert!(
-            offset <= self.source.len(),
-            "byte offset {offset} is out of bounds of source ({} bytes). \
-             This is a bug — the offset likely comes from a different file than the LineIndex.",
-            self.source.len()
-        );
-        let (line, byte_col) = self.line_col_bytes(offset);
+        let safe_offset = self.clamp_offset_to_source(offset);
+        let (line, byte_col) = self.line_col_bytes(safe_offset);
         let line_start = self.line_starts[line];
         let line_text = &self.source[line_start..line_start + byte_col];
         let utf16_col: usize = line_text.chars().map(char::len_utf16).sum();
         (line, utf16_col)
+    }
+
+    /// Clamp a byte offset into a value that is guaranteed to be in-bounds and
+    /// on a char boundary of `self.source`.
+    ///
+    /// Logs a warning if the input was already invalid, since that points to
+    /// a bug in whichever upstream code produced the offset (typically a
+    /// stale diagnostic span computed against an older source revision).
+    fn clamp_offset_to_source(&self, offset: usize) -> usize {
+        let len = self.source.len();
+        if offset > len {
+            tracing::warn!(
+                offset,
+                source_len = len,
+                "LineIndex::line_col offset is past end of source — clamping. \
+                 This usually means a diagnostic span was computed against an \
+                 older revision of the file."
+            );
+            return len;
+        }
+        if !self.source.is_char_boundary(offset) {
+            // Walk backwards to the nearest char boundary. This always
+            // terminates because byte 0 is always a char boundary.
+            let mut snapped = offset;
+            while !self.source.is_char_boundary(snapped) {
+                snapped -= 1;
+            }
+            tracing::warn!(
+                offset,
+                snapped,
+                "LineIndex::line_col offset landed mid-character — snapping back to char boundary. \
+                 This usually means a diagnostic span was computed against an older revision of the file."
+            );
+            return snapped;
+        }
+        offset
     }
 
     /// Convert a byte offset to a line/column position with byte-based columns
@@ -663,6 +709,7 @@ pub trait GraphQLSyntaxDatabase: salsa::Database {
     /// Get the extract configuration for TypeScript/JavaScript extraction
     /// Returns None by default, which means use `ExtractConfig::default()`
     /// Implementations can override to provide custom configuration
+    #[cfg(feature = "extract")]
     fn extract_config(&self) -> Option<Arc<graphql_extract::ExtractConfig>> {
         None
     }
@@ -730,6 +777,65 @@ mod tests {
         assert_eq!(index.line_count(), 1);
         assert_eq!(index.line_col(0), (0, 0));
         assert_eq!(index.line_col(3), (0, 3));
+    }
+
+    /// Regression test for the panic that crashed the LSP during rapid edits.
+    ///
+    /// `line_col` used to `assert!(offset <= self.source.len())`. When a
+    /// Salsa-cached lint diagnostic span survived a content edit and was then
+    /// converted via a freshly-built `LineIndex`, the cached offset could
+    /// point past the end of the new (shorter) source, panicking the
+    /// `spawn_blocking` worker. The host would then either deadlock (old
+    /// `RwLock` architecture) or just lose the request (new architecture).
+    ///
+    /// Defensive behavior: clamp the offset to the end of the source and
+    /// return the position there, plus a `tracing::warn!` so the upstream
+    /// bug remains visible.
+    #[test]
+    fn test_line_col_offset_past_end_does_not_panic() {
+        let text = "type Query {\n  hello: String\n}";
+        let index = LineIndex::new(text);
+        let len = text.len();
+
+        // Exactly at the end is valid (returns the end position).
+        let end_pos = index.line_col(len);
+        assert_eq!(end_pos, (2, 1));
+
+        // One past the end clamps to the end position.
+        assert_eq!(index.line_col(len + 1), end_pos);
+
+        // Way past the end (simulating a stale offset from a much-larger
+        // previous revision) also clamps.
+        assert_eq!(index.line_col(len + 100), end_pos);
+        assert_eq!(index.line_col(usize::MAX / 2), end_pos);
+    }
+
+    /// Regression test: an offset landing mid-character must not panic.
+    ///
+    /// Without the snap-to-boundary defensive code, slicing
+    /// `&source[line_start..line_start + byte_col]` panics with "byte index N
+    /// is not a char boundary" when the offset (e.g., from a stale diagnostic)
+    /// happens to fall inside a multi-byte UTF-8 sequence.
+    #[test]
+    fn test_line_col_mid_character_offset_does_not_panic() {
+        // 🚀 is 4 bytes (F0 9F 9A 80) starting at byte index 0.
+        let text = "\u{1F680}xy";
+        let index = LineIndex::new(text);
+
+        // Offset 0 is the start of the rocket — fine.
+        assert_eq!(index.line_col(0), (0, 0));
+
+        // Offsets 1, 2, 3 land *inside* the rocket's UTF-8 bytes. Without
+        // snap-to-boundary, slicing the source there panics. With the
+        // defensive snap, all three return (0, 0) — the position of the
+        // nearest preceding char boundary.
+        assert_eq!(index.line_col(1), (0, 0));
+        assert_eq!(index.line_col(2), (0, 0));
+        assert_eq!(index.line_col(3), (0, 0));
+
+        // Offset 4 is the start of 'x' — fine, returns (0, 2) because the
+        // rocket is 2 UTF-16 code units.
+        assert_eq!(index.line_col(4), (0, 2));
     }
 
     #[test]

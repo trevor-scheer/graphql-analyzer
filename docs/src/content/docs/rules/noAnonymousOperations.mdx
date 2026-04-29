@@ -1,0 +1,46 @@
+---
+slug: rules/noAnonymousOperations
+title: noAnonymousOperations
+description: Require all operations to be named.
+---
+
+| Property         | Value                   |
+| ---------------- | ----------------------- |
+| Config name      | `noAnonymousOperations` |
+| Default severity | `error`                 |
+| Context          | Document                |
+| In recommended   | Yes                     |
+
+## What it checks
+
+Requires all GraphQL operations to have a name. Named operations improve debugging, logging, and tooling integration.
+
+## Examples
+
+```graphql
+# ❌ Bad — anonymous operation
+query {
+  user {
+    id
+  }
+}
+```
+
+```graphql
+# ✅ Good — named operation
+query GetUser {
+  user {
+    id
+  }
+}
+```
+
+## Configuration
+
+```yaml
+extensions:
+  graphql-analyzer:
+    lint:
+      rules:
+        noAnonymousOperations: error # or warn, off
+```

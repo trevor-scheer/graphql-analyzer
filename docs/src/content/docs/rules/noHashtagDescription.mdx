@@ -1,0 +1,44 @@
+---
+slug: rules/noHashtagDescription
+title: noHashtagDescription
+description: Disallow # comments as type descriptions.
+---
+
+| Property         | Value                  |
+| ---------------- | ---------------------- |
+| Config name      | `noHashtagDescription` |
+| Default severity | `warn`                 |
+| Context          | Schema                 |
+| In recommended   | Yes                    |
+
+## What it checks
+
+Disallow # comments as type descriptions.
+
+## Examples
+
+```graphql
+# ❌ Bad — comment used as description
+# A user type
+type User {
+  id: ID!
+}
+```
+
+```graphql
+# ✅ Good — proper description string
+"A user type"
+type User {
+  id: ID!
+}
+```
+
+## Configuration
+
+```yaml
+extensions:
+  graphql-analyzer:
+    lint:
+      rules:
+        noHashtagDescription: warn
+```

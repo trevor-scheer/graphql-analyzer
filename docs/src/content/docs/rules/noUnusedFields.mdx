@@ -1,0 +1,51 @@
+---
+slug: rules/noUnusedFields
+title: noUnusedFields
+description: Detect schema fields never queried in any operation.
+---
+
+| Property         | Value            |
+| ---------------- | ---------------- |
+| Config name      | `noUnusedFields` |
+| Default severity | `warn`           |
+| Context          | Project          |
+| In recommended   | Yes              |
+
+## What it checks
+
+Detects schema fields that are never queried in any operation or fragment across the project. Helps identify unused API surface area.
+
+## Examples
+
+```graphql
+# Schema
+type User {
+  id: ID!
+  email: String! # ⚠️ Warning: Field 'email' is never used
+}
+
+# Operations only query 'id', never 'email'
+query {
+  user {
+    id
+  }
+}
+```
+
+## Configuration
+
+```yaml
+extensions:
+  graphql-analyzer:
+    lint:
+      rules:
+        noUnusedFields: warn # or error, off
+```
+
+## Performance note
+
+This is a project-wide rule that analyzes all documents. It can be slow on large projects. If you experience latency in the editor, disable it in config and enable it in CI via CLI flags:
+
+```bash
+graphql check --rule noUnusedFields=error
+```

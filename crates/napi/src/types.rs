@@ -1,0 +1,160 @@
+use napi_derive::napi;
+
+#[napi(object)]
+pub struct JsDiagnostic {
+    pub rule: String,
+    pub message: String,
+    /// Optional ESLint-compatible messageId. Set when the underlying lint rule
+    /// emits a stable per-diagnostic-site id (matching graphql-eslint's
+    /// equivalent emission); the ESLint shim forwards this onto
+    /// `LintMessage.messageId` for drop-in parity.
+    pub message_id: Option<String>,
+    /// ESLint-style severity string: `"error"`, `"warn"`, `"info"`, or `"hint"`.
+    pub severity: String,
+    /// 1-based line number (ESLint convention)
+    pub line: u32,
+    /// 1-based column number (ESLint convention)
+    pub column: u32,
+    pub end_line: u32,
+    pub end_column: u32,
+    pub fix: Option<JsFix>,
+    /// Manual quick-fix suggestions. Surface as ESLint `suggest` arrays;
+    /// each entry carries a `desc` (label shown in IDE menus) and a
+    /// single-edit `fix` payload. Empty for diagnostics without
+    /// suggestions.
+    pub suggestions: Vec<JsCodeSuggestion>,
+    pub help: Option<String>,
+    pub url: Option<String>,
+    /// Originating subsystem, e.g. `"graphql-analyzer"`. Surfaced in
+    /// downstream tools that group diagnostics by producer.
+    pub source: String,
+}
+
+#[napi(object)]
+pub struct JsCodeSuggestion {
+    /// Short label shown in the IDE quick-fix menu.
+    pub desc: String,
+    /// The single fix this suggestion would apply.
+    pub fix: JsFix,
+}
+
+#[napi(object)]
+pub struct JsFix {
+    pub description: String,
+    pub edits: Vec<JsTextEdit>,
+}
+
+#[napi(object)]
+pub struct JsTextEdit {
+    pub range_start_line: u32,
+    pub range_start_column: u32,
+    pub range_end_line: u32,
+    pub range_end_column: u32,
+    pub new_text: String,
+}
+
+#[napi(object)]
+pub struct JsExtractedBlock {
+    pub source: String,
+    pub offset: u32,
+    pub tag: Option<String>,
+}
+
+#[napi(object)]
+pub struct JsRuleMeta {
+    pub name: String,
+    pub description: String,
+    pub default_severity: String,
+    pub category: String,
+}
+
+// -- From conversions ---------------------------------------------------------
+
+impl From<graphql_ide::Diagnostic> for JsDiagnostic {
+    fn from(d: graphql_ide::Diagnostic) -> Self {
+        Self {
+            rule: d.code.unwrap_or_default(),
+            message: d.message,
+            message_id: d.message_id,
+            // Match ESLint's severity vocabulary so strings align with
+            // `JsRuleMeta::default_severity`. Consumers map `"warn"` →
+            // ESLint level 1, `"error"` → level 2.
+            severity: match d.severity {
+                graphql_ide::DiagnosticSeverity::Error => "error".to_string(),
+                graphql_ide::DiagnosticSeverity::Warning => "warn".to_string(),
+                graphql_ide::DiagnosticSeverity::Information => "info".to_string(),
+                graphql_ide::DiagnosticSeverity::Hint => "hint".to_string(),
+            },
+            // IDE positions are 0-indexed; ESLint expects 1-based
+            line: d.range.start.line + 1,
+            column: d.range.start.character + 1,
+            end_line: d.range.end.line + 1,
+            end_column: d.range.end.character + 1,
+            fix: d.fix.map(JsFix::from),
+            suggestions: d
+                .suggestions
+                .into_iter()
+                .map(JsCodeSuggestion::from)
+                .collect(),
+            help: d.help,
+            url: d.url,
+            source: d.source,
+        }
+    }
+}
+
+impl From<graphql_ide::CodeSuggestion> for JsCodeSuggestion {
+    fn from(s: graphql_ide::CodeSuggestion) -> Self {
+        Self {
+            desc: s.desc,
+            fix: JsFix::from(s.fix),
+        }
+    }
+}
+
+impl From<graphql_ide::CodeFix> for JsFix {
+    fn from(f: graphql_ide::CodeFix) -> Self {
+        Self {
+            description: f.label,
+            edits: f.edits.into_iter().map(JsTextEdit::from).collect(),
+        }
+    }
+}
+
+impl From<graphql_ide::TextEdit> for JsTextEdit {
+    fn from(e: graphql_ide::TextEdit) -> Self {
+        Self {
+            range_start_line: e.range.start.line + 1,
+            range_start_column: e.range.start.character + 1,
+            range_end_line: e.range.end.line + 1,
+            range_end_column: e.range.end.character + 1,
+            new_text: e.new_text,
+        }
+    }
+}
+
+impl From<graphql_extract::ExtractedGraphQL> for JsExtractedBlock {
+    fn from(e: graphql_extract::ExtractedGraphQL) -> Self {
+        Self {
+            source: e.source,
+            offset: e.location.offset as u32,
+            tag: e.tag_name,
+        }
+    }
+}
+
+impl From<graphql_linter::RuleInfo> for JsRuleMeta {
+    fn from(r: graphql_linter::RuleInfo) -> Self {
+        Self {
+            name: r.name.to_string(),
+            description: r.description.to_string(),
+            default_severity: match r.default_severity {
+                graphql_linter::DiagnosticSeverity::Error => "error",
+                graphql_linter::DiagnosticSeverity::Warning => "warn",
+                graphql_linter::DiagnosticSeverity::Info => "info",
+            }
+            .to_string(),
+            category: r.category.to_string(),
+        }
+    }
+}

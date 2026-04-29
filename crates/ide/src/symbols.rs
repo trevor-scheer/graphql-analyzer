@@ -12,7 +12,7 @@ use crate::symbol::{
     find_type_definition_full_range, SymbolRanges,
 };
 use crate::types::{DocumentSymbol, FilePath, Location, SymbolKind, WorkspaceSymbol};
-use crate::FileRegistry;
+use crate::DbFiles;
 
 /// Get document symbols for a file (hierarchical outline).
 ///
@@ -20,7 +20,7 @@ use crate::FileRegistry;
 /// This powers the "Go to Symbol in Editor" (Cmd+Shift+O) feature.
 pub fn document_symbols(
     db: &dyn graphql_hir::GraphQLHirDatabase,
-    registry: &FileRegistry,
+    registry: DbFiles<'_>,
     file: &FilePath,
 ) -> Vec<DocumentSymbol> {
     let (content, metadata, file_id) = {
@@ -101,6 +101,9 @@ pub fn document_symbols(
                     }
                     sym
                 }
+                "directive" => {
+                    DocumentSymbol::new(name, SymbolKind::Directive, range, selection_range)
+                }
                 _ => continue,
             };
 
@@ -117,7 +120,7 @@ pub fn document_symbols(
 /// This powers the "Go to Symbol in Workspace" (Cmd+T) feature.
 pub fn workspace_symbols(
     db: &dyn graphql_analysis::GraphQLAnalysisDatabase,
-    registry: &FileRegistry,
+    registry: DbFiles<'_>,
     project_files: Option<graphql_base_db::ProjectFiles>,
     query: &str,
 ) -> Vec<WorkspaceSymbol> {
@@ -156,6 +159,22 @@ pub fn workspace_symbols(
                     WorkspaceSymbol::new(name.to_string(), SymbolKind::Fragment, location)
                         .with_container(format!("on {}", fragment.type_condition)),
                 );
+            }
+        }
+    }
+
+    let directives = graphql_hir::source_schema_directives(db, project_files);
+    for (dir_name, directive) in directives {
+        let search_name = format!("@{dir_name}");
+        if search_name.to_lowercase().contains(&query_lower)
+            || dir_name.to_lowercase().contains(&query_lower)
+        {
+            if let Some(location) = get_directive_location(db, registry, directive) {
+                symbols.push(WorkspaceSymbol::new(
+                    search_name,
+                    SymbolKind::Directive,
+                    location,
+                ));
             }
         }
     }
@@ -327,7 +346,7 @@ fn get_field_children_from_map(
 /// Get location for a type definition.
 fn get_type_location(
     db: &dyn graphql_analysis::GraphQLAnalysisDatabase,
-    registry: &FileRegistry,
+    registry: DbFiles<'_>,
     type_def: &graphql_hir::TypeDef,
 ) -> Option<Location> {
     let file_path = registry.get_path(type_def.file_id)?;
@@ -353,7 +372,7 @@ fn get_type_location(
 /// Get location for a fragment definition.
 fn get_fragment_location(
     db: &dyn graphql_analysis::GraphQLAnalysisDatabase,
-    registry: &FileRegistry,
+    registry: DbFiles<'_>,
     fragment: &graphql_hir::FragmentStructure,
 ) -> Option<Location> {
     let file_path = registry.get_path(fragment.file_id)?;
@@ -379,7 +398,7 @@ fn get_fragment_location(
 /// Get location for an operation definition.
 fn get_operation_location(
     db: &dyn graphql_analysis::GraphQLAnalysisDatabase,
-    registry: &FileRegistry,
+    registry: DbFiles<'_>,
     operation: &graphql_hir::OperationStructure,
 ) -> Option<Location> {
     let op_name = operation.name.as_ref()?;
@@ -395,6 +414,37 @@ fn get_operation_location(
             let doc_line_index = graphql_syntax::LineIndex::new(doc.source);
             let range = adjust_range_for_line_offset(
                 offset_range_to_range(&doc_line_index, ranges.name_start, ranges.name_end),
+                doc.line_offset,
+            );
+            return Some(Location::new(file_path, range));
+        }
+    }
+
+    None
+}
+
+/// Get location for a directive definition.
+fn get_directive_location(
+    db: &dyn graphql_analysis::GraphQLAnalysisDatabase,
+    registry: DbFiles<'_>,
+    directive: &graphql_hir::DirectiveDef,
+) -> Option<Location> {
+    let file_path = registry.get_path(directive.file_id)?;
+    let content = registry.get_content(directive.file_id)?;
+    let metadata = registry.get_metadata(directive.file_id)?;
+
+    let parse = graphql_syntax::parse(db, content, metadata);
+
+    // Find the directive definition in the CST to get proper line offset context
+    for doc in parse.documents() {
+        let doc_line_index = graphql_syntax::LineIndex::new(doc.source);
+        let start: usize = directive.name_range.start().into();
+        let end: usize = directive.name_range.end().into();
+
+        // Check if this range falls within this document's source
+        if start <= doc.source.len() {
+            let range = adjust_range_for_line_offset(
+                offset_range_to_range(&doc_line_index, start, end),
                 doc.line_offset,
             );
             return Some(Location::new(file_path, range));

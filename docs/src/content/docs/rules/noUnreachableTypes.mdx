@@ -1,0 +1,54 @@
+---
+slug: rules/noUnreachableTypes
+title: noUnreachableTypes
+description: Detect types unreachable from root operations.
+---
+
+| Property         | Value                |
+| ---------------- | -------------------- |
+| Config name      | `noUnreachableTypes` |
+| Default severity | `warn`               |
+| Context          | Schema               |
+| In recommended   | Yes                  |
+
+## What it checks
+
+Detect types unreachable from root operations.
+
+## Examples
+
+```graphql
+# ❌ Bad — OrphanType is unreachable
+type Query {
+  user: User
+}
+
+type User {
+  id: ID!
+}
+
+type OrphanType {
+  id: ID!
+}
+```
+
+```graphql
+# ✅ Good — all types reachable from Query
+type Query {
+  user: User
+}
+
+type User {
+  id: ID!
+}
+```
+
+## Configuration
+
+```yaml
+extensions:
+  graphql-analyzer:
+    lint:
+      rules:
+        noUnreachableTypes: warn
+```

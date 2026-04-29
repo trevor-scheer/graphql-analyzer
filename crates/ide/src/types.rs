@@ -60,6 +60,16 @@ pub struct CodeFix {
     pub edits: Vec<TextEdit>,
 }
 
+/// A manual quick-fix suggestion. Surfaced through `ESLint`'s `suggest`
+/// array; users opt in per-suggestion via their IDE menu rather than
+/// having `--fix` apply them. Mirrors graphql-eslint's `suggest` shape
+/// so the napi shim can pass them through unchanged.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct CodeSuggestion {
+    pub desc: String,
+    pub fix: CodeFix,
+}
+
 impl CodeFix {
     /// Create a new code fix
     #[must_use]
@@ -257,6 +267,15 @@ pub enum DiagnosticSeverity {
     Hint,
 }
 
+/// A tag attached to a diagnostic providing additional classification
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum DiagnosticTag {
+    /// The diagnostic marks code as unnecessary (e.g., unused fragments)
+    Unnecessary,
+    /// The diagnostic marks code as deprecated
+    Deprecated,
+}
+
 /// Diagnostic (error, warning, hint)
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Diagnostic {
@@ -264,9 +283,21 @@ pub struct Diagnostic {
     pub severity: DiagnosticSeverity,
     pub message: String,
     pub code: Option<String>,
+    /// Optional ESLint-compatible messageId. Forwarded to `LintMessage.messageId`
+    /// by the `ESLint` shim so drop-in users get the same per-diagnostic-site id
+    /// graphql-eslint emits.
+    pub message_id: Option<String>,
     pub source: String,
     /// Optional auto-fix for this diagnostic
     pub fix: Option<CodeFix>,
+    /// Manual quick-fix suggestions. Surface as `ESLint` `suggest` arrays.
+    pub suggestions: Vec<CodeSuggestion>,
+    /// Optional help text explaining how to resolve the issue
+    pub help: Option<String>,
+    /// Optional documentation URL for the rule
+    pub url: Option<String>,
+    /// Diagnostic tags for additional classification
+    pub tags: Vec<DiagnosticTag>,
 }
 
 impl Diagnostic {
@@ -281,8 +312,13 @@ impl Diagnostic {
             severity,
             message: message.into(),
             code: None,
+            message_id: None,
             source: source.into(),
             fix: None,
+            suggestions: Vec::new(),
+            help: None,
+            url: None,
+            tags: Vec::new(),
         }
     }
 
@@ -293,8 +329,32 @@ impl Diagnostic {
     }
 
     #[must_use]
+    pub fn with_message_id(mut self, id: impl Into<String>) -> Self {
+        self.message_id = Some(id.into());
+        self
+    }
+
+    #[must_use]
     pub fn with_fix(mut self, fix: CodeFix) -> Self {
         self.fix = Some(fix);
+        self
+    }
+
+    #[must_use]
+    pub fn with_help(mut self, help: impl Into<String>) -> Self {
+        self.help = Some(help.into());
+        self
+    }
+
+    #[must_use]
+    pub fn with_url(mut self, url: impl Into<String>) -> Self {
+        self.url = Some(url.into());
+        self
+    }
+
+    #[must_use]
+    pub fn with_tag(mut self, tag: DiagnosticTag) -> Self {
+        self.tags.push(tag);
         self
     }
 }
@@ -326,6 +386,8 @@ pub enum SymbolKind {
     Union,
     /// Enum type
     Enum,
+    /// Directive definition
+    Directive,
 }
 
 /// A document symbol (hierarchical structure for outline view)
@@ -1219,6 +1281,92 @@ impl ComplexityAnalysis {
             range,
         }
     }
+}
+
+/// A lightweight summary of a schema type for listing
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct SchemaTypeEntry {
+    pub name: String,
+    pub kind: String,
+    pub description: Option<String>,
+    pub field_count: usize,
+    pub implements: Vec<String>,
+    pub is_extension: bool,
+}
+
+/// Full details about a specific schema type
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct TypeInfo {
+    pub name: String,
+    pub kind: String,
+    pub description: Option<String>,
+    pub implements: Vec<String>,
+    pub fields: Vec<TypeFieldInfo>,
+    pub directives: Vec<TypeDirectiveInfo>,
+    pub enum_values: Vec<TypeEnumValueInfo>,
+    pub union_members: Vec<String>,
+}
+
+/// A field in a type definition
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct TypeFieldInfo {
+    pub name: String,
+    pub type_ref: String,
+    pub description: Option<String>,
+    pub arguments: Vec<TypeArgumentInfo>,
+    pub is_deprecated: bool,
+    pub deprecation_reason: Option<String>,
+    pub directives: Vec<TypeDirectiveInfo>,
+}
+
+/// An argument on a field or directive
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct TypeArgumentInfo {
+    pub name: String,
+    pub type_ref: String,
+    pub description: Option<String>,
+    pub default_value: Option<String>,
+}
+
+/// A directive applied to a schema element
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct TypeDirectiveInfo {
+    pub name: String,
+    pub arguments: Vec<TypeDirectiveArgumentInfo>,
+}
+
+/// An argument passed to a directive
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct TypeDirectiveArgumentInfo {
+    pub name: String,
+    pub value: String,
+}
+
+/// An enum value in an enum type
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct TypeEnumValueInfo {
+    pub name: String,
+    pub description: Option<String>,
+    pub is_deprecated: bool,
+    pub deprecation_reason: Option<String>,
+}
+
+/// Summary of an operation for document analysis
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct OperationSummary {
+    pub name: Option<String>,
+    pub operation_type: String,
+    pub file: FilePath,
+    pub variables: Vec<OperationVariableInfo>,
+    pub fragment_dependencies: Vec<String>,
+}
+
+/// A variable defined on an operation
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct OperationVariableInfo {
+    pub name: String,
+    pub type_ref: String,
+    pub default_value: Option<String>,
 }
 
 #[cfg(test)]

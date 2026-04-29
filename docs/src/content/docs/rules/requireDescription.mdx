@@ -1,0 +1,65 @@
+---
+slug: rules/requireDescription
+title: requireDescription
+description: Require descriptions on type definitions.
+---
+
+| Property         | Value                |
+| ---------------- | -------------------- |
+| Config name      | `requireDescription` |
+| Default severity | `—`                  |
+| Context          | Document + Schema    |
+| In recommended   | No                   |
+
+## What it checks
+
+Require descriptions on type definitions.
+
+## Examples
+
+```graphql
+# ❌ Bad — type without description
+type User {
+  id: ID!
+}
+```
+
+```graphql
+# ✅ Good — type with description
+"Represents a registered user"
+type User {
+  id: ID!
+}
+```
+
+## Options
+
+Each option is a boolean that opts a specific AST kind into the description requirement. All options default to `true` when no options object is provided.
+
+| Option                 | Type   | Default | Description                                                                                                                                                                                    |
+| ---------------------- | ------ | ------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `types`                | `bool` | `true`  | Require descriptions on type definitions: `ObjectTypeDefinition`, `InterfaceTypeDefinition`, `EnumTypeDefinition`, `ScalarTypeDefinition`, `InputObjectTypeDefinition`, `UnionTypeDefinition`. |
+| `rootField`            | `bool` | `true`  | Require descriptions on fields defined directly on root types (`Query`, `Mutation`, `Subscription`).                                                                                           |
+| `FieldDefinition`      | `bool` | `true`  | Require descriptions on all field definitions.                                                                                                                                                 |
+| `InputValueDefinition` | `bool` | `true`  | Require descriptions on input fields and arguments.                                                                                                                                            |
+| `EnumValueDefinition`  | `bool` | `true`  | Require descriptions on enum values.                                                                                                                                                           |
+| `DirectiveDefinition`  | `bool` | `true`  | Require descriptions on directive definitions.                                                                                                                                                 |
+| `OperationDefinition`  | `bool` | `true`  | Require descriptions (via `#` comment) on operation definitions.                                                                                                                               |
+
+## Configuration
+
+```yaml
+extensions:
+  graphql-analyzer:
+    lint:
+      rules:
+        requireDescription: warn
+
+# Enable only specific kinds
+        requireDescription:
+          - warn
+          - types: true
+            FieldDefinition: true
+            EnumValueDefinition: false
+            OperationDefinition: false
+```

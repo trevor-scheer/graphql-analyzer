@@ -1,0 +1,50 @@
+# Demonstrates: requireTypePatternWithOneof
+# Types with @oneOf must have both 'ok' and 'error' fields.
+
+"""
+This type uses @oneOf but is missing the 'error' field.
+"""
+type CreateUserResult @oneOf {
+  """
+  Successful result
+  """
+  ok: CreateUserSuccess
+}
+
+"""
+This type uses @oneOf but is missing the 'ok' field.
+"""
+type DeleteUserResult @oneOf {
+  """
+  Error result
+  """
+  error: Error
+}
+
+"""
+This type uses @oneOf but is missing both required fields.
+"""
+type UpdateUserResult @oneOf {
+  """
+  Custom success
+  """
+  success: UpdateUserSuccess
+  """
+  Custom failure
+  """
+  failure: Error
+}
+
+"""
+This type correctly follows the @oneOf result pattern.
+"""
+type LoginResult @oneOf {
+  """
+  Successful result
+  """
+  ok: LoginSuccess
+  """
+  Error result
+  """
+  error: Error
+}

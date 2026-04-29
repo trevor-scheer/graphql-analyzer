@@ -1,0 +1,40 @@
+schema: "schema.graphql"
+documents: "src/**/*.graphql"
+extensions:
+  graphql-analyzer:
+    lint:
+      # All rules enabled for parity probing. ESLint filters per-test by
+      # which rule(s) are configured in its config; the analyzer binding
+      # only emits diagnostics for rules listed here.
+      rules:
+        alphabetize: warn
+        descriptionStyle: warn
+        inputName: warn
+        loneExecutableDefinition: warn
+        matchDocumentFilename: warn
+        namingConvention: warn
+        noAnonymousOperations: error
+        noDeprecated: warn
+        noDuplicateFields: error
+        noHashtagDescription: warn
+        noOnePlaceFragments: warn
+        noRootType: warn
+        noScalarResultTypeOnMutation: warn
+        noTypenamePrefix: warn
+        noUnreachableTypes: warn
+        relayArguments: warn
+        relayConnectionTypes: warn
+        relayEdgeTypes: warn
+        relayPageInfo: warn
+        requireDeprecationDate: warn
+        requireDeprecationReason: warn
+        requireDescription: warn
+        requireFieldOfTypeQueryInMutationResult: warn
+        requireImportFragment: warn
+        requireNullableFieldsWithOneof: warn
+        requireNullableResultInRoot: warn
+        requireSelections: warn
+        requireTypePatternWithOneof: warn
+        selectionSetDepth: warn
+        strictIdInTypes: warn
+        uniqueEnumValueNames: warn

@@ -16,7 +16,9 @@ members = [
   "crates/ide-db",
   "crates/test-utils",
   "crates/mcp",
+  "crates/napi",
   "crates/apollo-ext",
+  "crates/lsp-wasm",
   "benches",
   ".husky",
   "xtask",
@@ -33,7 +35,7 @@ authors = ["Trevor Scheer <trevor.scheer@gmail.com>"]
 # Common dependencies
 serde = { version = "1.0", features = ["derive"] }
 serde_json = "1.0"
-serde_yml = "0.0.12"
+serde-saphyr = "0.0.25"
 thiserror = "2.0"
 anyhow = "1.0"
 
@@ -49,7 +51,10 @@ apollo-compiler = { git = "https://github.com/trevor-scheer/apollo-rs.git", bran
 tokio = { version = "1.48", features = ["macros", "rt-multi-thread"] }
 
 # LSP
-tower-lsp-server = "0.23"
+lsp-server = "0.7"
+lsp-types = "0.97"
+crossbeam-channel = "0.5"
+threadpool = "1.8"
 
 # CLI
 clap = { version = "4.5", features = ["derive"] }
@@ -64,12 +69,13 @@ ignore = "0.4"
 # HTTP
 reqwest = { version = "0.13", default-features = false, features = ["json", "rustls"] }
 
-swc_core = { version = "59.0", features = ["ecma_parser", "ecma_ast", "ecma_visit"] }
-swc_common = "19.0"
+swc_core = { version = "64.0", features = ["ecma_parser", "ecma_ast", "ecma_visit"] }
+swc_common = "21.0"
+
+# Fuzzy matching
+strsim = "0.11"
 
 # Utilities
-dashmap = "6.1"
-parking_lot = "0.12"
 
 # Logging and Tracing
 tracing = "0.1"

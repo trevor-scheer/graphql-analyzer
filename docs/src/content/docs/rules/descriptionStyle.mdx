@@ -1,0 +1,48 @@
+---
+slug: rules/descriptionStyle
+title: descriptionStyle
+description: Enforce block vs inline description style.
+---
+
+| Property         | Value              |
+| ---------------- | ------------------ |
+| Config name      | `descriptionStyle` |
+| Default severity | `—`                |
+| Context          | Schema             |
+| In recommended   | No                 |
+
+## What it checks
+
+Enforce block vs inline description style.
+
+## Examples
+
+```graphql
+# ❌ Bad — inline description on multi-line type
+"A user"
+type User {
+  id: ID!
+  name: String
+}
+```
+
+```graphql
+# ✅ Good — block description
+"""
+A user
+"""
+type User {
+  id: ID!
+  name: String
+}
+```
+
+## Configuration
+
+```yaml
+extensions:
+  graphql-analyzer:
+    lint:
+      rules:
+        descriptionStyle: warn
+```

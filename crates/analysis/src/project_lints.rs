@@ -654,7 +654,19 @@ mod tests {
         let document_file_ids = DocumentFileIds::new(db, Arc::new(doc_ids));
         let file_entry_map = FileEntryMap::new(db, Arc::new(entries));
 
-        ProjectFiles::new(db, schema_file_ids, document_file_ids, file_entry_map)
+        let file_path_map = graphql_base_db::FilePathMap::new(
+            db,
+            Arc::new(std::collections::HashMap::new()),
+            Arc::new(std::collections::HashMap::new()),
+        );
+        ProjectFiles::new(
+            db,
+            schema_file_ids,
+            document_file_ids,
+            graphql_base_db::ResolvedSchemaFileIds::new(db, std::sync::Arc::new(vec![])),
+            file_entry_map,
+            file_path_map,
+        )
     }
 
     #[test]

@@ -90,7 +90,7 @@ pub trait StandaloneSchemaLintRule: LintRule {
 /// - All fragments
 /// - All operations
 ///
-/// Examples: `unique_names`, `unused_fields`, `unused_fragments`
+/// Examples: `unique_names`, `no_unused_fields`, `no_unused_fragments`
 pub trait ProjectLintRule: LintRule {
     /// Check the entire project
     /// Returns diagnostics grouped by file

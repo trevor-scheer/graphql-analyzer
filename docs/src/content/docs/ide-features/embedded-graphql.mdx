@@ -7,12 +7,12 @@ GraphQL Analyzer provides full IDE support for GraphQL embedded in TypeScript, J
 
 ## Supported file types
 
-| File type               | Extensions                   | How GraphQL is found                                    |
-| ----------------------- | ---------------------------- | ------------------------------------------------------- |
-| TypeScript / JavaScript | `.ts`, `.tsx`, `.js`, `.jsx` | Tagged template literals (`gql`, `graphql`)             |
-| Vue                     | `.vue`                       | `<script>` / `<script setup>` blocks → tagged templates |
-| Svelte                  | `.svelte`                    | `<script>` blocks → tagged templates                    |
-| Astro                   | `.astro`                     | Frontmatter (`---`) section → tagged templates          |
+| File type               | Extensions                                   | How GraphQL is found                                    |
+| ----------------------- | -------------------------------------------- | ------------------------------------------------------- |
+| TypeScript / JavaScript | `.ts`, `.tsx`, `.js`, `.jsx`, `.mjs`, `.cjs` | Tagged template literals (`gql`, `graphql`)             |
+| Vue                     | `.vue`                                       | `<script>` / `<script setup>` blocks → tagged templates |
+| Svelte                  | `.svelte`                                    | `<script>` blocks → tagged templates                    |
+| Astro                   | `.astro`                                     | Frontmatter (`---`) section → tagged templates          |
 
 All IDE features work inside embedded GraphQL regardless of file type:
 
@@ -101,17 +101,43 @@ The analyzer extracts GraphQL from tagged template literals and maps positions b
 
 ## Configuring extraction
 
-By default, the tool recognizes `gql` imported from `graphql-tag`. Customize which tags and modules are recognized:
+By default, the tool recognizes `gql` and `graphql` tags imported from any of these modules: `graphql-tag`, `@apollo/client`, `apollo-server`, `apollo-server-express`, `gatsby`, and `react-relay`. Customize which tags and modules are recognized:
 
 ```yaml
 extensions:
-  extractConfig:
-    tagIdentifiers: ["gql", "graphql", "query"]
-    modules: ["graphql-tag", "@apollo/client", "custom-gql"]
-    allowGlobalIdentifiers: true
+  graphql-analyzer:
+    extractConfig:
+      tagIdentifiers: ["gql", "graphql", "query"]
+      modules: ["graphql-tag", "@apollo/client", "custom-gql"]
+      allowGlobalIdentifiers: true
 ```
 
 See [Documents configuration](/graphql-analyzer/configuration/documents/) for details.
+
+## Magic comment extraction
+
+In addition to tagged template literals, the analyzer extracts GraphQL from untagged string literals and template literals preceded by a `/* GraphQL */` comment:
+
+```typescript
+const query = /* GraphQL */ `
+  query GetUser($id: ID!) {
+    user(id: $id) {
+      id
+      name
+    }
+  }
+`;
+
+const mutation = /* GraphQL */ `
+  mutation UpdateUser($id: ID!, $name: String!) {
+    updateUser(id: $id, name: $name) {
+      id
+    }
+  }
+`;
+```
+
+This covers patterns where the tag function is unavailable or unnecessary — the comment signals intent and triggers the same extraction pipeline as a recognized tag.
 
 ## Common issues
 

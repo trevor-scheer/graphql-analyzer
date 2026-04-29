@@ -1,4 +1,4 @@
-/// A text edit representing a change to apply to fix a lint issue
+/// A text edit representing a change to apply to fix a lint issue.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct TextEdit {
     /// Byte offset range in the file (or block for TS/JS files)
@@ -45,6 +45,54 @@ pub struct CodeFix {
     pub edits: Vec<TextEdit>,
 }
 
+/// A suggestion (manual quick-fix) that surfaces alongside a diagnostic but
+/// requires explicit user opt-in. Matches graphql-eslint's `suggest:` array
+/// shape: each entry has a human-readable description and a single fix
+/// payload. Surfaced as `LintMessage.suggestions[]` in `ESLint` output.
+///
+/// Suggestions differ from autofixes (`CodeFix` on the diagnostic itself) in
+/// that `ESLint`'s `--fix` flag does NOT apply them automatically — they show
+/// up as "Quick fix" options in IDE menus instead. Used for fixes that
+/// might change semantics (rename a field, remove an unused declaration).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct CodeSuggestion {
+    /// Short label shown in the suggestion menu (e.g. `"Remove `Foo` prefix"`).
+    pub desc: String,
+    /// The single text edit this suggestion would apply.
+    pub fix: CodeFix,
+}
+
+impl CodeSuggestion {
+    /// Build a suggestion that replaces a byte range with new text.
+    #[must_use]
+    pub fn replace(
+        desc: impl Into<String>,
+        start: usize,
+        end: usize,
+        new_text: impl Into<String>,
+    ) -> Self {
+        Self {
+            desc: desc.into(),
+            fix: CodeFix {
+                label: String::new(),
+                edits: vec![TextEdit::new(start, end, new_text.into())],
+            },
+        }
+    }
+
+    /// Build a suggestion that deletes a byte range outright.
+    #[must_use]
+    pub fn delete(desc: impl Into<String>, start: usize, end: usize) -> Self {
+        Self {
+            desc: desc.into(),
+            fix: CodeFix {
+                label: String::new(),
+                edits: vec![TextEdit::delete(start, end)],
+            },
+        }
+    }
+}
+
 impl CodeFix {
     /// Create a new code fix
     #[must_use]
@@ -65,6 +113,15 @@ impl CodeFix {
     }
 }
 
+/// A tag attached to a diagnostic providing additional classification
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum DiagnosticTag {
+    /// The diagnostic marks code as unnecessary (e.g., unused fragments)
+    Unnecessary,
+    /// The diagnostic marks code as deprecated
+    Deprecated,
+}
+
 /// Lint-specific diagnostic with byte offsets (not line/column).
 ///
 /// The `span` field carries both the byte offset range and block context
@@ -80,8 +137,23 @@ pub struct LintDiagnostic {
     pub message: String,
     /// Rule identifier (e.g., `"deprecated_field"`)
     pub rule: String,
+    /// Optional `ESLint`-compatible messageId. Stable per-diagnostic-site
+    /// identifier matching graphql-eslint's emitted messageId, so the ``ESLint``
+    /// shim can surface it on `LintMessage.messageId` for drop-in parity.
+    pub message_id: Option<String>,
     /// Optional auto-fix for this diagnostic
     pub fix: Option<CodeFix>,
+    /// Manual quick-fix suggestions surfaced through `ESLint`'s `suggest`
+    /// array. Distinct from `fix` (autofix): users opt in per-suggestion
+    /// from their IDE, and `--fix` does not apply them. Empty for rules
+    /// that don't ship suggestions.
+    pub suggestions: Vec<CodeSuggestion>,
+    /// Optional help text explaining how to resolve the issue
+    pub help: Option<String>,
+    /// Optional documentation URL for the rule
+    pub url: Option<String>,
+    /// Diagnostic tags for additional classification
+    pub tags: Vec<DiagnosticTag>,
 }
 
 impl LintDiagnostic {
@@ -98,7 +170,12 @@ impl LintDiagnostic {
             severity,
             message: message.into(),
             rule: rule.into(),
+            message_id: None,
             fix: None,
+            suggestions: Vec::new(),
+            help: None,
+            url: None,
+            tags: Vec::new(),
         }
     }
 
@@ -114,7 +191,12 @@ impl LintDiagnostic {
             severity: LintSeverity::Warning,
             message: message.into(),
             rule: rule.into(),
+            message_id: None,
             fix: None,
+            suggestions: Vec::new(),
+            help: None,
+            url: None,
+            tags: Vec::new(),
         }
     }
 
@@ -130,7 +212,12 @@ impl LintDiagnostic {
             severity: LintSeverity::Error,
             message: message.into(),
             rule: rule.into(),
+            message_id: None,
             fix: None,
+            suggestions: Vec::new(),
+            help: None,
+            url: None,
+            tags: Vec::new(),
         }
     }
 
@@ -146,14 +233,63 @@ impl LintDiagnostic {
             severity: LintSeverity::Info,
             message: message.into(),
             rule: rule.into(),
+            message_id: None,
             fix: None,
+            suggestions: Vec::new(),
+            help: None,
+            url: None,
+            tags: Vec::new(),
         }
+    }
+
+    /// Attach a suggestion. Multiple suggestions can be added via repeated
+    /// calls or via `with_suggestions(...)`.
+    #[must_use]
+    pub fn with_suggestion(mut self, suggestion: CodeSuggestion) -> Self {
+        self.suggestions.push(suggestion);
+        self
+    }
+
+    /// Attach a list of suggestions, replacing any previously-set ones.
+    #[must_use]
+    pub fn with_suggestions(mut self, suggestions: Vec<CodeSuggestion>) -> Self {
+        self.suggestions = suggestions;
+        self
+    }
+
+    /// Add a messageId that matches graphql-eslint's per-diagnostic-site id.
+    /// The ``ESLint`` shim forwards this onto `LintMessage.messageId`.
+    #[must_use]
+    pub fn with_message_id(mut self, id: impl Into<String>) -> Self {
+        self.message_id = Some(id.into());
+        self
     }
 
     /// Add an auto-fix to this diagnostic
     #[must_use]
     pub fn with_fix(mut self, fix: CodeFix) -> Self {
         self.fix = Some(fix);
+        self
+    }
+
+    /// Add help text explaining how to resolve the issue
+    #[must_use]
+    pub fn with_help(mut self, help: impl Into<String>) -> Self {
+        self.help = Some(help.into());
+        self
+    }
+
+    /// Add a documentation URL for the rule
+    #[must_use]
+    pub fn with_url(mut self, url: impl Into<String>) -> Self {
+        self.url = Some(url.into());
+        self
+    }
+
+    /// Add a diagnostic tag for additional classification
+    #[must_use]
+    pub fn with_tag(mut self, tag: DiagnosticTag) -> Self {
+        self.tags.push(tag);
         self
     }
 
@@ -210,6 +346,12 @@ impl std::fmt::Display for LintSeverity {
             Self::Info => write!(f, "info"),
         }
     }
+}
+
+/// Generate a documentation URL for a lint rule.
+#[must_use]
+pub fn rule_doc_url(rule_name: &str) -> String {
+    format!("https://trevor-scheer.github.io/graphql-analyzer/rules/{rule_name}/")
 }
 
 #[cfg(test)]
@@ -300,5 +442,56 @@ mod tests {
             .with_fix(CodeFix::delete("Fix it", 5, 10));
         assert!(diag.has_fix());
         assert_eq!(diag.fix.unwrap().label, "Fix it");
+    }
+
+    #[test]
+    fn test_diagnostic_with_help() {
+        let span = graphql_syntax::SourceSpan::default();
+        let diag = LintDiagnostic::warning(span, "msg", "rule").with_help("Try X instead");
+        assert_eq!(diag.help.as_deref(), Some("Try X instead"));
+    }
+
+    #[test]
+    fn test_diagnostic_with_url() {
+        let span = graphql_syntax::SourceSpan::default();
+        let diag =
+            LintDiagnostic::warning(span, "msg", "rule").with_url("https://example.com/rule");
+        assert_eq!(diag.url.as_deref(), Some("https://example.com/rule"));
+    }
+
+    #[test]
+    fn test_diagnostic_with_tag() {
+        let span = graphql_syntax::SourceSpan::default();
+        let diag = LintDiagnostic::warning(span, "msg", "rule")
+            .with_tag(DiagnosticTag::Unnecessary)
+            .with_tag(DiagnosticTag::Deprecated);
+        assert_eq!(diag.tags.len(), 2);
+        assert_eq!(diag.tags[0], DiagnosticTag::Unnecessary);
+        assert_eq!(diag.tags[1], DiagnosticTag::Deprecated);
+    }
+
+    #[test]
+    fn test_diagnostic_defaults() {
+        let span = graphql_syntax::SourceSpan::default();
+        let diag = LintDiagnostic::warning(span, "msg", "rule");
+        assert!(diag.help.is_none());
+        assert!(diag.url.is_none());
+        assert!(diag.tags.is_empty());
+    }
+
+    #[test]
+    fn test_rule_doc_url_format() {
+        assert_eq!(
+            rule_doc_url("noDeprecated"),
+            "https://trevor-scheer.github.io/graphql-analyzer/rules/noDeprecated/"
+        );
+    }
+
+    #[test]
+    fn test_rule_doc_url_multi_word_camel_case() {
+        assert_eq!(
+            rule_doc_url("requireFieldOfTypeQueryInMutationResult"),
+            "https://trevor-scheer.github.io/graphql-analyzer/rules/requireFieldOfTypeQueryInMutationResult/"
+        );
     }
 }

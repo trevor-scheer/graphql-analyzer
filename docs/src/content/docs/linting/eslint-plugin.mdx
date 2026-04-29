@@ -1,0 +1,194 @@
+---
+title: ESLint Plugin
+description: Run graphql-analyzer lint rules inside ESLint as a drop-in replacement for @graphql-eslint/eslint-plugin.
+---
+
+`@graphql-analyzer/eslint-plugin` runs the same lint rules as the CLI and LSP,
+but inside ESLint. It's a drop-in replacement for
+[`@graphql-eslint/eslint-plugin`](https://the-guild.dev/graphql/eslint/docs) —
+same plugin names, same rule names, same flat-config preset names. The Rust
+analyzer does the real work via a native addon, so performance matches the CLI.
+
+## Requirements
+
+- Node.js 18 or later
+- ESLint 8.40+ or 9.x (flat config only)
+
+## Installation
+
+```sh
+npm install --save-dev @graphql-analyzer/eslint-plugin
+```
+
+During the alpha, install with the `alpha` dist-tag:
+
+```sh
+npm install --save-dev @graphql-analyzer/eslint-plugin@alpha
+```
+
+The native addon is distributed as platform-specific optional dependencies
+(`darwin-arm64`, `darwin-x64`, `linux-x64-gnu`, `linux-arm64-gnu`,
+`win32-x64-msvc`). npm installs the one matching your machine automatically.
+
+## Usage
+
+```js
+// eslint.config.mjs
+import graphql from "@graphql-analyzer/eslint-plugin";
+
+export default [
+  // 1. Lint `.graphql` files directly. This block also handles the virtual
+  //    `.graphql` blocks the processor extracts from JS/TS hosts (block
+  //    paths look like `path/to/component.tsx/0_document.graphql`).
+  {
+    files: ["**/*.graphql"],
+    languageOptions: {
+      parser: graphql.parser,
+    },
+    plugins: {
+      "@graphql-analyzer": graphql,
+    },
+    rules: {
+      "@graphql-analyzer/no-anonymous-operations": "error",
+      "@graphql-analyzer/no-duplicate-fields": "error",
+      "@graphql-analyzer/no-hashtag-description": "warn",
+    },
+  },
+  // 2. Wire the named processor onto JS/TS-family hosts. Embedded
+  //    `gql`-tagged templates get extracted into virtual blocks that flow
+  //    back through the `.graphql` block above.
+  {
+    files: ["**/*.{js,jsx,mjs,cjs}"],
+    plugins: {
+      "@graphql-analyzer": graphql,
+    },
+    processor: "@graphql-analyzer/graphql",
+  },
+];
+```
+
+The native addon detects embedded GraphQL in JavaScript, TypeScript, Vue,
+Svelte, and Astro files. Diagnostics are reported at their original
+source position so `gql` tagged templates don't need a separate file.
+
+### TypeScript / Vue / Svelte / Astro hosts
+
+ESLint's default parser (espree) can't parse TypeScript, JSX, Vue SFCs,
+Svelte components, or Astro components, so a fatal parse error on the host
+file would otherwise drop our embedded diagnostics. Add a parser for
+those hosts in a separate config block:
+
+```js
+import tsParser from "@typescript-eslint/parser";
+
+export default [
+  /* ...graphql + processor blocks above... */
+  {
+    files: ["**/*.{ts,tsx}"],
+    languageOptions: { parser: tsParser },
+  },
+  {
+    files: ["**/*.{ts,tsx}"],
+    plugins: { "@graphql-analyzer": graphql },
+    processor: "@graphql-analyzer/graphql",
+  },
+];
+```
+
+Same shape for `.vue`, `.svelte`, and `.astro` — pair the host's parser
+with the processor block. We intentionally don't bundle these parsers; pick
+the one that already matches the rest of your project's ESLint config.
+
+## Configuration
+
+Rules pick up their configuration from `.graphqlrc.yaml` (or any supported
+graphql-config file) in the nearest ancestor directory of the file being
+linted:
+
+```yaml
+# .graphqlrc.yaml
+schema: "schema.graphql"
+documents: "src/**/*.graphql"
+extensions:
+  graphql-analyzer:
+    lint:
+      rules:
+        noHashtagDescription: warn
+        noAnonymousOperations: error
+        noDuplicateFields: error
+```
+
+This is the same config format the CLI and LSP use, so your editor, CI, and
+ESLint all see the same rules.
+
+## Presets
+
+```js
+import graphql from "@graphql-analyzer/eslint-plugin";
+
+export default [
+  {
+    files: ["**/*.graphql"],
+    languageOptions: { parser: graphql.parser },
+    plugins: { "@graphql-analyzer": graphql },
+    rules: graphql.configs["flat/schema-recommended"].rules,
+  },
+];
+```
+
+Available presets:
+
+- `flat/schema-recommended` — sensible defaults for schema files
+- `flat/operations-recommended` — sensible defaults for operation documents
+- `flat/schema-all` — all schema rules enabled
+- `flat/schema-relay` — Relay-specific schema rules
+- `flat/operations-all` — all operation rules enabled
+
+## Migrating from `@graphql-eslint/eslint-plugin`
+
+The migration is a find-and-replace:
+
+1. `@graphql-eslint/eslint-plugin` → `@graphql-analyzer/eslint-plugin`
+2. `@graphql-eslint` → `@graphql-analyzer` (plugin names, rule prefixes)
+
+Rule names, rule options, and preset names are identical.
+
+```diff
+- import graphqlPlugin from "@graphql-eslint/eslint-plugin";
++ import graphqlPlugin from "@graphql-analyzer/eslint-plugin";
+
+  export default [
+    {
+      files: ["**/*.graphql"],
+      languageOptions: { parser: graphqlPlugin.parser },
+-     plugins: { "@graphql-eslint": graphqlPlugin },
++     plugins: { "@graphql-analyzer": graphqlPlugin },
+      rules: {
+-       "@graphql-eslint/no-anonymous-operations": "error",
++       "@graphql-analyzer/no-anonymous-operations": "error",
+      },
+    },
+  ];
+```
+
+## Rule parity with `@graphql-eslint/eslint-plugin`
+
+The plugin's test suite diffs its rule set against `@graphql-eslint/eslint-plugin`
+and fails CI on unexpected divergence — migration stays a find-and-replace.
+Current intentional gaps:
+
+- **Validation rules** (from `graphql-js`'s `specifiedRules`: `known-type-names`,
+  `fields-on-correct-type`, `no-undefined-variables`, etc.) aren't exposed as
+  lint rules. They run as part of the analyzer's validation pass instead.
+
+See `packages/eslint-plugin/test/parity.test.mjs` for the full allowlist.
+
+## Known limitations (alpha)
+
+- ESLint legacy config (`.eslintrc`) is not supported — flat config only.
+- Autofix coverage matches upstream: `alphabetize` only. Other shared rules
+  ship `suggest` (suggestions) upstream and are not yet wired through our
+  ESLint shim.
+
+See the [rules catalog](/graphql-analyzer/rules/catalog/) for the full list of
+rules available.

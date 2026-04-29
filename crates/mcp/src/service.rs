@@ -4,10 +4,13 @@
 //! It can work with either owned `AnalysisHost` instances or shared `Analysis` snapshots.
 
 use crate::types::{
-    CompletionInfo, CompletionsResult, DiagnosticInfo, DocumentSymbolsResult, FileDiagnostics,
-    HoverResultInfo, LintResult, LoadProjectResult, LocationResult, LocationsResult,
-    ProjectDiagnosticsResult, SymbolInfo, ValidateDocumentParams, ValidateDocumentResult,
-    WorkspaceSymbolInfo, WorkspaceSymbolsResult,
+    ArgumentInfo, CompletionInfo, CompletionsResult, ComplexityInfo, DiagnosticInfo,
+    DirectiveArgumentInfo, DirectiveInfo, DocumentSymbolsResult, EnumValueInfo,
+    FieldComplexityInfo, FieldInfo, FileDiagnostics, HoverResultInfo, LintResult,
+    LoadProjectResult, LocationResult, LocationsResult, OperationInfo, OperationsResult,
+    ProjectDiagnosticsResult, QueryComplexityResult, SchemaSdlResult, SchemaStatsInfo,
+    SchemaTypeInfo, SchemaTypesResult, SymbolInfo, TypeInfoResult, ValidateDocumentParams,
+    ValidateDocumentResult, VariableInfo, WorkspaceSymbolInfo, WorkspaceSymbolsResult,
 };
 use crate::McpPreloadConfig;
 use anyhow::{Context, Result};
@@ -420,6 +423,9 @@ impl McpService {
                     range: None,
                     rule: None,
                     fix: None,
+                    help: None,
+                    url: None,
+                    tags: Vec::new(),
                 }],
             };
         };
@@ -487,13 +493,7 @@ impl McpService {
 
         let diagnostics = lint_diagnostics
             .into_iter()
-            .map(|d| DiagnosticInfo {
-                severity: d.severity.into(),
-                message: d.message,
-                range: Some(d.range.into()),
-                rule: None,
-                fix: None,
-            })
+            .map(DiagnosticInfo::from)
             .collect();
 
         LintResult {
@@ -663,6 +663,216 @@ impl McpService {
             file: file_path.to_string(),
             diagnostics: diagnostics.into_iter().map(DiagnosticInfo::from).collect(),
         })
+    }
+
+    /// List all schema types with metadata
+    pub fn schema_types(
+        &self,
+        kind_filter: Option<&str>,
+        project: Option<&str>,
+    ) -> Option<SchemaTypesResult> {
+        let project_name = self.resolve_project(project)?;
+        let analysis = self.analysis(&project_name)?;
+
+        let (entries, stats) = analysis.schema_type_list(kind_filter);
+        let count = entries.len();
+        let types = entries
+            .into_iter()
+            .map(|e| SchemaTypeInfo {
+                name: e.name,
+                kind: e.kind,
+                description: e.description,
+                field_count: e.field_count,
+                implements: e.implements,
+                is_extension: e.is_extension,
+            })
+            .collect();
+
+        Some(SchemaTypesResult {
+            types,
+            count,
+            stats: SchemaStatsInfo {
+                objects: stats.objects,
+                interfaces: stats.interfaces,
+                unions: stats.unions,
+                enums: stats.enums,
+                scalars: stats.scalars,
+                input_objects: stats.input_objects,
+                total_fields: stats.total_fields,
+                directives: stats.directives,
+            },
+        })
+    }
+
+    /// Get full details about a specific type
+    pub fn type_info(&self, type_name: &str, project: Option<&str>) -> Option<TypeInfoResult> {
+        let project_name = self.resolve_project(project)?;
+        let analysis = self.analysis(&project_name)?;
+        let info = analysis.type_info(type_name)?;
+
+        Some(TypeInfoResult {
+            name: info.name,
+            kind: info.kind,
+            description: info.description,
+            implements: info.implements,
+            fields: info
+                .fields
+                .into_iter()
+                .map(|f| FieldInfo {
+                    name: f.name,
+                    type_ref: f.type_ref,
+                    description: f.description,
+                    arguments: f
+                        .arguments
+                        .into_iter()
+                        .map(|a| ArgumentInfo {
+                            name: a.name,
+                            type_ref: a.type_ref,
+                            description: a.description,
+                            default_value: a.default_value,
+                        })
+                        .collect(),
+                    is_deprecated: f.is_deprecated,
+                    deprecation_reason: f.deprecation_reason,
+                    directives: f
+                        .directives
+                        .into_iter()
+                        .map(|d| DirectiveInfo {
+                            name: d.name,
+                            arguments: d
+                                .arguments
+                                .into_iter()
+                                .map(|a| DirectiveArgumentInfo {
+                                    name: a.name,
+                                    value: a.value,
+                                })
+                                .collect(),
+                        })
+                        .collect(),
+                })
+                .collect(),
+            directives: info
+                .directives
+                .into_iter()
+                .map(|d| DirectiveInfo {
+                    name: d.name,
+                    arguments: d
+                        .arguments
+                        .into_iter()
+                        .map(|a| DirectiveArgumentInfo {
+                            name: a.name,
+                            value: a.value,
+                        })
+                        .collect(),
+                })
+                .collect(),
+            enum_values: info
+                .enum_values
+                .into_iter()
+                .map(|v| EnumValueInfo {
+                    name: v.name,
+                    description: v.description,
+                    is_deprecated: v.is_deprecated,
+                    deprecation_reason: v.deprecation_reason,
+                })
+                .collect(),
+            union_members: info.union_members,
+        })
+    }
+
+    /// Get the full merged schema SDL
+    pub fn schema_sdl(&self, project: Option<&str>) -> Option<SchemaSdlResult> {
+        let project_name = self.resolve_project(project)?;
+        let analysis = self.analysis(&project_name)?;
+        let (entries, _) = analysis.schema_type_list(None);
+        let type_count = entries.len();
+
+        // Access the HIR types directly for SDL printing
+        let sdl = analysis.with_schema_types(crate::sdl_printer::print_schema_sdl);
+
+        Some(SchemaSdlResult { sdl, type_count })
+    }
+
+    /// Extract operations from the project
+    pub fn operations(
+        &self,
+        file_path: Option<&str>,
+        project: Option<&str>,
+    ) -> Option<OperationsResult> {
+        let project_name = self.resolve_project(project)?;
+        let analysis = self.analysis(&project_name)?;
+
+        let file_filter = file_path.map(Self::resolve_file_path);
+        let summaries = analysis.operations_summary(file_filter.as_ref());
+        let count = summaries.len();
+
+        let operations = summaries
+            .into_iter()
+            .map(|s| OperationInfo {
+                name: s.name,
+                operation_type: s.operation_type,
+                file: s.file.as_str().to_string(),
+                variables: s
+                    .variables
+                    .into_iter()
+                    .map(|v| VariableInfo {
+                        name: v.name,
+                        type_ref: v.type_ref,
+                        default_value: v.default_value,
+                    })
+                    .collect(),
+                fragment_dependencies: s.fragment_dependencies,
+            })
+            .collect();
+
+        Some(OperationsResult { operations, count })
+    }
+
+    /// Get complexity analysis for operations
+    pub fn query_complexity(
+        &self,
+        operation_name: Option<&str>,
+        project: Option<&str>,
+    ) -> Option<QueryComplexityResult> {
+        let project_name = self.resolve_project(project)?;
+        let analysis = self.analysis(&project_name)?;
+
+        let all = analysis.complexity_analysis();
+        let filtered: Vec<_> = if let Some(name) = operation_name {
+            all.into_iter()
+                .filter(|c| c.operation_name == name)
+                .collect()
+        } else {
+            all
+        };
+
+        let count = filtered.len();
+        let operations = filtered
+            .into_iter()
+            .map(|c| ComplexityInfo {
+                operation_name: c.operation_name,
+                operation_type: c.operation_type,
+                total_complexity: c.total_complexity,
+                depth: c.depth,
+                breakdown: c
+                    .breakdown
+                    .into_iter()
+                    .map(|b| FieldComplexityInfo {
+                        path: b.path,
+                        complexity: b.complexity,
+                        multiplier: if b.multiplier > 1 {
+                            Some(b.multiplier)
+                        } else {
+                            None
+                        },
+                    })
+                    .collect(),
+                warnings: c.warnings,
+                file: c.file.as_str().to_string(),
+            })
+            .collect();
+
+        Some(QueryComplexityResult { operations, count })
     }
 
     /// Update the shared analysis snapshot for a project
@@ -1003,5 +1213,300 @@ mod tests {
     fn test_resolve_file_path_absolute() {
         let fp = McpService::resolve_file_path("/home/user/query.graphql");
         assert_eq!(fp.as_str(), "file:///home/user/query.graphql");
+    }
+
+    // --- Schema exploration tests ---
+
+    #[test]
+    fn test_schema_types_lists_all() {
+        let service = setup_service_with_schema(
+            "type Query { user: User }
+             type User { id: ID!, name: String }
+             enum Status { ACTIVE INACTIVE }
+             input CreateUserInput { name: String! }",
+        );
+
+        let result = service.schema_types(None, None).unwrap();
+        assert!(result.count >= 4); // Query, User, Status, CreateUserInput
+        assert!(result
+            .types
+            .iter()
+            .any(|t| t.name == "User" && t.kind == "object"));
+        assert!(result
+            .types
+            .iter()
+            .any(|t| t.name == "Status" && t.kind == "enum"));
+        assert!(result
+            .types
+            .iter()
+            .any(|t| t.name == "CreateUserInput" && t.kind == "input_object"));
+    }
+
+    #[test]
+    fn test_schema_types_filter_by_kind() {
+        let service = setup_service_with_schema(
+            "type Query { user: User }
+             type User { id: ID! }
+             enum Status { ACTIVE }",
+        );
+
+        let result = service.schema_types(Some("enum"), None).unwrap();
+        assert!(result.types.iter().all(|t| t.kind == "enum"));
+        assert!(result.types.iter().any(|t| t.name == "Status"));
+    }
+
+    #[test]
+    fn test_schema_types_stats() {
+        let service = setup_service_with_schema(
+            "type Query { user: User }
+             type User { id: ID!, name: String }
+             interface Node { id: ID! }
+             union SearchResult = User
+             enum Status { ACTIVE }
+             scalar DateTime
+             input CreateUserInput { name: String! }",
+        );
+
+        let result = service.schema_types(None, None).unwrap();
+        assert!(result.stats.objects >= 2); // Query + User
+        assert!(result.stats.interfaces >= 1);
+        assert!(result.stats.unions >= 1);
+        assert!(result.stats.enums >= 1);
+        assert!(result.stats.scalars >= 1);
+        assert!(result.stats.input_objects >= 1);
+    }
+
+    #[test]
+    fn test_type_info_object() {
+        let service = setup_service_with_schema(
+            "type Query { user(id: ID!): User }
+             type User implements Node { id: ID!, name: String, email: String }
+             interface Node { id: ID! }",
+        );
+
+        let result = service.type_info("User", None).unwrap();
+        assert_eq!(result.name, "User");
+        assert_eq!(result.kind, "object");
+        assert_eq!(result.implements, vec!["Node"]);
+        assert!(result.fields.len() >= 3);
+        assert!(result
+            .fields
+            .iter()
+            .any(|f| f.name == "id" && f.type_ref == "ID!"));
+        assert!(result.fields.iter().any(|f| f.name == "name"));
+    }
+
+    #[test]
+    fn test_type_info_enum() {
+        let service = setup_service_with_schema(
+            "type Query { status: Status }
+             enum Status { ACTIVE INACTIVE PENDING }",
+        );
+
+        let result = service.type_info("Status", None).unwrap();
+        assert_eq!(result.kind, "enum");
+        assert_eq!(result.enum_values.len(), 3);
+        assert!(result.enum_values.iter().any(|v| v.name == "ACTIVE"));
+    }
+
+    #[test]
+    fn test_type_info_union() {
+        let service = setup_service_with_schema(
+            "type Query { search: SearchResult }
+             union SearchResult = User | Post
+             type User { id: ID! }
+             type Post { title: String }",
+        );
+
+        let result = service.type_info("SearchResult", None).unwrap();
+        assert_eq!(result.kind, "union");
+        assert_eq!(result.union_members.len(), 2);
+        assert!(result.union_members.contains(&"User".to_string()));
+        assert!(result.union_members.contains(&"Post".to_string()));
+    }
+
+    #[test]
+    fn test_type_info_not_found() {
+        let service = setup_service_with_schema("type Query { hello: String }");
+        let result = service.type_info("NonExistent", None);
+        assert!(result.is_none());
+    }
+
+    #[test]
+    fn test_type_info_field_arguments() {
+        let service = setup_service_with_schema(
+            "type Query { users(first: Int = 10, after: String): [User] }
+             type User { id: ID! }",
+        );
+
+        let result = service.type_info("Query", None).unwrap();
+        let users_field = result.fields.iter().find(|f| f.name == "users").unwrap();
+        assert_eq!(users_field.arguments.len(), 2);
+        let first_arg = users_field
+            .arguments
+            .iter()
+            .find(|a| a.name == "first")
+            .unwrap();
+        assert_eq!(first_arg.type_ref, "Int");
+        assert_eq!(first_arg.default_value.as_deref(), Some("10"));
+    }
+
+    #[test]
+    fn test_schema_sdl() {
+        let service = setup_service_with_schema(
+            "type Query { user: User }
+             type User { id: ID!, name: String }",
+        );
+
+        let result = service.schema_sdl(None).unwrap();
+        assert!(result.sdl.contains("type Query"));
+        assert!(result.sdl.contains("type User"));
+        assert!(result.sdl.contains("id: ID!"));
+        assert!(result.type_count >= 2);
+    }
+
+    #[test]
+    fn test_schema_sdl_enum() {
+        let service = setup_service_with_schema(
+            "type Query { status: Status }
+             enum Status { ACTIVE INACTIVE }",
+        );
+
+        let result = service.schema_sdl(None).unwrap();
+        assert!(result.sdl.contains("enum Status"));
+        assert!(result.sdl.contains("ACTIVE"));
+        assert!(result.sdl.contains("INACTIVE"));
+    }
+
+    // --- Document analysis tests ---
+
+    #[test]
+    fn test_operations() {
+        let service = setup_service_with_documents(
+            "type Query { user(id: ID!): User }
+             type User { id: ID!, name: String }",
+            "file:///test/query.graphql",
+            "query GetUser($id: ID!) { user(id: $id) { id name } }
+             mutation { __typename }",
+        );
+
+        let result = service.operations(None, None).unwrap();
+        assert!(result.count >= 1);
+        let get_user = result
+            .operations
+            .iter()
+            .find(|o| o.name.as_deref() == Some("GetUser"));
+        assert!(get_user.is_some());
+        let get_user = get_user.unwrap();
+        assert_eq!(get_user.operation_type, "query");
+        assert_eq!(get_user.variables.len(), 1);
+        assert_eq!(get_user.variables[0].name, "id");
+        assert_eq!(get_user.variables[0].type_ref, "ID!");
+    }
+
+    #[test]
+    fn test_operations_with_fragments() {
+        let service = {
+            let mut service = McpService::new();
+            let host = service.get_or_create_host("default");
+            host.add_file(
+                &FilePath::new("file:///test/schema.graphql".to_string()),
+                "type Query { user: User }\ntype User { id: ID!, name: String }",
+                Language::GraphQL,
+                DocumentKind::Schema,
+            );
+            host.add_file(
+                &FilePath::new("file:///test/fragment.graphql".to_string()),
+                "fragment UserFields on User { id name }",
+                Language::GraphQL,
+                DocumentKind::Executable,
+            );
+            host.add_file(
+                &FilePath::new("file:///test/query.graphql".to_string()),
+                "query GetUser { user { ...UserFields } }",
+                Language::GraphQL,
+                DocumentKind::Executable,
+            );
+            host.rebuild_project_files();
+            service
+        };
+
+        let result = service.operations(None, None).unwrap();
+        let get_user = result
+            .operations
+            .iter()
+            .find(|o| o.name.as_deref() == Some("GetUser"))
+            .unwrap();
+        assert!(get_user
+            .fragment_dependencies
+            .contains(&"UserFields".to_string()));
+    }
+
+    #[test]
+    fn test_operations_filter_by_file() {
+        let service = {
+            let mut service = McpService::new();
+            let host = service.get_or_create_host("default");
+            host.add_file(
+                &FilePath::new("file:///test/schema.graphql".to_string()),
+                "type Query { a: String, b: String }",
+                Language::GraphQL,
+                DocumentKind::Schema,
+            );
+            host.add_file(
+                &FilePath::new("file:///test/a.graphql".to_string()),
+                "query A { a }",
+                Language::GraphQL,
+                DocumentKind::Executable,
+            );
+            host.add_file(
+                &FilePath::new("file:///test/b.graphql".to_string()),
+                "query B { b }",
+                Language::GraphQL,
+                DocumentKind::Executable,
+            );
+            host.rebuild_project_files();
+            service
+        };
+
+        let result = service
+            .operations(Some("file:///test/a.graphql"), None)
+            .unwrap();
+        assert_eq!(result.count, 1);
+        assert_eq!(result.operations[0].name.as_deref(), Some("A"));
+    }
+
+    #[test]
+    fn test_query_complexity() {
+        let service = setup_service_with_documents(
+            "type Query { user: User }
+             type User { id: ID!, name: String, posts: [Post] }
+             type Post { id: ID!, title: String }",
+            "file:///test/query.graphql",
+            "query GetUser { user { id name posts { id title } } }",
+        );
+
+        let result = service.query_complexity(None, None).unwrap();
+        assert!(result.count >= 1);
+        let get_user = result
+            .operations
+            .iter()
+            .find(|o| o.operation_name == "GetUser")
+            .unwrap();
+        assert!(get_user.total_complexity > 0);
+        assert!(get_user.depth > 0);
+    }
+
+    #[test]
+    fn test_query_complexity_filter_by_name() {
+        let service = setup_service_with_documents(
+            "type Query { a: String, b: String }",
+            "file:///test/query.graphql",
+            "query A { a }\nquery B { b }",
+        );
+
+        let result = service.query_complexity(Some("A"), None).unwrap();
+        assert_eq!(result.count, 1);
+        assert_eq!(result.operations[0].operation_name, "A");
     }
 }
