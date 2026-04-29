@@ -4,9 +4,8 @@
 
 use graphql_analysis::{
     analyze_field_usage, file_diagnostics, file_validation_diagnostics, find_unused_fields,
-    find_unused_fragments, lint_integration,
-    merged_schema::merged_schema_with_diagnostics, validate_document_file, validate_file,
-    FieldCoverageReport, TypeCoverage,
+    find_unused_fragments, lint_integration, merged_schema::merged_schema_with_diagnostics,
+    validate_document_file, validate_file, FieldCoverageReport, TypeCoverage,
 };
 use graphql_base_db::{DocumentKind, FileContent, FileId, FileMetadata, FileUri, Language};
 use graphql_test_utils::{create_project_files, TestDatabase, TestDatabaseWithProject};
