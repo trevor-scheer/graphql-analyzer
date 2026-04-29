@@ -258,6 +258,117 @@ impl StandaloneSchemaLintRule for NoUnreachableTypesRuleImpl {
                 );
         }
 
+        // Report unreachable directive definitions. A directive is reachable if:
+        //   a) it has executable (request-side) locations — already guaranteed to be
+        //      reachable for arg-type purposes above, and the directive itself is
+        //      implicitly considered reachable by upstream's request-location pass, OR
+        //   b) it is actually applied somewhere in the schema (on a type def, field,
+        //      argument, enum value, or schema def).
+        // Built-in directives (@deprecated, @skip, @include, @specifiedBy, @defer) are
+        // spec-defined and never emitted by user schemas, so we skip them.
+        const BUILTIN_DIRECTIVES: &[&str] = &["deprecated", "skip", "include", "specifiedBy", "defer"];
+
+        // Collect every directive name that is applied anywhere in the schema.
+        let mut applied_directives: HashSet<String> = HashSet::new();
+        for type_def in schema_types.values() {
+            for d in &type_def.directives {
+                applied_directives.insert(d.name.to_string());
+            }
+            for field in &type_def.fields {
+                for d in &field.directives {
+                    applied_directives.insert(d.name.to_string());
+                }
+                for arg in &field.arguments {
+                    for d in &arg.directives {
+                        applied_directives.insert(d.name.to_string());
+                    }
+                }
+            }
+            for ev in &type_def.enum_values {
+                for d in &ev.directives {
+                    applied_directives.insert(d.name.to_string());
+                }
+            }
+        }
+
+        // Directives applied directly on `schema { ... }` or `extend schema` nodes
+        // are not captured by the HIR type map. Walk the raw AST to find them.
+        // Upstream's visitor fires on every `Directive` AST node, including those on
+        // schema definitions, so we need to cover this case too.
+        let schema_ids = project_files.schema_file_ids(db).ids(db);
+        for &file_id in schema_ids.iter() {
+            let Some((content, metadata)) =
+                graphql_base_db::file_lookup(db, project_files, file_id)
+            else {
+                continue;
+            };
+            let parse = graphql_syntax::parse(db, content, metadata);
+            for doc in parse.documents() {
+                for definition in &doc.ast.definitions {
+                    let directives = match definition {
+                        apollo_compiler::ast::Definition::SchemaDefinition(sd) => &sd.directives,
+                        apollo_compiler::ast::Definition::SchemaExtension(se) => &se.directives,
+                        _ => continue,
+                    };
+                    for d in directives {
+                        applied_directives.insert(d.name.as_str().to_string());
+                    }
+                }
+            }
+        }
+
+        for dir_def in directive_defs.values() {
+            let name = dir_def.name.as_ref();
+            if BUILTIN_DIRECTIVES.contains(&name) {
+                continue;
+            }
+            // Directives with executable locations are considered reachable (used in
+            // client documents). Upstream's request-location pass adds them to the
+            // reachable set unconditionally, so we mirror that.
+            if dir_def.locations.iter().any(|loc| loc.is_executable()) {
+                continue;
+            }
+            if applied_directives.contains(name) {
+                continue;
+            }
+
+            let start: usize = dir_def.name_range.start().into();
+            let end: usize = dir_def.name_range.end().into();
+            let span = graphql_syntax::SourceSpan {
+                start,
+                end,
+                line_offset: 0,
+                byte_offset: 0,
+                source: None,
+            };
+
+            let def_start: usize = dir_def.definition_range.start().into();
+            let def_end: usize = dir_def.definition_range.end().into();
+            let suggestion = CodeSuggestion::delete(
+                format!("Remove `@{}`", dir_def.name),
+                def_start,
+                def_end,
+            );
+
+            diagnostics_by_file
+                .entry(dir_def.file_id)
+                .or_default()
+                .push(
+                    LintDiagnostic::new(
+                        span,
+                        LintSeverity::Warning,
+                        format!("Directive `{}` is unreachable.", dir_def.name),
+                        "noUnreachableTypes",
+                    )
+                    .with_message_id("no-unreachable-types")
+                    .with_suggestion(suggestion)
+                    .with_help(
+                        "Remove the unreachable directive, or apply it to a type, field, or argument",
+                    )
+                    .with_tag(crate::diagnostics::DiagnosticTag::Unnecessary),
+                );
+        }
+
         // Sort diagnostics within each file by span start so callers see a
         // deterministic, source-order output regardless of HashMap iteration order.
         for diags in diagnostics_by_file.values_mut() {

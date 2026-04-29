@@ -144,6 +144,10 @@ pub struct DirectiveDef {
     pub repeatable: bool,
     pub file_id: FileId,
     pub name_range: TextRange,
+    /// The text range of the entire directive definition node (keyword through
+    /// final location). Used by lint rules that need a "remove this definition"
+    /// fix matching upstream's `fixer.remove(node.parent)` semantics.
+    pub definition_range: TextRange,
 }
 
 /// Locations where a directive can be applied
@@ -783,6 +787,7 @@ fn extract_directive_def(dir: &Node<ast::DirectiveDefinition>, file_id: FileId) 
         repeatable: dir.repeatable,
         file_id,
         name_range: name_range(&dir.name),
+        definition_range: node_range(dir),
     }
 }
 
