@@ -1,24 +1,24 @@
-/// Preprocess `# eslint-disable*` directive comments embedded in `.graphql`
-/// source text and produce a `Suppressions` map that the lint harness can use
-/// to filter out diagnostics before asserting.
-///
-/// Upstream `@graphql-eslint` processes these directives at the ESLint
-/// framework level, so rules never see the suppressed violations. We replicate
-/// that behaviour as a post-processing step in our test harness rather than
-/// threading suppression state through every rule's `check` signature.
-///
-/// Supported directives (matching upstream):
-/// - `# eslint-disable-next-line [rule, ...]` — suppresses the directive line
-///   itself and the immediately following line. Bare form (no rule list)
-///   suppresses all rules.
-/// - `# eslint-disable [rule, ...]` — suppresses from this line forward until
-///   a matching `eslint-enable` (or end of file). Bare form suppresses all.
-/// - `# eslint-enable [rule, ...]` — re-enables rules disabled above.
+//! Preprocess `# eslint-disable*` directive comments embedded in `.graphql`
+//! source text and produce a `Suppressions` map that the lint harness can use
+//! to filter out diagnostics before asserting.
+//!
+//! Upstream `@graphql-eslint` processes these directives at the `ESLint`
+//! framework level, so rules never see the suppressed violations. We replicate
+//! that behaviour as a post-processing step in our test harness rather than
+//! threading suppression state through every rule's `check` signature.
+//!
+//! Supported directives (matching upstream):
+//! - `# eslint-disable-next-line [rule, ...]` — suppresses the directive line
+//!   itself and the immediately following line. Bare form (no rule list)
+//!   suppresses all rules.
+//! - `# eslint-disable [rule, ...]` — suppresses from this line forward until
+//!   a matching `eslint-enable` (or end of file). Bare form suppresses all.
+//! - `# eslint-enable [rule, ...]` — re-enables rules disabled above.
 
 /// A resolved set of suppressed `(rule_name, line_number)` pairs derived from
 /// directive comments in a single source file. Line numbers are 1-based.
 pub(crate) struct Suppressions {
-    /// Ranges of (start_line, end_line, rule_or_none) that are suppressed.
+    /// Ranges of (`start_line`, `end_line`, `rule_or_none`) that are suppressed.
     /// `rule` is `None` for bare directives that suppress every rule.
     ranges: Vec<SuppressionRange>,
 }

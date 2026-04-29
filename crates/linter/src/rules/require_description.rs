@@ -114,7 +114,7 @@ impl RequireDescriptionOptions {
 
 /// A parsed form of a single `ignoredSelectors` entry.
 ///
-/// Only the subset of ESLint selector syntax used by graphql-eslint's
+/// Only the subset of `ESLint` selector syntax used by graphql-eslint's
 /// recommended presets is supported: `[type=Kind][name.value=X]` where `X` is
 /// either a plain identifier or a `/pattern/` JavaScript-style regex.
 /// Anything else is logged and skipped.
@@ -221,17 +221,17 @@ fn parse_bracketed_attr(s: &str) -> Option<(&str, &str)> {
     Some((&s[1..close], &s[close + 1..]))
 }
 
-/// Convert a `TypeDefKind` to the ESLint AST kind string that graphql-eslint
-/// uses, so `ignoredSelectors` entries (which use ESLint kind names) can be
+/// Convert a `TypeDefKind` to the `ESLint` AST kind string that graphql-eslint
+/// uses, so `ignoredSelectors` entries (which use `ESLint` kind names) can be
 /// matched against our HIR type.
 fn type_def_kind_to_ast_kind(kind: TypeDefKind) -> &'static str {
     match kind {
-        TypeDefKind::Object => "ObjectTypeDefinition",
         TypeDefKind::Interface => "InterfaceTypeDefinition",
         TypeDefKind::Enum => "EnumTypeDefinition",
         TypeDefKind::Scalar => "ScalarTypeDefinition",
         TypeDefKind::InputObject => "InputObjectTypeDefinition",
         TypeDefKind::Union => "UnionTypeDefinition",
+        // Object and any other/future variants map to ObjectTypeDefinition
         _ => "ObjectTypeDefinition",
     }
 }
@@ -306,7 +306,7 @@ impl StandaloneSchemaLintRule for RequireDescriptionRuleImpl {
             Some(crate::schema_utils::extract_root_type_names(
                 db,
                 project_files,
-                &schema_types,
+                schema_types,
             ))
         } else {
             None

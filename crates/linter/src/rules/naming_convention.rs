@@ -47,6 +47,7 @@ impl NamingCase {
     }
 }
 
+#[allow(clippy::expect_used)] // safe: empty check above guarantees chars().next() is Some
 fn is_camel_case(s: &str) -> bool {
     if s.is_empty() {
         return true;
@@ -55,6 +56,7 @@ fn is_camel_case(s: &str) -> bool {
     first.is_lowercase() && !s.contains('_')
 }
 
+#[allow(clippy::expect_used)] // safe: empty check above guarantees chars().next() is Some
 fn is_pascal_case(s: &str) -> bool {
     if s.is_empty() {
         return true;
@@ -252,7 +254,7 @@ enum Selector {
     /// a specific wrapper depth.
     ///
     /// `depth=0` means `gqlType.name.value` (bare named type, no wrappers).
-    /// `depth=1` means `gqlType.gqlType.name.value` (one wrapper: NonNull or List).
+    /// `depth=1` means `gqlType.gqlType.name.value` (one wrapper: `NonNull` or `List`).
     /// This maps directly to the number of `gqlType.` prefixes before `name.value`
     /// in the upstream JS AST chain.
     KindWithGqlType {
@@ -368,7 +370,7 @@ struct NodeContext<'a> {
     parent_name: Option<&'a str>,
     /// Inner named type name (from `TypeRef::name`) for field-like nodes.
     type_name: Option<&'a str>,
-    /// Number of type wrappers (NonNull / List) on the field's type. Matches
+    /// Number of type wrappers (`NonNull` / `List`) on the field's type. Matches
     /// the number of `gqlType.` hops in the upstream JS AST selector chain
     /// before `name.value`.
     wrapper_depth: u8,
@@ -605,6 +607,9 @@ struct CheckFailure {
 /// 8. `requiredPrefixes` (none-of-them match)
 /// 9. `requiredSuffixes` (none-of-them match)
 /// 10. `style`
+// The expect below is safe: we already captured `caps` with the same regex/string,
+// so `find` on the same input is guaranteed to succeed.
+#[allow(clippy::expect_used)]
 fn check_name(rule: &NormalizedRule<'_>, name: &str) -> Option<CheckFailure> {
     let stripped = rule.strip_underscores(name);
 
@@ -1109,7 +1114,7 @@ fn check_selection_aliases(
 /// Compute the wrapper depth of a `TypeRef` for `gqlType.*` selector matching.
 ///
 /// This mirrors the depth of the upstream JS AST chain: a bare named type
-/// has depth 0 (`gqlType.name.value`), a singly-wrapped type (NonNull or List)
+/// has depth 0 (`gqlType.name.value`), a singly-wrapped type (`NonNull` or `List`)
 /// has depth 1 (`gqlType.gqlType.name.value`), and so on.
 fn wrapper_depth_of(type_ref: &graphql_hir::TypeRef) -> u8 {
     match (type_ref.is_non_null, type_ref.is_list) {
@@ -1409,9 +1414,14 @@ impl StandaloneSchemaLintRule for NamingConventionRuleImpl {
             if !source_file_ids.contains(&dir_def.file_id) {
                 continue;
             }
-            let dir_rule =
-                NamingConventionOptions::rule_for_node("DirectiveDefinition", None, None, 0, &selectors)
-                    .or_else(|| opts.directive_definition.clone());
+            let dir_rule = NamingConventionOptions::rule_for_node(
+                "DirectiveDefinition",
+                None,
+                None,
+                0,
+                &selectors,
+            )
+            .or_else(|| opts.directive_definition.clone());
             if let Some(rule) = dir_rule {
                 let normalized = NormalizedRule::from_rule_with_global(
                     &rule,
@@ -1436,9 +1446,14 @@ impl StandaloneSchemaLintRule for NamingConventionRuleImpl {
                 dir_def.file_id,
                 dir_def.name_range,
             );
-            let dir_arg_rule =
-                NamingConventionOptions::rule_for_node("Argument", Some(&dir_def.name), None, 0, &selectors)
-                    .or_else(|| opts.argument.clone());
+            let dir_arg_rule = NamingConventionOptions::rule_for_node(
+                "Argument",
+                Some(&dir_def.name),
+                None,
+                0,
+                &selectors,
+            )
+            .or_else(|| opts.argument.clone());
             if let Some(rule) = dir_arg_rule {
                 let normalized = NormalizedRule::from_rule_with_global(
                     &rule,

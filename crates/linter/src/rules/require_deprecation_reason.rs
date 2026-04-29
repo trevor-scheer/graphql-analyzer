@@ -56,7 +56,7 @@ impl StandaloneSchemaLintRule for RequireDeprecationReasonRuleImpl {
         // Mirrors upstream's `value && String(valueFromNode(...)).trim()` check:
         // absent, empty string, and whitespace-only are all treated as missing.
         fn is_missing_reason(reason: Option<&str>) -> bool {
-            reason.map_or(true, |r| r.trim().is_empty())
+            reason.is_none_or(|r| r.trim().is_empty())
         }
 
         let mut diagnostics_by_file: HashMap<FileId, Vec<LintDiagnostic>> = HashMap::new();

@@ -4,6 +4,9 @@ use graphql_base_db::{FileId, ProjectFiles};
 use graphql_hir::TypeDefKind;
 use std::collections::{HashMap, HashSet, VecDeque};
 
+const BUILTIN_DIRECTIVES: &[&str] =
+    &["deprecated", "skip", "include", "specifiedBy", "defer"];
+
 /// Lint rule that detects unreachable types in the schema
 ///
 /// Types that are not reachable from any root type (Query, Mutation, Subscription)
@@ -266,7 +269,6 @@ impl StandaloneSchemaLintRule for NoUnreachableTypesRuleImpl {
         //      argument, enum value, or schema def).
         // Built-in directives (@deprecated, @skip, @include, @specifiedBy, @defer) are
         // spec-defined and never emitted by user schemas, so we skip them.
-        const BUILTIN_DIRECTIVES: &[&str] = &["deprecated", "skip", "include", "specifiedBy", "defer"];
 
         // Collect every directive name that is applied anywhere in the schema.
         let mut applied_directives: HashSet<String> = HashSet::new();
@@ -344,29 +346,26 @@ impl StandaloneSchemaLintRule for NoUnreachableTypesRuleImpl {
 
             let def_start: usize = dir_def.definition_range.start().into();
             let def_end: usize = dir_def.definition_range.end().into();
-            let suggestion = CodeSuggestion::delete(
-                format!("Remove `@{}`", dir_def.name),
-                def_start,
-                def_end,
-            );
+            let suggestion =
+                CodeSuggestion::delete(format!("Remove `@{}`", dir_def.name), def_start, def_end);
 
             diagnostics_by_file
                 .entry(dir_def.file_id)
                 .or_default()
                 .push(
-                    LintDiagnostic::new(
-                        span,
-                        LintSeverity::Warning,
-                        format!("Directive `{}` is unreachable.", dir_def.name),
-                        "noUnreachableTypes",
-                    )
-                    .with_message_id("no-unreachable-types")
-                    .with_suggestion(suggestion)
-                    .with_help(
-                        "Remove the unreachable directive, or apply it to a type, field, or argument",
-                    )
-                    .with_tag(crate::diagnostics::DiagnosticTag::Unnecessary),
-                );
+                LintDiagnostic::new(
+                    span,
+                    LintSeverity::Warning,
+                    format!("Directive `{}` is unreachable.", dir_def.name),
+                    "noUnreachableTypes",
+                )
+                .with_message_id("no-unreachable-types")
+                .with_suggestion(suggestion)
+                .with_help(
+                    "Remove the unreachable directive, or apply it to a type, field, or argument",
+                )
+                .with_tag(crate::diagnostics::DiagnosticTag::Unnecessary),
+            );
         }
 
         // Sort diagnostics within each file by span start so callers see a

@@ -414,6 +414,7 @@ fn check_selection_set_for_redundancy(
             if let Some(field_key) = FieldKey::from_field(field) {
                 if fields_from_fragments.contains(&field_key) {
                     // `FieldKey::from_field` already called `field.name()?`, so this is always Some.
+                    #[allow(clippy::expect_used)] // safe: FieldKey::from_field already verified name() is Some
                     let field_name = field.name().expect("FieldKey::from_field already checked");
                     let name_syntax = field_name.syntax();
                     let start_offset: usize = name_syntax.text_range().start().into();

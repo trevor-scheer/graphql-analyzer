@@ -55,6 +55,9 @@ const IGNORE_PREFIX: &str = "graphql-analyzer-ignore";
 /// Scans each line for comments matching `# graphql-analyzer-ignore`
 /// or `# graphql-analyzer-ignore: rule1, rule2`.
 #[must_use]
+// The expect calls below are all provably safe: each is guarded by a prior
+// parse step (strip_prefix) that guarantees the substring exists.
+#[allow(clippy::expect_used)]
 pub fn parse_ignore_directives(source: &str) -> Vec<IgnoreDirective> {
     let mut directives = Vec::new();
     let mut byte_pos = 0;

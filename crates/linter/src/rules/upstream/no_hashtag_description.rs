@@ -82,7 +82,7 @@ fn valid_l38_inline_trailing_comments() {
 }
 
 /// <https://github.com/dimaMachina/graphql-eslint/blob/f0f200ef0b030cb8a905bbcb32fe346b87cc2e24/packages/plugin/src/rules/no-hashtag-description/index.test.ts#L44>
-/// `# eslint-disable-next-line` is an ESLint directive, not a hashtag
+/// `# eslint-disable-next-line` is an `ESLint` directive, not a hashtag
 /// description. The suppression fires on the directive's own line, so the
 /// rule does not produce a diagnostic.
 #[test]

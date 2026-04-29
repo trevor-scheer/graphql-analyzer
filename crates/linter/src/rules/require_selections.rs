@@ -545,8 +545,8 @@ fn check_selection_set(
     if context.require_all_fields {
         // AND mode: one diagnostic per missing field.
         for missing_field in &missing_fields {
-            let fix_label = format!("Add `{}` selection", missing_field);
-            let fix_text = format!("{}\n{}", missing_field, indent);
+            let fix_label = format!("Add `{missing_field}` selection");
+            let fix_text = format!("{missing_field}\n{indent}");
             let fix = CodeFix::new(fix_label, vec![TextEdit::insert(insert_pos, fix_text)]);
             let field_ref = format!("`{parent_display_name}.{missing_field}`");
             // Mirror graphql-eslint: diagnostic points at the SelectionSet's
@@ -798,8 +798,8 @@ fn check_inline_fragment_type(
 
     if context.require_all_fields {
         for missing_field in &missing_fields {
-            let fix_label = format!("Add `{}` selection", missing_field);
-            let fix_text = format!("{}\n{}", missing_field, indent);
+            let fix_label = format!("Add `{missing_field}` selection");
+            let fix_text = format!("{missing_field}\n{indent}");
             let fix = CodeFix::new(fix_label, vec![TextEdit::insert(insert_pos, fix_text)]);
             let field_ref = format!("`{inline_type_name}.{missing_field}`");
             diagnostics.push(
@@ -858,6 +858,7 @@ fn check_inline_fragment_type(
 /// Format a list of items using English-style disjunction (matching
 /// `Intl.ListFormat("en-US", { type: "disjunction" })` used by graphql-eslint):
 /// `a`, `a or b`, `a, b, or c`.
+#[allow(clippy::expect_used)] // safe: the `_` arm is only reached when len >= 3, guaranteeing split_last is Some
 fn english_join_words(words: &[String]) -> String {
     match words.len() {
         0 => String::new(),

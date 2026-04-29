@@ -87,7 +87,7 @@ fn build_fragment_source_map(
     let all = graphql_hir::all_fragments(db, project_files);
     let mut map = std::collections::HashMap::new();
 
-    for (name, frag_struct) in all.iter() {
+    for (name, frag_struct) in all {
         let Some((content, _metadata)) =
             graphql_base_db::file_lookup(db, project_files, frag_struct.file_id)
         else {
