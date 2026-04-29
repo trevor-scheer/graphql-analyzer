@@ -55,11 +55,10 @@ fn invalid_l36_disallow_with_extend() {
     // `schema = 'type Mutation'` prepended. We place the combined SDL as the
     // schema-rule code so that the schema parser sees both nodes.
     //
-    // DIVERGENCE: upstream puts base `type Mutation` in the shared schema and
-    // `extend type Mutation { foo: ID }` as the linted `code:`, then flags the
-    // *extension* node. Our schema loader merges all SDL into one view and our
-    // rule flags the base type definition, not the extension.  We therefore
-    // provide both in `code:` and assert the error message only.
+    // Our schema loader merges all SDL into one view and our rule flags the
+    // base type definition rather than the extension node (as upstream does).
+    // Both approaches produce one error with the same message, so we provide
+    // both declarations in `code:` and assert the error message only.
     Case::invalid(format!(
         "https://github.com/dimaMachina/graphql-eslint/blob/{}/packages/plugin/src/rules/no-root-type/index.test.ts#L36",
         super::UPSTREAM_SHA,

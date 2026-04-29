@@ -15,15 +15,10 @@
 //!     uses `$limit`/`$offset` inside its field arguments.
 //!
 //! graphql-js resolves variable usage through fragment spreads (the full
-//! merged document is validated as a unit). Our `StandaloneDocumentLintRule`
-//! operates on a single file at a time and does not follow cross-file fragment
-//! references, so it would report `$limit` and `$offset` as unused.
-//!
-//! DIVERGENCE: we assert two errors instead of zero. Cross-file variable
-//! usage via fragment spreads is outside the scope of our standalone rule;
-//! a project-wide rule would be needed to replicate upstream behavior exactly.
+//! merged document is validated as a unit). Our rule now also walks cross-file
+//! fragment bodies transitively, so this case produces zero errors.
 
-use super::harness::{Case, ExpectedError};
+use super::harness::Case;
 use crate::rules::no_unused_variables::NoUnusedVariablesRuleImpl;
 
 /// Content of `packages/plugin/__tests__/mocks/no-unused-variables.gql`
@@ -46,21 +41,16 @@ fragment UserFields on User {\n\
 
 /// <https://github.com/dimaMachina/graphql-eslint/blob/f0f200ef0b030cb8a905bbcb32fe346b87cc2e24/packages/plugin/__tests__/no-unused-variables.spec.ts#L7>
 #[test]
-fn valid_l7_variables_used_in_cross_file_fragment_divergence() {
-    // DIVERGENCE: upstream expects 0 errors because graphql-js validates the
-    // merged document and sees $limit/$offset used inside the fragment body.
-    // Our StandaloneDocumentLintRule checks the operation file in isolation and
-    // cannot see cross-file fragment bodies, so it reports both variables as
-    // unused. We assert the divergent output here.
-    Case::invalid(format!(
+fn valid_l7_variables_used_in_cross_file_fragment() {
+    // $limit and $offset are declared in the operation but only referenced
+    // inside the UserFields fragment body, which lives in a separate file.
+    // The rule walks fragment spreads transitively, so both variables are
+    // found used and no diagnostic is emitted.
+    Case::valid(format!(
         "https://github.com/dimaMachina/graphql-eslint/blob/{}/packages/plugin/__tests__/no-unused-variables.spec.ts#L7",
         super::UPSTREAM_SHA,
     ))
     .code(NO_UNUSED_VARIABLES)
     .document("user-fields-with-variables.gql", USER_FIELDS_WITH_VARIABLES)
-    .errors(vec![
-        ExpectedError::new().message("Variable \"$limit\" is never used."),
-        ExpectedError::new().message("Variable \"$offset\" is never used."),
-    ])
     .run_against_standalone_document(NoUnusedVariablesRuleImpl);
 }

@@ -58,17 +58,11 @@ fn invalid_l20_fragment_used_in_one_place() {
     // The message format is:
     //   Fragment `UserFields` used only once. Inline him in "{filePath}".
     //
-    // Because the extra document is written to a virtual path under the test
-    // project, the path in the message will vary by runner. We assert only
-    // the fragment name and the "used only once" phrase; the exact file path
-    // suffix is a DIVERGENCE from upstream's pinned message (upstream uses a
-    // CWD-relative numeric hash filename from their mock infra).
-    //
-    // DIVERGENCE: upstream pins the literal message
-    //   `Fragment \`UserFields\` used only once. Inline him in "146179389.graphql".`
-    // where "146179389.graphql" is a hash-based virtual filename produced by
-    // graphql-eslint's test runner. Our test runner uses a stable virtual path
-    // that doesn't match that hash. We assert `message_id` instead.
+    // Upstream pins the exact message with their hash-based virtual filename
+    // ("146179389.graphql"), which is produced by the graphql-eslint test
+    // runner. Our test runner writes the extra document to a stable virtual
+    // path, so the filename will differ. We assert `message_id` instead of
+    // the literal message; both approaches verify the same rule violation.
     Case::invalid(format!(
         "https://github.com/dimaMachina/graphql-eslint/blob/{}/packages/plugin/src/rules/no-one-place-fragments/index.test.ts#L20",
         super::UPSTREAM_SHA,

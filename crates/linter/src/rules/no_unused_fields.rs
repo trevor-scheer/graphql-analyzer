@@ -3,7 +3,175 @@ use crate::schema_utils::extract_root_type_names;
 use crate::traits::{LintRule, ProjectLintRule};
 use apollo_parser::cst::{self, CstNode};
 use graphql_base_db::{FileId, ProjectFiles};
+use serde::Deserialize;
 use std::collections::{HashMap, HashSet};
+
+/// Options for the `no-unused-fields` rule.
+#[derive(Debug, Clone, Deserialize)]
+pub struct NoUnusedFieldsOptions {
+    /// ESLint-style field selectors whose matched fields are excluded from
+    /// unused-field checking. Upstream uses this for Relay pagination fields.
+    ///
+    /// Supported form: `[parent.name.value=TypeName][name.value=fieldName]`
+    /// where either value may be a `/regex/` literal.
+    #[serde(default, rename = "ignoredFieldSelectors")]
+    pub ignored_field_selectors: Vec<String>,
+
+    /// When `true`, fields on root operation types (Query, Mutation,
+    /// Subscription) are never reported as unused. Default is `true` to
+    /// preserve existing behavior — root entry-points are not canonical
+    /// "must all be called" requirements. Set to `false` for strict upstream
+    /// parity.
+    #[serde(default = "default_skip_root_types", rename = "skipRootTypes")]
+    pub skip_root_types: bool,
+}
+
+fn default_skip_root_types() -> bool {
+    true
+}
+
+impl Default for NoUnusedFieldsOptions {
+    fn default() -> Self {
+        Self {
+            ignored_field_selectors: Vec::new(),
+            skip_root_types: true,
+        }
+    }
+}
+
+impl NoUnusedFieldsOptions {
+    fn from_json(value: Option<&serde_json::Value>) -> Self {
+        value
+            .and_then(|v| serde_json::from_value(v.clone()).ok())
+            .unwrap_or_default()
+    }
+}
+
+/// A parsed form of a single `ignoredFieldSelectors` entry.
+///
+/// Supports upstream's Relay-style form:
+///   `[parent.name.value=TypeName][name.value=fieldName]`
+/// where either value may be a `/regex/` JavaScript-style literal.
+#[derive(Debug, Clone)]
+enum IgnoredFieldSelector {
+    /// Both parent type name and field name are plain string literals.
+    Exact {
+        parent_name: String,
+        field_name: String,
+    },
+    /// At least one side is a regex; the other may be a literal or regex.
+    Mixed {
+        parent: SelectorValue,
+        field: SelectorValue,
+    },
+}
+
+#[derive(Debug, Clone)]
+enum SelectorValue {
+    Literal(String),
+    Regex(regex::Regex),
+}
+
+impl SelectorValue {
+    fn matches(&self, s: &str) -> bool {
+        match self {
+            Self::Literal(lit) => lit == s,
+            Self::Regex(re) => re.is_match(s),
+        }
+    }
+}
+
+impl IgnoredFieldSelector {
+    fn parse(raw: &str) -> Option<Self> {
+        let s = raw.trim();
+        let (first_attr, rest) = parse_field_selector_attr(s)?;
+        let (second_attr, leftover) = parse_field_selector_attr(rest)?;
+        if !leftover.trim().is_empty() {
+            tracing::warn!(
+                target: "no-unused-fields",
+                "ignoredFieldSelectors: unsupported selector (trailing content): {raw}"
+            );
+            return None;
+        }
+
+        // Upstream always uses [parent.name.value=X][name.value=Y] order.
+        let (parent_val, field_val) = if let (Some(p), Some(f)) = (
+            first_attr.strip_prefix("parent.name.value="),
+            second_attr.strip_prefix("name.value="),
+        ) {
+            (p.trim(), f.trim())
+        } else {
+            tracing::warn!(
+                target: "no-unused-fields",
+                "ignoredFieldSelectors: expected `[parent.name.value=X][name.value=Y]` form: {raw}"
+            );
+            return None;
+        };
+
+        let parent = parse_selector_value(parent_val, raw, "parent.name.value")?;
+        let field = parse_selector_value(field_val, raw, "name.value")?;
+
+        Some(match (&parent, &field) {
+            (SelectorValue::Literal(p), SelectorValue::Literal(f)) => Self::Exact {
+                parent_name: p.clone(),
+                field_name: f.clone(),
+            },
+            _ => Self::Mixed { parent, field },
+        })
+    }
+
+    fn matches(&self, parent_type: &str, field_name: &str) -> bool {
+        match self {
+            Self::Exact {
+                parent_name,
+                field_name: fn_,
+            } => parent_name == parent_type && fn_ == field_name,
+            Self::Mixed { parent, field } => {
+                parent.matches(parent_type) && field.matches(field_name)
+            }
+        }
+    }
+}
+
+/// Parse a JavaScript-style regex literal (`/pattern/flags`) or a plain
+/// string literal. Returns `None` (and logs a warning) only on regex compile
+/// error.
+fn parse_selector_value(value: &str, raw: &str, attr: &str) -> Option<SelectorValue> {
+    if value.starts_with('/') {
+        let inner = value.trim_start_matches('/');
+        // Strip trailing `/` and any flags after it.
+        let end = inner.rfind('/').unwrap_or(inner.len());
+        let pattern_str = &inner[..end];
+        match regex::Regex::new(pattern_str) {
+            Ok(re) => Some(SelectorValue::Regex(re)),
+            Err(e) => {
+                tracing::warn!(
+                    target: "no-unused-fields",
+                    "ignoredFieldSelectors: invalid regex `{pattern_str}` in `{raw}` for {attr}: {e}"
+                );
+                None
+            }
+        }
+    } else {
+        Some(SelectorValue::Literal(value.to_string()))
+    }
+}
+
+/// Extract `[content]` from the start of `s`. Returns `(content, rest_of_s)`.
+fn parse_field_selector_attr(s: &str) -> Option<(&str, &str)> {
+    let s = s.trim_start();
+    if !s.starts_with('[') {
+        return None;
+    }
+    let close = s.find(']')?;
+    Some((&s[1..close], &s[close + 1..]))
+}
+
+fn parse_ignored_field_selectors(raw: &[String]) -> Vec<IgnoredFieldSelector> {
+    raw.iter()
+        .filter_map(|s| IgnoredFieldSelector::parse(s))
+        .collect()
+}
 
 /// Trait implementation for `no_unused_fields` rule
 pub struct NoUnusedFieldsRuleImpl;
@@ -44,8 +212,11 @@ impl ProjectLintRule for NoUnusedFieldsRuleImpl {
         &self,
         db: &dyn graphql_hir::GraphQLHirDatabase,
         project_files: ProjectFiles,
-        _options: Option<&serde_json::Value>,
+        options: Option<&serde_json::Value>,
     ) -> HashMap<FileId, Vec<LintDiagnostic>> {
+        let opts = NoUnusedFieldsOptions::from_json(options);
+        let ignored_selectors = parse_ignored_field_selectors(&opts.ignored_field_selectors);
+
         let mut diagnostics_by_file: HashMap<FileId, Vec<LintDiagnostic>> = HashMap::new();
 
         // Step 1: Collect all schema fields with their CST positions
@@ -107,13 +278,23 @@ impl ProjectLintRule for NoUnusedFieldsRuleImpl {
                 continue;
             }
 
-            // Skip root operation types
-            if root_types.is_root_type(&field_info.type_name) {
+            // Skip root operation types when configured to do so (default: true
+            // to preserve historical behavior — root entry-points are not
+            // required to be exhaustively called).
+            if opts.skip_root_types && root_types.is_root_type(&field_info.type_name) {
                 continue;
             }
 
             // Skip introspection fields
             if is_introspection_field(&field_info.field_name) {
+                continue;
+            }
+
+            // Skip fields matched by any ignoredFieldSelectors entry.
+            if ignored_selectors
+                .iter()
+                .any(|sel| sel.matches(&field_info.type_name, &field_info.field_name))
+            {
                 continue;
             }
 

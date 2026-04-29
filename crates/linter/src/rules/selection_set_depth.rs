@@ -3,6 +3,7 @@ use crate::traits::{LintRule, StandaloneDocumentLintRule};
 use apollo_parser::cst::{self, CstNode};
 use graphql_base_db::{FileContent, FileId, FileMetadata, ProjectFiles};
 use serde::Deserialize;
+use std::collections::HashSet;
 
 /// Options for the `selection_set_depth` rule. Mirrors graphql-eslint's
 /// schema, which requires `maxDepth`.
@@ -54,7 +55,7 @@ impl StandaloneDocumentLintRule for SelectionSetDepthRuleImpl {
         _file_id: FileId,
         content: FileContent,
         metadata: FileMetadata,
-        _project_files: ProjectFiles,
+        project_files: ProjectFiles,
         options: Option<&serde_json::Value>,
     ) -> Vec<LintDiagnostic> {
         let mut diagnostics = Vec::new();
@@ -69,6 +70,11 @@ impl StandaloneDocumentLintRule for SelectionSetDepthRuleImpl {
         if parse.has_errors() {
             return diagnostics;
         }
+
+        // Build the project-wide fragment index once per invocation. This
+        // lets check_depth inline spreads from sibling files, matching what
+        // graphql-depth-limit does when upstream passes all siblings to it.
+        let fragment_index = FragmentIndex::build(db, project_files);
 
         for doc in parse.documents() {
             let doc_cst = doc.tree.document();
@@ -85,6 +91,8 @@ impl StandaloneDocumentLintRule for SelectionSetDepthRuleImpl {
                                 &opts.ignore,
                                 op_name.as_deref(),
                                 &doc,
+                                &fragment_index,
+                                &mut HashSet::new(),
                                 &mut diagnostics,
                                 &mut reported,
                             );
@@ -104,6 +112,8 @@ impl StandaloneDocumentLintRule for SelectionSetDepthRuleImpl {
                                 &opts.ignore,
                                 frag_name.as_deref(),
                                 &doc,
+                                &fragment_index,
+                                &mut HashSet::new(),
                                 &mut diagnostics,
                                 &mut reported,
                             );
@@ -118,25 +128,41 @@ impl StandaloneDocumentLintRule for SelectionSetDepthRuleImpl {
     }
 }
 
+/// Project-wide map from fragment name to its file's source text.
+///
+/// Built once per `check()` invocation so fragment lookups during depth
+/// traversal don't need the Salsa database handle inside the recursive walker.
+struct FragmentIndex {
+    entries: std::collections::HashMap<String, std::sync::Arc<str>>,
+}
+
+impl FragmentIndex {
+    fn build(db: &dyn graphql_hir::GraphQLHirDatabase, project_files: ProjectFiles) -> Self {
+        let all = graphql_hir::all_fragments(db, project_files);
+        let mut entries = std::collections::HashMap::new();
+
+        for (name, frag_struct) in all.iter() {
+            let Some((content, _metadata)) =
+                graphql_base_db::file_lookup(db, project_files, frag_struct.file_id)
+            else {
+                continue;
+            };
+            entries.insert(name.to_string(), content.text(db));
+        }
+
+        Self { entries }
+    }
+}
+
 /// Walk the selection set and report fields whose depth exceeds `max_depth`.
 ///
 /// Mirrors `graphql-depth-limit`'s `determineDepth`: each FIELD descent
 /// increments `depthSoFar`, and the error is reported at the first field
-/// whose `depthSoFar > maxDepth`. Inline fragments and fragment spreads do
-/// not contribute to depth (graphql-eslint inlines spread fragments as a
-/// pre-step; we don't follow spreads here for parity at the per-document
-/// level the parity test exercises).
-/// Walk the selection set and report fields whose depth exceeds `max_depth`.
-///
-/// Mirrors `graphql-depth-limit`'s `determineDepth` exactly: each field in
-/// `selection_set` has depth `field_depth`. If `field_depth > max_depth`,
-/// the rule reports at the field's name. Otherwise we recurse into the
-/// field's nested selections with `field_depth + 1`.
-///
-/// Inline fragments forward at the same depth (they don't add a level).
-/// Fragment spreads are not followed for parity at the parity test's
-/// per-document level — depth-limit inlines them, but our cross-document
-/// linker doesn't here, and the parity fixture has no spreads.
+/// whose `depthSoFar > maxDepth`. Inline fragments forward at the same depth.
+/// Fragment spreads are inlined by looking up the spread target in
+/// `fragment_index`, matching upstream's behaviour of merging all sibling
+/// documents before depth-checking. `visited_spreads` prevents infinite
+/// recursion through cyclic fragment references.
 #[allow(clippy::too_many_arguments)]
 fn check_depth(
     selection_set: &cst::SelectionSet,
@@ -145,6 +171,8 @@ fn check_depth(
     ignore: &[String],
     definition_name: Option<&str>,
     doc: &graphql_syntax::DocumentRef<'_>,
+    fragment_index: &FragmentIndex,
+    visited_spreads: &mut HashSet<String>,
     diagnostics: &mut Vec<LintDiagnostic>,
     reported: &mut bool,
 ) {
@@ -195,6 +223,8 @@ fn check_depth(
                         ignore,
                         definition_name,
                         doc,
+                        fragment_index,
+                        visited_spreads,
                         diagnostics,
                         reported,
                     );
@@ -211,12 +241,98 @@ fn check_depth(
                         ignore,
                         definition_name,
                         doc,
+                        fragment_index,
+                        visited_spreads,
                         diagnostics,
                         reported,
                     );
                 }
             }
-            cst::Selection::FragmentSpread(_) => {}
+            cst::Selection::FragmentSpread(spread) => {
+                let Some(spread_name) = spread
+                    .fragment_name()
+                    .and_then(|fn_| fn_.name())
+                    .map(|n| n.text().to_string())
+                else {
+                    continue;
+                };
+
+                // Cycle guard: a fragment that directly or transitively spreads
+                // itself must not send us into infinite recursion.
+                if visited_spreads.contains(&spread_name) {
+                    continue;
+                }
+                visited_spreads.insert(spread_name.clone());
+
+                inline_fragment_spread(
+                    &spread_name,
+                    fragment_index,
+                    field_depth,
+                    max_depth,
+                    ignore,
+                    definition_name,
+                    doc,
+                    visited_spreads,
+                    diagnostics,
+                    reported,
+                );
+
+                visited_spreads.remove(&spread_name);
+            }
+        }
+    }
+}
+
+/// Parse the named fragment's source and walk its selection set at `field_depth`.
+///
+/// This is the inlining step that makes our depth calculation match upstream's
+/// graphql-depth-limit, which merges all sibling documents before checking.
+/// The spread site does not add a depth level — the fragment's top-level
+/// fields are already at `field_depth`, just as if written inline.
+#[allow(clippy::too_many_arguments)]
+fn inline_fragment_spread(
+    fragment_name: &str,
+    fragment_index: &FragmentIndex,
+    field_depth: usize,
+    max_depth: usize,
+    ignore: &[String],
+    definition_name: Option<&str>,
+    doc: &graphql_syntax::DocumentRef<'_>,
+    visited_spreads: &mut HashSet<String>,
+    diagnostics: &mut Vec<LintDiagnostic>,
+    reported: &mut bool,
+) {
+    let Some(source) = fragment_index.entries.get(fragment_name) else {
+        return;
+    };
+
+    let parse_result = apollo_parser::Parser::new(source).parse();
+    let cst = parse_result.document();
+
+    for definition in cst.definitions() {
+        if let cst::Definition::FragmentDefinition(frag) = definition {
+            let is_target = frag
+                .fragment_name()
+                .and_then(|fn_| fn_.name())
+                .is_some_and(|n| n.text() == fragment_name);
+            if !is_target {
+                continue;
+            }
+            if let Some(selection_set) = frag.selection_set() {
+                check_depth(
+                    &selection_set,
+                    field_depth,
+                    max_depth,
+                    ignore,
+                    definition_name,
+                    doc,
+                    fragment_index,
+                    visited_spreads,
+                    diagnostics,
+                    reported,
+                );
+            }
+            return;
         }
     }
 }
