@@ -53,13 +53,66 @@ impl StandaloneSchemaLintRule for RequireDeprecationReasonRuleImpl {
                 .map(|d| d.name_range)
         }
 
+        // Mirrors upstream's `value && String(valueFromNode(...)).trim()` check:
+        // absent, empty string, and whitespace-only are all treated as missing.
+        fn is_missing_reason(reason: Option<&str>) -> bool {
+            reason.map_or(true, |r| r.trim().is_empty())
+        }
+
         let mut diagnostics_by_file: HashMap<FileId, Vec<LintDiagnostic>> = HashMap::new();
         let schema_types = graphql_hir::schema_types(db, project_files);
 
         for type_def in schema_types.values() {
-            // Check fields
+            // Check type-level @deprecated (e.g. `type MyQuery @deprecated`)
+            let type_deprecated = type_def
+                .directives
+                .iter()
+                .find(|d| &*d.name == "deprecated");
+            if let Some(dep_dir) = type_deprecated {
+                // DirectiveUsage stores argument values via `ast::Value::to_string()`,
+                // which includes surrounding quotes for string literals. Strip them
+                // before applying the empty/whitespace check.
+                let reason_str = dep_dir.arguments.iter().find_map(|a| {
+                    if &*a.name == "reason" {
+                        Some(a.value.trim_matches('"'))
+                    } else {
+                        None
+                    }
+                });
+                if is_missing_reason(reason_str) {
+                    let start: usize = dep_dir.name_range.start().into();
+                    let end: usize = dep_dir.name_range.end().into();
+                    let span = graphql_syntax::SourceSpan {
+                        start,
+                        end,
+                        line_offset: 0,
+                        byte_offset: 0,
+                        source: None,
+                    };
+                    diagnostics_by_file
+                        .entry(type_def.file_id)
+                        .or_default()
+                        .push(
+                            LintDiagnostic::new(
+                                span,
+                                LintSeverity::Warning,
+                                format!(
+                                    "Deprecation reason is required for {} \"{}\".",
+                                    type_def_kind_display(type_def.kind),
+                                    type_def.name
+                                ),
+                                "requireDeprecationReason",
+                            )
+                            .with_help(
+                                "Add a reason string to @deprecated explaining why and what to use instead",
+                            ),
+                        );
+                }
+            }
+
+            // Check fields (including input object fields)
             for field in &type_def.fields {
-                if field.is_deprecated && field.deprecation_reason.is_none() {
+                if field.is_deprecated && is_missing_reason(field.deprecation_reason.as_deref()) {
                     let range =
                         deprecated_name_range(&field.directives).unwrap_or(field.name_range);
                     let start: usize = range.start().into();
@@ -95,7 +148,7 @@ impl StandaloneSchemaLintRule for RequireDeprecationReasonRuleImpl {
 
                 // Check arguments
                 for arg in &field.arguments {
-                    if arg.is_deprecated && arg.deprecation_reason.is_none() {
+                    if arg.is_deprecated && is_missing_reason(arg.deprecation_reason.as_deref()) {
                         let range =
                             deprecated_name_range(&arg.directives).unwrap_or(field.name_range);
                         let start: usize = range.start().into();
@@ -131,7 +184,7 @@ impl StandaloneSchemaLintRule for RequireDeprecationReasonRuleImpl {
 
             // Check enum values
             for ev in &type_def.enum_values {
-                if ev.is_deprecated && ev.deprecation_reason.is_none() {
+                if ev.is_deprecated && is_missing_reason(ev.deprecation_reason.as_deref()) {
                     let range =
                         deprecated_name_range(&ev.directives).unwrap_or(type_def.name_range);
                     let start: usize = range.start().into();
@@ -241,5 +294,39 @@ type User {
         let all: Vec<_> = diagnostics.values().flatten().collect();
         assert_eq!(all.len(), 1);
         assert!(all[0].message.contains("Deprecation reason is required"));
+    }
+
+    #[test]
+    fn test_deprecated_with_empty_reason() {
+        let db = RootDatabase::default();
+        let rule = RequireDeprecationReasonRuleImpl;
+        let schema = r#"
+type User {
+    id: ID!
+    oldField: String @deprecated(reason: "")
+}
+"#;
+        let project_files = create_schema_project(&db, schema);
+        let diagnostics = rule.check(&db, project_files, None);
+        let all: Vec<_> = diagnostics.values().flatten().collect();
+        assert_eq!(all.len(), 1);
+        assert!(all[0].message.contains("Deprecation reason is required"));
+    }
+
+    #[test]
+    fn test_type_level_deprecated_without_reason() {
+        let db = RootDatabase::default();
+        let rule = RequireDeprecationReasonRuleImpl;
+        let schema = r"
+type MyQuery @deprecated {
+    field: String
+}
+";
+        let project_files = create_schema_project(&db, schema);
+        let diagnostics = rule.check(&db, project_files, None);
+        let all: Vec<_> = diagnostics.values().flatten().collect();
+        assert_eq!(all.len(), 1);
+        assert!(all[0].message.contains("Deprecation reason is required"));
+        assert!(all[0].message.contains("MyQuery"));
     }
 }
