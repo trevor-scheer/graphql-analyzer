@@ -33,6 +33,7 @@ impl StandaloneSchemaLintRule for NoUnreachableTypesRuleImpl {
     ) -> HashMap<FileId, Vec<LintDiagnostic>> {
         let mut diagnostics_by_file: HashMap<FileId, Vec<LintDiagnostic>> = HashMap::new();
         let schema_types = graphql_hir::schema_types(db, project_files);
+        let directive_defs = graphql_hir::schema_directives(db, project_files);
 
         let root_type_names =
             crate::schema_utils::extract_root_type_names(db, project_files, schema_types);
@@ -86,6 +87,21 @@ impl StandaloneSchemaLintRule for NoUnreachableTypesRuleImpl {
                             queue.push_back(arg_type);
                         }
                     }
+
+                    // When a directive is applied to a field, the argument types of
+                    // that directive's definition become reachable. Upstream's visitor
+                    // fires on `Directive` nodes during its AST walk, which causes it
+                    // to visit the directive definition and mark its arg types reachable.
+                    for directive_usage in &field.directives {
+                        if let Some(dir_def) = directive_defs.get(&directive_usage.name) {
+                            for dir_arg in &dir_def.arguments {
+                                let arg_type = dir_arg.type_ref.name.to_string();
+                                if !reachable.contains(&arg_type) {
+                                    queue.push_back(arg_type);
+                                }
+                            }
+                        }
+                    }
                 }
 
                 // Add implemented interfaces (outgoing: this type → its interfaces)
@@ -113,6 +129,20 @@ impl StandaloneSchemaLintRule for NoUnreachableTypesRuleImpl {
                     if !reachable.contains(&member_name) {
                         queue.push_back(member_name);
                     }
+                }
+            }
+        }
+
+        // Directives with executable locations (QUERY, MUTATION, SUBSCRIPTION, FIELD,
+        // FRAGMENT_DEFINITION, FRAGMENT_SPREAD, INLINE_FRAGMENT, VARIABLE_DEFINITION)
+        // can appear in client documents, so their argument types must be reachable even
+        // when they're not referenced from any schema type. This mirrors upstream's
+        // `getReachableTypes` pass that iterates `schema.getDirectives()` and adds arg
+        // type names for directives with request-side locations.
+        for dir_def in directive_defs.values() {
+            if dir_def.locations.iter().any(|loc| loc.is_executable()) {
+                for dir_arg in &dir_def.arguments {
+                    reachable.insert(dir_arg.type_ref.name.to_string());
                 }
             }
         }
