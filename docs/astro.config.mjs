@@ -57,6 +57,7 @@ export default defineConfig({
             { label: "validate", slug: "cli/validate" },
             { label: "lint", slug: "cli/lint" },
             { label: "check", slug: "cli/check" },
+            { label: "completions", slug: "cli/completions" },
             { label: "Output Formats", slug: "cli/output-formats" },
             { label: "CI/CD Integration", slug: "cli/ci-cd" },
           ],

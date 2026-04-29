@@ -395,7 +395,7 @@ async fn main() -> anyhow::Result<()> {
             let mut cmd = Cli::command();
             clap_complete::generate(shell, &mut cmd, "graphql", &mut std::io::stdout());
             Ok(())
-        },
+        }
         Commands::ListRules => commands::list_rules::run(),
         Commands::Explain { rule } => commands::explain::run(&rule),
         Commands::Lsp => unreachable!("handled above"),
