@@ -247,7 +247,7 @@ The library searches for these files in order of preference:
 
 This library only supports YAML, JSON, and TOML configuration formats. JavaScript and TypeScript config files (`graphql.config.js`, `graphql.config.ts`) are **not supported**.
 
-If you're migrating from a JS/TS config, convert your configuration to YAML, JSON, or TOML. Most configurations can be directly translated since the schema is the same:
+If your JS/TS config is a static object (or evaluates to one), most configurations translate directly:
 
 ```javascript
 // graphql.config.js (NOT SUPPORTED)
@@ -269,7 +269,29 @@ schema = "schema.graphql"
 documents = "src/**/*.graphql"
 ```
 
-For dynamic configuration needs (rare), consider using environment variables or generating the config as a build step.
+#### One-liner migration
+
+For static configs, dump to JSON in one command — `.graphqlrc.json` is supported directly:
+
+```sh
+node -e "import('./graphql.config.js').then(c => console.log(JSON.stringify(c.default ?? c, null, 2)))" > .graphqlrc.json
+```
+
+The dynamic `import()` returns a promise resolving to the namespace object, which `.then(c => …)` unwraps. `c.default ?? c` picks the ESM default export when present, otherwise falls back to the CJS exports object — so the same command handles both `module.exports = …` and `export default …`.
+
+For TypeScript configs, point at `graphql.config.ts` instead. Modern Node strips type annotations natively (Node 22.6+ with `--experimental-strip-types`, or Node 23.6+ where it's on by default), so no separate runner like `tsx` is needed.
+
+#### What won't carry over
+
+`graphql.config.js` is loaded by [cosmiconfig](https://github.com/cosmiconfig/cosmiconfig), which evaluates JavaScript at load time. The following are **not supported** in static configs:
+
+- **Function-valued fields anywhere in the tree** — common cases include HTTP `Authorization` headers built by a function for dynamic auth tokens, or `extensions.codegen.hooks.afterAllFileWrite` set to a function (only string shell commands carry over). Function values silently disappear from `JSON.stringify()`, so the one-liner produces an _incomplete_ config rather than erroring.
+- **`process.env` interpolation via JS** — e.g. `headers.Authorization` built from a template literal embedding `process.env.TOKEN`. Use the static `${TOKEN}` interpolation supported by this library instead.
+- **Conditional branches on runtime state** — e.g. switching `documents` globs or `projects` based on `process.env.CI` or `NODE_ENV`.
+- **Spread-imported config fragments** — e.g. spreading the result of `require("./shared-globs")` into the `documents` array.
+- **Custom loaders, transforms, or plugins registered in JS** — e.g. graphql-config v5's top-level `loaders: [new UrlLoader()]`, or codegen plugins referenced via `require()`.
+
+For dynamic needs, use environment variable interpolation (`${VAR}` and `${VAR:default}`) or generate the config file as a build step before invoking the tool.
 
 ## Examples
 
