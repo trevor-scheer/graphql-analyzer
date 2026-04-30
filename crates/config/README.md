@@ -247,7 +247,7 @@ The library searches for these files in order of preference:
 
 This library only supports YAML, JSON, and TOML configuration formats. JavaScript and TypeScript config files (`graphql.config.js`, `graphql.config.ts`) are **not supported**.
 
-If you're migrating from a JS/TS config, convert your configuration to YAML, JSON, or TOML. Most configurations can be directly translated since the schema is the same:
+If your JS/TS config is a static object (or evaluates to one), most configurations translate directly:
 
 ```javascript
 // graphql.config.js (NOT SUPPORTED)
@@ -269,7 +269,31 @@ schema = "schema.graphql"
 documents = "src/**/*.graphql"
 ```
 
-For dynamic configuration needs (rare), consider using environment variables or generating the config as a build step.
+#### One-liner migration
+
+For static configs, dump to JSON in one command — `.graphqlrc.json` is supported directly:
+
+```sh
+# JS (CommonJS or ESM, Node 20+)
+node -e "import('./graphql.config.js').then(c => console.log(JSON.stringify(c.default ?? c, null, 2)))" > .graphqlrc.json
+
+# TypeScript
+npx -y tsx -e "import('./graphql.config.ts').then(c => console.log(JSON.stringify(c.default ?? c, null, 2)))" > .graphqlrc.json
+```
+
+`await import()` covers both CommonJS and ESM in modern Node; `c.default ?? c` normalizes `export default` and `module.exports = ...`.
+
+#### What won't carry over
+
+`graphql.config.js` is loaded by [cosmiconfig](https://github.com/cosmiconfig/cosmiconfig), which evaluates JavaScript at load time. The following are **not supported** in static configs:
+
+- Functions, getters, or async values anywhere in the config tree
+- `require()` / `import()` of other modules evaluated at load time
+- Conditional logic that branches on `process.env` or other runtime state (beyond the simple `${VAR}` interpolation supported by this library)
+- Custom JavaScript loaders, transforms, or plugins registered through the config
+- Dynamically computed values — schema URLs, file paths, header values, document globs — produced by running JS
+
+For dynamic needs, use environment variable interpolation (`${VAR}` and `${VAR:default}`) or generate the config file as a build step before invoking the tool.
 
 ## Examples
 
