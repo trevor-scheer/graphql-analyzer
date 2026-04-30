@@ -1,6 +1,6 @@
 {
   "name": "@graphql-analyzer/eslint-plugin",
-  "version": "0.1.1",
+  "version": "0.1.2",
   "description": "ESLint plugin for GraphQL, powered by graphql-analyzer. Drop-in replacement for @graphql-eslint/eslint-plugin.",
   "keywords": [
     "eslint",
