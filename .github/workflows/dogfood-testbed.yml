@@ -31,34 +31,28 @@ jobs:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           # Extract the version for each package from the tags created by knope.
-          # knope tags releases as "<package-name>-v<version>", e.g.
-          # "graphql-analyzer-lsp-v1.2.3".
-          #
-          # We query the GitHub releases API and look for the most recent
-          # release for each package that was published in the triggering run.
-          # Fallback: use "latest" tag, which npm resolves correctly for stable
-          # releases.
-          #
-          # At implementation time: if knope's tag format differs, adjust the
-          # grep pattern below to match.
+          # knope tags releases as "<package-name>/v<version>", e.g.
+          # "graphql-analyzer-lsp/v1.2.3".
           CLI_VERSION="$(gh release list \
             --repo trevor-scheer/graphql-analyzer \
-            --limit 10 \
+            --limit 30 \
             --json tagName,publishedAt \
-            --jq '[.[] | select(.tagName | startswith("graphql-analyzer-cli-v"))] | sort_by(.publishedAt) | last | .tagName | ltrimstr("graphql-analyzer-cli-v")' \
-            2>/dev/null || echo "latest")"
+            --jq '[.[] | select(.tagName | startswith("graphql-analyzer-cli/v"))] | sort_by(.publishedAt) | last | .tagName | ltrimstr("graphql-analyzer-cli/v")')"
           CORE_VERSION="$(gh release list \
             --repo trevor-scheer/graphql-analyzer \
-            --limit 10 \
+            --limit 30 \
             --json tagName,publishedAt \
-            --jq '[.[] | select(.tagName | startswith("graphql-analyzer-core-v"))] | sort_by(.publishedAt) | last | .tagName | ltrimstr("graphql-analyzer-core-v")' \
-            2>/dev/null || echo "latest")"
+            --jq '[.[] | select(.tagName | startswith("graphql-analyzer-core/v"))] | sort_by(.publishedAt) | last | .tagName | ltrimstr("graphql-analyzer-core/v")')"
           ESLINT_VERSION="$(gh release list \
             --repo trevor-scheer/graphql-analyzer \
-            --limit 10 \
+            --limit 30 \
             --json tagName,publishedAt \
-            --jq '[.[] | select(.tagName | startswith("graphql-analyzer-eslint-plugin-v"))] | sort_by(.publishedAt) | last | .tagName | ltrimstr("graphql-analyzer-eslint-plugin-v")' \
-            2>/dev/null || echo "latest")"
+            --jq '[.[] | select(.tagName | startswith("graphql-analyzer-eslint-plugin/v"))] | sort_by(.publishedAt) | last | .tagName | ltrimstr("graphql-analyzer-eslint-plugin/v")')"
+          if [ -z "$CLI_VERSION" ] || [ -z "$CORE_VERSION" ] || [ -z "$ESLINT_VERSION" ]; then
+            echo "Failed to resolve one or more package versions from recent releases"
+            echo "CLI=$CLI_VERSION CORE=$CORE_VERSION ESLINT=$ESLINT_VERSION"
+            exit 1
+          fi
           echo "cli_version=$CLI_VERSION" >> "$GITHUB_OUTPUT"
           echo "core_version=$CORE_VERSION" >> "$GITHUB_OUTPUT"
           echo "eslint_version=$ESLINT_VERSION" >> "$GITHUB_OUTPUT"
@@ -107,21 +101,12 @@ jobs:
           CLI_VERSION: ${{ steps.versions.outputs.cli_version }}
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
-          # Download the linux-x86_64 CLI binary from the release.
-          # At implementation time: verify the asset naming matches the
-          # release artifacts actually produced by the release workflow.
           ASSET="graphql-cli-x86_64-unknown-linux-gnu.tar.xz"
-          gh release download "graphql-analyzer-cli-v${CLI_VERSION}" \
+          gh release download "graphql-analyzer-cli/v${CLI_VERSION}" \
             --repo trevor-scheer/graphql-analyzer \
             --pattern "$ASSET" \
-            --dir /tmp/graphql-cli-release 2>/dev/null || {
-            echo "Warning: could not download versioned release, falling back to latest"
-            gh release download \
-              --repo trevor-scheer/graphql-analyzer \
-              --pattern "$ASSET" \
-              --dir /tmp/graphql-cli-release \
-              --latest
-          }
+            --dir /tmp/graphql-cli-release
+          mkdir -p ~/.local/bin
           tar -xJf "/tmp/graphql-cli-release/$ASSET" -C ~/.local/bin/
           chmod +x ~/.local/bin/graphql
           echo "$HOME/.local/bin" >> "$GITHUB_PATH"
@@ -155,10 +140,6 @@ jobs:
         if: failure()
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          TRIGGERING_RUN: ${{ github.event.workflow_run.html_url }}
-          CLI_VERSION: ${{ steps.versions.outputs.cli_version }}
-          CORE_VERSION: ${{ steps.versions.outputs.core_version }}
-          ESLINT_VERSION: ${{ steps.versions.outputs.eslint_version }}
         run: |
           gh issue create \
             --repo trevor-scheer/graphql-analyzer \
@@ -167,12 +148,12 @@ jobs:
             --body "$(cat <<'BODY'
           The **analyzer-testbed** CI failed after a release of graphql-analyzer.
 
-          **Triggered by release run:** $TRIGGERING_RUN
+          **Triggered by release run:** ${{ github.event.workflow_run.html_url }}
 
           **Versions under test:**
-          - \`@graphql-analyzer/core\`: $CORE_VERSION
-          - \`@graphql-analyzer/eslint-plugin\`: $ESLINT_VERSION
-          - \`graphql-cli\`: $CLI_VERSION
+          - \`@graphql-analyzer/core\`: ${{ steps.versions.outputs.core_version }}
+          - \`@graphql-analyzer/eslint-plugin\`: ${{ steps.versions.outputs.eslint_version }}
+          - \`graphql-cli\`: ${{ steps.versions.outputs.cli_version }}
 
           **Dogfood CI run:** ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
 
