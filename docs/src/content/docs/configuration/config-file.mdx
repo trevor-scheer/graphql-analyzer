@@ -144,22 +144,11 @@ module.exports = {
 };
 ```
 
-<Tabs>
-  <TabItem label="YAML">
-    ```yaml
-    # .graphqlrc.yml (equivalent)
-    schema: schema.graphql
-    documents: src/**/*.graphql
-    ```
-  </TabItem>
-  <TabItem label="TOML">
-    ```toml
-    # .graphqlrc.toml (equivalent)
-    schema = "schema.graphql"
-    documents = "src/**/*.graphql"
-    ```
-  </TabItem>
-</Tabs>
+```yaml
+# .graphqlrc.yml (equivalent)
+schema: "schema.graphql"
+documents: "src/**/*.graphql"
+```
 
 ### One-liner conversion
 
