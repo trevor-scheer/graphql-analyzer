@@ -152,22 +152,15 @@ documents: "src/**/*.graphql"
 
 ### One-liner conversion
 
-If your JS/TS config is a static object (or evaluates to one), you can dump it to JSON with a single command. `.graphqlrc.json` is supported directly — no further conversion required.
+If your config is a static object (or evaluates to one), dump it to JSON with a single command. `.graphqlrc.json` is supported directly — no further conversion required.
 
-<Tabs>
-  <TabItem label="JS (CommonJS or ESM)">
-    ```sh
-    node -e "import('./graphql.config.js').then(c => console.log(JSON.stringify(c.default ?? c, null, 2)))" > .graphqlrc.json
-    ```
-  </TabItem>
-  <TabItem label="TypeScript">
-    ```sh
-    npx -y tsx -e "import('./graphql.config.ts').then(c => console.log(JSON.stringify(c.default ?? c, null, 2)))" > .graphqlrc.json
-    ```
-  </TabItem>
-</Tabs>
+```sh
+node -e "import('./graphql.config.js').then(c => console.log(JSON.stringify(c.default ?? c, null, 2)))" > .graphqlrc.json
+```
 
-`await import()` works for both CommonJS and ESM modules in Node 20+. The `c.default ?? c` handles `export default` (ESM) and `module.exports = ...` (CJS) uniformly.
+The dynamic `import()` returns a promise resolving to the namespace object, which `.then(c => …)` unwraps. `c.default ?? c` picks the ESM default export when present, otherwise falls back to the CJS exports object — so the same command handles both `module.exports = …` and `export default …`.
+
+For TypeScript configs, point at `graphql.config.ts` instead. Modern Node strips type annotations natively (Node 22.6+ with `--experimental-strip-types`, or Node 23.6+ where it's on by default), so no separate runner like `tsx` is needed.
 
 If you'd prefer YAML, pipe the JSON through any YAML converter — for example, with `js-yaml` installed:
 
@@ -181,13 +174,13 @@ node -e "console.log(require('js-yaml').dump(require('./.graphqlrc.json')))" > .
 
 :::caution[Unsupported in static configs]
 
-- **Functions, getters, or async values** anywhere in the config tree
-- **`require()` / `import()` of other modules** evaluated at load time
-- **Conditional logic** that branches on `process.env`, the working directory, or other runtime state (beyond the simple `${VAR}` interpolation described below)
-- **Custom JavaScript loaders, transforms, or plugins** registered through the config
-- **Dynamically computed values** — schema URLs, file paths, header values, document globs, etc. — produced by running JS
+- **Function-valued fields anywhere in the tree** — common cases include HTTP `Authorization` headers built by a function for dynamic auth tokens, or `extensions.codegen.hooks.afterAllFileWrite` set to a function (only string shell commands carry over). Function values silently disappear from `JSON.stringify()`, so the one-liner produces an _incomplete_ config rather than erroring — easy to miss.
+- **`process.env` interpolation via JS** — e.g. `headers.Authorization` built from a template literal embedding `process.env.TOKEN`. Use the static `${TOKEN}` interpolation [described below](#environment-variable-interpolation) instead — it's resolved when the YAML/JSON is loaded, not baked into the file.
+- **Conditional branches on runtime state** — e.g. switching `documents` globs or `projects` based on `process.env.CI` or `NODE_ENV`.
+- **Spread-imported config fragments** — e.g. spreading the result of `require("./shared-globs")` into the `documents` array.
+- **Custom loaders, transforms, or plugins registered in JS** — e.g. graphql-config v5's top-level `loaders: [new UrlLoader()]`, or codegen plugins referenced via `require()`.
 
-If your existing config uses any of these, the one-liner above will either fail or produce an incomplete config. You will need to address each dynamic value before migrating.
+If your existing config uses any of these, you'll need to address them before migrating.
 
 :::
 
