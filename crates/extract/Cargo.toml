@@ -20,6 +20,7 @@ walkdir = { workspace = true }
 swc_common = { workspace = true }
 swc_core = { workspace = true }
 serde = { workspace = true }
+serde_json = { workspace = true }
 tracing = "0.1"
 
 [dev-dependencies]
