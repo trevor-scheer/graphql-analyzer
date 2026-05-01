@@ -1,7 +1,8 @@
 # dogfood-testbed.yml
 # Triggered after a successful release of graphql-analyzer. Clones
 # analyzer-testbed, bumps all @graphql-analyzer/* deps to the just-released
-# versions, runs the full testbed CI matrix, and opens an issue on failure.
+# versions, runs the full testbed CI matrix, and on failure opens or updates
+# a single rolling issue (one comment per release, deduped by exact title).
 #
 # Trigger: workflow_run watching "Release" — fires only on success, so we
 # don't spam the testbed with every draft or failed attempt.
@@ -151,27 +152,55 @@ jobs:
           fail_if_passes fixture-deprecated-field-usage
           fail_if_passes fixture-selection-type-mismatch
 
-      - name: Open issue on failure
+      - name: Open or update rolling failure issue
         if: failure()
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          REPO: trevor-scheer/graphql-analyzer
+          TITLE: "Dogfood regression: testbed CI failed after release"
+          RELEASE_RUN_URL: ${{ github.event.workflow_run.html_url }}
+          DOGFOOD_RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+          CORE_VERSION: ${{ steps.versions.outputs.core_version }}
+          ESLINT_VERSION: ${{ steps.versions.outputs.eslint_version }}
+          CLI_VERSION: ${{ steps.versions.outputs.cli_version }}
         run: |
-          gh issue create \
-            --repo trevor-scheer/graphql-analyzer \
-            --title "Dogfood regression: testbed CI failed after release" \
-            --label "bug,regression" \
-            --body "$(cat <<'BODY'
+          # Single rolling issue: find an open one with this exact title and
+          # append a comment with the latest run details. Only fall through to
+          # `gh issue create` when none exists.
+          BODY="$(cat <<BODY
           The **analyzer-testbed** CI failed after a release of graphql-analyzer.
 
-          **Triggered by release run:** ${{ github.event.workflow_run.html_url }}
+          **Triggered by release run:** ${RELEASE_RUN_URL}
 
           **Versions under test:**
-          - \`@graphql-analyzer/core\`: ${{ steps.versions.outputs.core_version }}
-          - \`@graphql-analyzer/eslint-plugin\`: ${{ steps.versions.outputs.eslint_version }}
-          - \`graphql-cli\`: ${{ steps.versions.outputs.cli_version }}
+          - \`@graphql-analyzer/core\`: ${CORE_VERSION}
+          - \`@graphql-analyzer/eslint-plugin\`: ${ESLINT_VERSION}
+          - \`graphql-cli\`: ${CLI_VERSION}
 
-          **Dogfood CI run:** ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+          **Dogfood CI run:** ${DOGFOOD_RUN_URL}
 
           Please investigate before the next release. The testbed CI log (linked above) has the full failure output.
           BODY
           )"
+
+          # `--search` matches title text; filter to exact-title open issues so
+          # near-misses (e.g. user-edited titles) don't suppress new reports.
+          EXISTING="$(gh issue list \
+            --repo "$REPO" \
+            --state open \
+            --label regression \
+            --search "in:title \"$TITLE\"" \
+            --json number,title \
+            --jq "[.[] | select(.title == \"$TITLE\")] | first | .number // empty")"
+
+          if [ -n "$EXISTING" ]; then
+            echo "Updating existing issue #$EXISTING"
+            gh issue comment "$EXISTING" --repo "$REPO" --body "$BODY"
+          else
+            echo "No existing rolling issue found; creating one"
+            gh issue create \
+              --repo "$REPO" \
+              --title "$TITLE" \
+              --label "bug,regression" \
+              --body "$BODY"
+          fi
