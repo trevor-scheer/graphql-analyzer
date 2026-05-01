@@ -76,8 +76,8 @@ type = "PrepareRelease"
 
 # Knope only bumps `version` fields. Re-pin intra-workspace npm deps to the
 # new core version so published packages list the exact version they were
-# tested against (and so `npm ci` on the release branch can resolve via the
-# workspace).
+# tested against (and so `pnpm install --frozen-lockfile` on the release
+# branch can resolve via the workspace).
 [[workflows.steps]]
 type = "Command"
 command = "node scripts/sync-workspace-deps.mjs"
