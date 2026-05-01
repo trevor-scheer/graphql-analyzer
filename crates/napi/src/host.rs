@@ -67,17 +67,13 @@ impl NapiAnalysisHost {
                 host.set_lint_config(lint_config);
             }
 
-            if let Some(ref extensions) = project.extensions {
-                if let Some(extract_value) = extensions.get("extractConfig") {
-                    let extract_config = serde_json::from_value::<graphql_extract::ExtractConfig>(
-                        extract_value.clone(),
-                    )
-                    .map_err(|e| {
-                        anyhow::anyhow!("Invalid extractConfig in project '{name}':\n\n{e}")
-                    })?;
-                    host.set_extract_config(extract_config);
-                }
-            }
+            // Files matched by the project's `documents:` config are explicit
+            // GraphQL sources, so a bare `gql` tag without an `import` should
+            // still be extracted (issue #1035). User overrides come from the
+            // modern `extensions.graphql-analyzer.extractConfig` namespace.
+            let extract_value = project.extract_config();
+            let extract_config = graphql_extract::resolve_for_documents(extract_value.as_ref());
+            host.set_extract_config(extract_config);
 
             let mut known_files = HashSet::new();
             let schema_result = host.load_schemas_from_config(project, base_dir)?;
