@@ -1,4 +1,4 @@
-use crate::diagnostics::{CodeFix, LintDiagnostic, LintSeverity, TextEdit};
+use crate::diagnostics::{CodeFix, CodeSuggestion, LintDiagnostic, LintSeverity, TextEdit};
 use crate::schema_utils::extract_root_type_names;
 use crate::traits::{DocumentSchemaLintRule, LintRule};
 use apollo_parser::cst::{self, CstNode};
@@ -564,27 +564,35 @@ fn check_selection_set(
             );
         }
     } else {
-        // OR mode: one grouped diagnostic listing all candidates.
-        let fix_label = if missing_fields.len() == 1 {
-            format!("Add `{}` selection", missing_fields[0])
+        // OR mode: one grouped diagnostic listing all candidates. Mirror
+        // graphql-eslint's `require-selections` by surfacing one
+        // `CodeSuggestion` per missing `idName` — the choice of which
+        // candidate to add is semantic and must stay with the user. The
+        // single-suggestion case still gets the same shape (one entry).
+        let suggestions: Vec<CodeSuggestion> = missing_fields
+            .iter()
+            .map(|f| {
+                let edit_text = format!("{f}\n{indent}");
+                CodeSuggestion {
+                    desc: format!("Add `{f}` selection"),
+                    fix: CodeFix::new(String::new(), vec![TextEdit::insert(insert_pos, edit_text)]),
+                }
+            })
+            .collect();
+
+        // Keep an autofix only when there's a single candidate — applying
+        // it is unambiguous. With multiple candidates, autofix would have
+        // to pick one (or stack all of them, which over-fetches), so we
+        // leave the choice to the user via the suggestion menu.
+        let single_fix = if missing_fields.len() == 1 {
+            let f = missing_fields[0];
+            Some(CodeFix::new(
+                format!("Add `{f}` selection"),
+                vec![TextEdit::insert(insert_pos, format!("{f}\n{indent}"))],
+            ))
         } else {
-            // TODO(parity): graphql-eslint emits one suggestion per `idName`
-            // in a multi-suggestion code action. We only have a single-fix API
-            // today, so we concatenate the missing fields into one fix.
-            let joined = missing_fields
-                .iter()
-                .map(|f| format!("`{f}`"))
-                .collect::<Vec<_>>()
-                .join(", ");
-            format!("Add {joined} selections")
+            None
         };
-        let mut fix_text = String::new();
-        for f in &missing_fields {
-            fix_text.push_str(f);
-            fix_text.push('\n');
-            fix_text.push_str(&indent);
-        }
-        let fix = CodeFix::new(fix_label, vec![TextEdit::insert(insert_pos, fix_text)]);
 
         let plural_suffix = if missing_fields.len() > 1 { "s" } else { "" };
         let joined_field_refs = english_join_words(
@@ -598,17 +606,19 @@ fn check_selection_set(
         // opening `{` with a start-only `loc` (no end position). Emit a
         // degenerate range (start == end); the eslint adapter strips
         // `endLine`/`endColumn` for rules listed in `START_ONLY_RULES`.
-        diagnostics.push(
-            LintDiagnostic::error(
-                doc.span(selection_set_start, selection_set_start),
-                format!(
-                    "Field{plural_suffix} {joined_field_refs} must be selected when it's available on a type.\nInclude it in your selection set{addition}."
-                ),
-                "requireSelections",
-            )
-            .with_message_id("require-selections")
-            .with_fix(fix),
-        );
+        let mut diag = LintDiagnostic::error(
+            doc.span(selection_set_start, selection_set_start),
+            format!(
+                "Field{plural_suffix} {joined_field_refs} must be selected when it's available on a type.\nInclude it in your selection set{addition}."
+            ),
+            "requireSelections",
+        )
+        .with_message_id("require-selections")
+        .with_suggestions(suggestions);
+        if let Some(fix) = single_fix {
+            diag = diag.with_fix(fix);
+        }
+        diagnostics.push(diag);
     }
 }
 
@@ -1645,6 +1655,60 @@ query GetUser {
         assert!(msg.contains("`user.id`"), "got: {msg}");
         assert!(msg.contains("`user.__typename`"), "got: {msg}");
         assert!(msg.contains(" or "), "got: {msg}");
+    }
+
+    #[test]
+    fn test_or_mode_emits_one_suggestion_per_id_name() {
+        // Mirror graphql-eslint's `require-selections`: when multiple `idName`
+        // candidates are configured and none are selected, the diagnostic
+        // surfaces one `suggest` entry per candidate so the user can pick
+        // which field to add. (Picking which `idName` to add is a semantic
+        // choice — concatenating all of them into one fix is wrong.)
+        let db = RootDatabase::default();
+        let rule = RequireSelectionsRuleImpl;
+
+        let source = "
+query GetUser {
+    user(id: \"1\") {
+        email
+    }
+}
+";
+        let options = serde_json::json!({ "fieldName": ["id", "name"] });
+
+        let (file_id, content, metadata, project_files) =
+            create_test_project(&db, TEST_SCHEMA, source);
+
+        let diagnostics = rule.check(
+            &db,
+            file_id,
+            content,
+            metadata,
+            project_files,
+            Some(&options),
+        );
+
+        assert_eq!(diagnostics.len(), 1);
+        let descs: Vec<&str> = diagnostics[0]
+            .suggestions
+            .iter()
+            .map(|s| s.desc.as_str())
+            .collect();
+        assert_eq!(descs, vec!["Add `id` selection", "Add `name` selection"]);
+
+        // Each suggestion's fix should insert exactly one field at the
+        // selection-set insertion point — not the concatenated list.
+        for sug in &diagnostics[0].suggestions {
+            assert_eq!(sug.fix.edits.len(), 1);
+            let inserted = &sug.fix.edits[0].new_text;
+            // No suggestion should mention the *other* candidate.
+            let added_one = (inserted.contains("id") && !inserted.contains("name"))
+                || (inserted.contains("name") && !inserted.contains("id"));
+            assert!(
+                added_one,
+                "suggestion fix should insert exactly one candidate; got: {inserted:?}"
+            );
+        }
     }
 
     #[test]
