@@ -57,6 +57,72 @@ impl Default for ExtractConfig {
     }
 }
 
+/// Resolve the effective `ExtractConfig` for files the user has explicitly
+/// declared as GraphQL document sources (e.g., matched by a project's
+/// `documents:` glob).
+///
+/// In that scoped context, defaulting `allow_global_identifiers` to `true`
+/// matches user expectations and graphql-eslint's behavior: a bare
+/// ``gql`...` `` tag with no `import { gql } from ...` statement should still
+/// be extracted, because the user has already opted the file in by listing it
+/// under `documents:`. The strict `ExtractConfig::default()` (which keeps
+/// `allow_global_identifiers: false`) is the right choice for ad-hoc /
+/// untrusted extraction, but not for declared documents (issue #1035).
+///
+/// User-supplied fields from the project's `extensions.graphql-analyzer.extractConfig`
+/// JSON object override the permissive defaults one field at a time, so a
+/// user who only sets `tagIdentifiers` keeps the permissive
+/// `allowGlobalIdentifiers: true` rather than silently reverting to the
+/// strict default that `serde::Deserialize` would produce.
+///
+/// Pass `None` when the project has no `extensions.graphql-analyzer.extractConfig`
+/// block; pass the JSON value otherwise.
+#[must_use]
+pub fn resolve_for_documents(user_override: Option<&serde_json::Value>) -> ExtractConfig {
+    let mut config = ExtractConfig {
+        allow_global_identifiers: true,
+        ..ExtractConfig::default()
+    };
+
+    let Some(value) = user_override else {
+        return config;
+    };
+
+    let serde_json::Value::Object(map) = value else {
+        tracing::warn!("extractConfig is not an object ({value:?}); using permissive defaults");
+        return config;
+    };
+
+    // Apply user-specified fields one at a time so unset fields keep our
+    // permissive defaults rather than reverting to ExtractConfig::default.
+    if let Some(v) = map
+        .get("allowGlobalIdentifiers")
+        .and_then(serde_json::Value::as_bool)
+    {
+        config.allow_global_identifiers = v;
+    }
+    if let Some(v) = map.get("magicComment").and_then(serde_json::Value::as_str) {
+        config.magic_comment = v.to_string();
+    }
+    if let Some(arr) = map
+        .get("tagIdentifiers")
+        .and_then(serde_json::Value::as_array)
+    {
+        config.tag_identifiers = arr
+            .iter()
+            .filter_map(|v| v.as_str().map(str::to_string))
+            .collect();
+    }
+    if let Some(arr) = map.get("modules").and_then(serde_json::Value::as_array) {
+        config.modules = arr
+            .iter()
+            .filter_map(|v| v.as_str().map(str::to_string))
+            .collect();
+    }
+
+    config
+}
+
 /// Extracted GraphQL content with source location
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ExtractedGraphQL {
@@ -758,6 +824,59 @@ mod tests {
         assert_eq!(config.magic_comment, "GraphQL");
         assert!(config.tag_identifiers.contains(&"gql".to_string()));
         assert!(config.modules.contains(&"graphql-tag".to_string()));
+    }
+
+    #[test]
+    fn test_resolve_for_documents_defaults_to_permissive() {
+        let cfg = resolve_for_documents(None);
+        assert!(
+            cfg.allow_global_identifiers,
+            "documents-scoped default should allow global identifiers (issue #1035)"
+        );
+        assert_eq!(cfg.tag_identifiers, vec!["gql", "graphql"]);
+        assert_eq!(cfg.magic_comment, "GraphQL");
+    }
+
+    #[test]
+    fn test_resolve_for_documents_honors_user_opt_out() {
+        let user = serde_json::json!({ "allowGlobalIdentifiers": false });
+        let cfg = resolve_for_documents(Some(&user));
+        assert!(
+            !cfg.allow_global_identifiers,
+            "explicit allowGlobalIdentifiers: false should win over permissive default"
+        );
+    }
+
+    #[test]
+    fn test_resolve_for_documents_merges_partial_user_config() {
+        // User overrides only tagIdentifiers; allowGlobalIdentifiers should
+        // stay at the permissive default rather than reverting to upstream
+        // ExtractConfig::default's `false`.
+        let user = serde_json::json!({ "tagIdentifiers": ["myTag"] });
+        let cfg = resolve_for_documents(Some(&user));
+        assert!(cfg.allow_global_identifiers);
+        assert_eq!(cfg.tag_identifiers, vec!["myTag"]);
+        assert_eq!(cfg.magic_comment, "GraphQL");
+    }
+
+    #[test]
+    fn test_resolve_for_documents_overrides_modules_and_magic_comment() {
+        let user = serde_json::json!({
+            "modules": ["my-tag-lib"],
+            "magicComment": "GQL",
+        });
+        let cfg = resolve_for_documents(Some(&user));
+        assert_eq!(cfg.modules, vec!["my-tag-lib"]);
+        assert_eq!(cfg.magic_comment, "GQL");
+        assert!(cfg.allow_global_identifiers);
+    }
+
+    #[test]
+    fn test_resolve_for_documents_falls_back_when_value_is_not_an_object() {
+        let user = serde_json::json!("not-an-object");
+        let cfg = resolve_for_documents(Some(&user));
+        assert!(cfg.allow_global_identifiers);
+        assert_eq!(cfg.tag_identifiers, vec!["gql", "graphql"]);
     }
 
     #[test]

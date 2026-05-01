@@ -85,5 +85,8 @@ wasm = [] # Placeholder for future wasm-only deps (tracing-wasm, etc.); current 
 extract = ["dep:graphql-extract", "graphql-ide/extract", "graphql-syntax/extract", "graphql-linter/extract"]
 introspect = ["dep:graphql-introspect", "graphql-ide/introspect"]
 
+[dev-dependencies]
+tempfile = "3.25.0"
+
 [lints]
 workspace = true

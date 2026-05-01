@@ -255,61 +255,14 @@ impl CliAnalysisHost {
 
     /// Resolve the effective `ExtractConfig` for the CLI.
     ///
-    /// CLI users explicitly enumerate document files via `documents:` globs, so
-    /// any matched `.ts`/`.js` file is, by user declaration, a GraphQL source.
-    /// Defaulting `allow_global_identifiers` to `true` lets a bare tagged
-    /// template literal (no `import { gql } from ...`) be extracted in this
-    /// scoped context, which matches user expectations and what graphql-eslint
-    /// does for files matched by the project's documents config (issue #1035).
-    ///
-    /// If the user explicitly sets `extractConfig.allowGlobalIdentifiers`, that
-    /// value wins. Other fields (`tagIdentifiers`, `modules`, `magicComment`)
-    /// merge over the defaults the same way `serde` deserialization would.
+    /// Thin wrapper around `graphql_extract::resolve_for_documents` that pulls
+    /// the user override out of the project's `extensions.graphql-analyzer.extractConfig`
+    /// block. CLI users explicitly enumerate document files via `documents:`
+    /// globs, so the helper's permissive default (`allow_global_identifiers: true`)
+    /// is the right choice here (issue #1035).
     fn resolve_extract_config(project_config: &ProjectConfig) -> graphql_extract::ExtractConfig {
-        let mut config = graphql_extract::ExtractConfig {
-            allow_global_identifiers: true,
-            ..graphql_extract::ExtractConfig::default()
-        };
-
-        let Some(extract_value) = project_config.extract_config() else {
-            return config;
-        };
-
-        let serde_json::Value::Object(map) = extract_value else {
-            tracing::warn!(
-                "extractConfig is not an object ({extract_value:?}); using CLI defaults"
-            );
-            return config;
-        };
-
-        // Apply user-specified fields one at a time so unset fields keep our
-        // permissive defaults rather than reverting to ExtractConfig::default.
-        if let Some(v) = map
-            .get("allowGlobalIdentifiers")
-            .and_then(serde_json::Value::as_bool)
-        {
-            config.allow_global_identifiers = v;
-        }
-        if let Some(v) = map.get("magicComment").and_then(serde_json::Value::as_str) {
-            config.magic_comment = v.to_string();
-        }
-        if let Some(arr) = map
-            .get("tagIdentifiers")
-            .and_then(serde_json::Value::as_array)
-        {
-            config.tag_identifiers = arr
-                .iter()
-                .filter_map(|v| v.as_str().map(str::to_string))
-                .collect();
-        }
-        if let Some(arr) = map.get("modules").and_then(serde_json::Value::as_array) {
-            config.modules = arr
-                .iter()
-                .filter_map(|v| v.as_str().map(str::to_string))
-                .collect();
-        }
-
-        config
+        let extract_value = project_config.extract_config();
+        graphql_extract::resolve_for_documents(extract_value.as_ref())
     }
 
     /// Expand brace patterns like "src/**/*.{ts,tsx}" into separate patterns
