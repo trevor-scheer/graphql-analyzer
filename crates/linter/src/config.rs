@@ -663,13 +663,13 @@ rules:
 
     #[test]
     fn test_mixed_rule_configs() {
-        let yaml = r#"
+        let yaml = r"
 rules:
   noDeprecated: warn
   requireSelections: [error, { requireAllFields: true }]
   uniqueNames:
     severity: error
-"#;
+";
         let config: LintConfig = serde_saphyr::from_str(yaml).unwrap();
 
         // Simple severity
