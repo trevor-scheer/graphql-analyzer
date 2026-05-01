@@ -6,9 +6,21 @@
 
 use anyhow::{Context, Result};
 use graphql_config::ProjectConfig;
-use graphql_ide::{AnalysisHost, Diagnostic, DocumentKind, FilePath, Language};
+use graphql_ide::{path_to_file_uri, AnalysisHost, Diagnostic, DocumentKind, FilePath, Language};
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
+
+/// Build a [`FilePath`] for a schema file matching how
+/// `AnalysisHost::load_schemas_from_config` registers them.
+///
+/// On Windows, schemas are registered via `path_to_file_uri` (which converts
+/// backslashes to forward slashes in the URI), while documents go through
+/// `FilePath::from_path` (which preserves backslashes). Looking up a schema
+/// by `FilePath::from_path` therefore misses on Windows and returns no
+/// diagnostics. This helper picks the schema-side path representation.
+fn schema_file_path(path: &Path) -> FilePath {
+    FilePath::new(path_to_file_uri(path))
+}
 
 /// CLI adapter for `AnalysisHost`
 ///
@@ -299,7 +311,7 @@ impl CliAnalysisHost {
         let mut results = HashMap::new();
 
         for path in &self.schema_files {
-            let file_path = FilePath::from_path(path);
+            let file_path = schema_file_path(path);
             let diagnostics = snapshot.validation_diagnostics(&file_path);
 
             if !diagnostics.is_empty() {
@@ -338,14 +350,21 @@ impl CliAnalysisHost {
         // (e.g. `noUnreachableTypes`) fire from `graphql lint` / `graphql
         // check`. The per-file `lint_diagnostics` query dispatches to the
         // appropriate rule set based on each file's `DocumentKind`.
-        let all_files = self.schema_files.iter().chain(self.document_files.iter());
-        for (idx, path) in all_files.enumerate() {
+        let all_files = self
+            .schema_files
+            .iter()
+            .map(|p| (p, schema_file_path(p)))
+            .chain(
+                self.document_files
+                    .iter()
+                    .map(|p| (p, FilePath::from_path(p))),
+            );
+        for (idx, (path, file_path)) in all_files.enumerate() {
             tracing::debug!(
                 file = %path.display(),
                 progress = format!("{}/{}", idx + 1, total_files),
                 "Checking file for lint issues"
             );
-            let file_path = FilePath::from_path(path);
             let diagnostics = snapshot.lint_diagnostics(&file_path);
 
             if !diagnostics.is_empty() {
@@ -499,8 +518,16 @@ impl CliAnalysisHost {
 
         // Walk both schema and document files so schema-only rules contribute
         // their fixes to `graphql fix` (mirrors `all_lint_diagnostics`).
-        for path in self.schema_files.iter().chain(self.document_files.iter()) {
-            let file_path = FilePath::from_path(path);
+        let all_files = self
+            .schema_files
+            .iter()
+            .map(|p| (p, schema_file_path(p)))
+            .chain(
+                self.document_files
+                    .iter()
+                    .map(|p| (p, FilePath::from_path(p))),
+            );
+        for (path, file_path) in all_files {
             let diagnostics = snapshot.lint_diagnostics_with_fixes(&file_path);
 
             if !diagnostics.is_empty() {
