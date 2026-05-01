@@ -186,7 +186,7 @@ irm https://raw.githubusercontent.com/trevor-scheer/graphql-analyzer/main/script
 **Homebrew:**
 
 ```sh
-brew install trevor-scheer/tap/graphql-cli
+brew install trevor-scheer/graphql-analyzer/graphql-analyzer
 ```
 
 **From source:**
