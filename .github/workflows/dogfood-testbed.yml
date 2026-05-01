@@ -115,7 +115,7 @@ jobs:
       - name: Run testbed CI (lint + typecheck + build + test)
         working-directory: testbed
         run: |
-          pnpm graphql-cli check .
+          graphql check .
           pnpm lint
           pnpm --filter @analyzer-testbed/web prisma generate
           pnpm tsc --noEmit --project tsconfig.json 2>/dev/null || \
@@ -126,7 +126,7 @@ jobs:
         run: |
           fail_if_passes() {
             local project="$1"
-            if pnpm graphql-cli check --project "$project" .; then
+            if graphql check --project "$project" .; then
               echo "ERROR: $project exited 0 — expected errors but found none"
               return 1
             fi
