@@ -1,6 +1,6 @@
 {
   "name": "@graphql-analyzer/core-win32-x64-msvc",
-  "version": "0.1.1",
+  "version": "0.1.2",
   "description": "graphql-analyzer native addon (win32 x64 msvc)",
   "license": "MIT OR Apache-2.0",
   "repository": {
