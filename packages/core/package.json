@@ -1,6 +1,6 @@
 {
   "name": "@graphql-analyzer/core",
-  "version": "0.1.2",
+  "version": "0.1.3",
   "description": "Rust-powered GraphQL analyzer, callable from Node.js",
   "license": "MIT OR Apache-2.0",
   "repository": {
@@ -25,11 +25,11 @@
     "@napi-rs/cli": "^2.18.0"
   },
   "optionalDependencies": {
-    "@graphql-analyzer/core-darwin-arm64": "0.1.2",
-    "@graphql-analyzer/core-darwin-x64": "0.1.2",
-    "@graphql-analyzer/core-linux-arm64-gnu": "0.1.2",
-    "@graphql-analyzer/core-linux-x64-gnu": "0.1.2",
-    "@graphql-analyzer/core-win32-x64-msvc": "0.1.2"
+    "@graphql-analyzer/core-darwin-arm64": "0.1.3",
+    "@graphql-analyzer/core-darwin-x64": "0.1.3",
+    "@graphql-analyzer/core-linux-arm64-gnu": "0.1.3",
+    "@graphql-analyzer/core-linux-x64-gnu": "0.1.3",
+    "@graphql-analyzer/core-win32-x64-msvc": "0.1.3"
   },
   "napi": {
     "name": "graphql-analyzer",

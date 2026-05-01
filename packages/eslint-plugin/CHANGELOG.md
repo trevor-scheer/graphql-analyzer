@@ -2,6 +2,16 @@
 
 All notable changes to `@graphql-analyzer/eslint-plugin` will be documented in
 this file.
+## 0.1.4 (2026-05-01)
+
+### Features
+
+- Remove the `require-id-field` lint rule — strict subset of `require-selections` with cosmetic differences. Migrate `requireIdField: <severity>` to `requireSelections: [<severity>, { requireAllFields: true }]` (or pass the same `fields:` list as `fieldName:` if you customised it) ([#1083](https://github.com/trevor-scheer/graphql-analyzer/pull/1083))
+
+### Fixes
+
+- `require-selections`: emit one quick-fix suggestion per missing `idName` instead of a single autofix that stacks every candidate. Picking which `idName` to add is a semantic choice; the IDE menu now offers one entry per candidate, matching `@graphql-eslint`. The single-candidate case still autofixes ([#1079](https://github.com/trevor-scheer/graphql-analyzer/pull/1079))
+
 ## 0.1.3 (2026-05-01)
 
 ### Features
