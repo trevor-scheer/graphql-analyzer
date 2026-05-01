@@ -780,6 +780,54 @@ mod tests {
     }
 
     #[test]
+    fn test_all_lint_diagnostics_runs_schema_only_rules() {
+        // Regression for #1061: `all_lint_diagnostics` only walked
+        // `document_files`, so schema-only rules (e.g. `noUnreachableTypes`)
+        // never fired from `graphql lint` / `graphql check`.
+        use graphql_config::{ProjectConfig, SchemaConfig};
+        use std::io::Write;
+        use tempfile::TempDir;
+
+        let temp_dir = TempDir::new().unwrap();
+        let workspace_path = temp_dir.path();
+
+        let schema_dir = workspace_path.join("schema");
+        std::fs::create_dir(&schema_dir).unwrap();
+        let mut schema_file = std::fs::File::create(schema_dir.join("schema.graphql")).unwrap();
+        writeln!(schema_file, "type Query {{ hello: String }}").unwrap();
+        // Type that no root operation can reach. `noUnreachableTypes` should
+        // flag it, but only if the rule actually runs over schema files.
+        writeln!(schema_file, "type Orphan {{ id: ID! }}").unwrap();
+
+        let analyzer_ext = serde_json::json!({
+            "lint": { "rules": { "noUnreachableTypes": "warn" } },
+        });
+        let extensions = HashMap::from([("graphql-analyzer".to_string(), analyzer_ext)]);
+
+        let project_config = ProjectConfig::new(
+            SchemaConfig::Path("schema/*.graphql".to_string()),
+            None,
+            None,
+            None,
+            Some(extensions),
+        );
+
+        let host = CliAnalysisHost::from_project_config(&project_config, workspace_path).unwrap();
+        let diagnostics = host.all_lint_diagnostics();
+
+        let schema_path = schema_dir.join("schema.graphql");
+        let schema_diags = diagnostics
+            .get(&schema_path)
+            .unwrap_or_else(|| panic!("expected lint diagnostics for {}", schema_path.display()));
+        assert!(
+            schema_diags
+                .iter()
+                .any(|d| d.message.contains("Orphan") || d.message.contains("noUnreachableTypes")),
+            "expected `noUnreachableTypes` violation for `Orphan`, got: {schema_diags:?}",
+        );
+    }
+
+    #[test]
     fn test_schema_loaded_false_when_no_schema_files_match() {
         use graphql_config::{ProjectConfig, SchemaConfig};
         use tempfile::TempDir;
