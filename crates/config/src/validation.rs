@@ -1353,7 +1353,7 @@ projects:
         assert_eq!(loc.line, 4);
     }
 
-    fn project_with_extensions(ext: serde_json::Value) -> ProjectConfig {
+    fn project_with_extensions(ext: &serde_json::Value) -> ProjectConfig {
         let map: StdHashMap<String, serde_json::Value> = ext
             .as_object()
             .expect("extensions must be an object")
@@ -1369,7 +1369,7 @@ projects:
         )
     }
 
-    fn single_project_config(ext: serde_json::Value) -> GraphQLConfig {
+    fn single_project_config(ext: &serde_json::Value) -> GraphQLConfig {
         let mut projects = std::collections::HashMap::new();
         projects.insert("myapp".to_string(), project_with_extensions(ext));
         GraphQLConfig::Multi { projects }
@@ -1377,7 +1377,7 @@ projects:
 
     #[test]
     fn test_misnamespaced_lint_at_extensions_root() {
-        let config = single_project_config(serde_json::json!({
+        let config = single_project_config(&serde_json::json!({
             "lint": { "rules": { "no-deprecated": "error" } }
         }));
 
@@ -1395,7 +1395,7 @@ projects:
 
     #[test]
     fn test_misnamespaced_camelcase_namespace_key() {
-        let config = single_project_config(serde_json::json!({
+        let config = single_project_config(&serde_json::json!({
             "graphqlAnalyzer": { "lint": "recommended" }
         }));
 
@@ -1412,7 +1412,7 @@ projects:
 
     #[test]
     fn test_correctly_namespaced_extension_is_silent() {
-        let config = single_project_config(serde_json::json!({
+        let config = single_project_config(&serde_json::json!({
             "graphql-analyzer": { "lint": "recommended" }
         }));
 
@@ -1424,7 +1424,7 @@ projects:
     fn test_unrelated_extensions_are_not_flagged() {
         // Other tools (codegen, endpoints) live at the root of `extensions:`
         // — we must not warn on those, only on analyzer-specific keys.
-        let config = single_project_config(serde_json::json!({
+        let config = single_project_config(&serde_json::json!({
             "endpoints": { "default": "https://example.com/graphql" },
             "codegen": { "generates": {} }
         }));
