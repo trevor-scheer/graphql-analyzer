@@ -334,11 +334,15 @@ impl CliAnalysisHost {
         let snapshot = self.host.snapshot();
         let mut results = HashMap::new();
 
-        // Lint document files (schema files don't have lint rules)
-        for (idx, path) in self.document_files.iter().enumerate() {
+        // Walk both schema and document files so schema-only rules
+        // (e.g. `noUnreachableTypes`) fire from `graphql lint` / `graphql
+        // check`. The per-file `lint_diagnostics` query dispatches to the
+        // appropriate rule set based on each file's `DocumentKind`.
+        let all_files = self.schema_files.iter().chain(self.document_files.iter());
+        for (idx, path) in all_files.enumerate() {
             tracing::debug!(
                 file = %path.display(),
-                progress = format!("{}/{}", idx + 1, self.document_files.len()),
+                progress = format!("{}/{}", idx + 1, total_files),
                 "Checking file for lint issues"
             );
             let file_path = FilePath::from_path(path);
@@ -493,8 +497,9 @@ impl CliAnalysisHost {
         let snapshot = self.host.snapshot();
         let mut results = HashMap::new();
 
-        // Get file-level lint diagnostics with fixes
-        for path in &self.document_files {
+        // Walk both schema and document files so schema-only rules contribute
+        // their fixes to `graphql fix` (mirrors `all_lint_diagnostics`).
+        for path in self.schema_files.iter().chain(self.document_files.iter()) {
             let file_path = FilePath::from_path(path);
             let diagnostics = snapshot.lint_diagnostics_with_fixes(&file_path);
 
