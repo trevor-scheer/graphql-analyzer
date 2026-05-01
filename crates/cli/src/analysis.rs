@@ -799,4 +799,84 @@ mod tests {
         let host = CliAnalysisHost::from_project_config(&project_config, workspace_path).unwrap();
         assert!(!host.schema_loaded());
     }
+
+    /// Regression test for issue #1035.
+    ///
+    /// A fragment defined in a `.ts` file via a bare `gql` tag (no import,
+    /// no explicit `extractConfig`) should be visible to `.graphql` operation
+    /// files in the same project. Previously the CLI's default `ExtractConfig`
+    /// kept `allow_global_identifiers: false`, so the bare `gql` tag was
+    /// skipped entirely — the fragment never reached the project index, and
+    /// the operation reported `cannot find fragment X`.
+    #[test]
+    fn test_ts_fragment_resolves_into_graphql_operation_without_import() {
+        use graphql_config::{DocumentsConfig, ProjectConfig, SchemaConfig};
+        use std::io::Write;
+        use tempfile::TempDir;
+
+        let temp_dir = TempDir::new().unwrap();
+        let workspace_path = temp_dir.path();
+
+        let schema_dir = workspace_path.join("graphql");
+        std::fs::create_dir(&schema_dir).unwrap();
+        let mut schema_file =
+            std::fs::File::create(schema_dir.join("schema.graphql")).unwrap();
+        writeln!(schema_file, "type Query {{ pokemon(id: ID!): Pokemon }}").unwrap();
+        writeln!(
+            schema_file,
+            "type Pokemon {{ id: ID!, name: String!, flavorText: String }}"
+        )
+        .unwrap();
+
+        let fragments_dir = workspace_path.join("graphql/fragments");
+        std::fs::create_dir(&fragments_dir).unwrap();
+        let mut fragment_file =
+            std::fs::File::create(fragments_dir.join("PokemonDetail.fragment.ts")).unwrap();
+        // Bare `gql` tag - no import, no `extractConfig` in project config.
+        writeln!(
+            fragment_file,
+            "export const POKEMON_DETAIL_FRAGMENT = gql`"
+        )
+        .unwrap();
+        writeln!(
+            fragment_file,
+            "  fragment PokemonDetail on Pokemon {{ id name flavorText }}"
+        )
+        .unwrap();
+        writeln!(fragment_file, "`;").unwrap();
+
+        let operations_dir = workspace_path.join("graphql/operations");
+        std::fs::create_dir(&operations_dir).unwrap();
+        let mut op_file =
+            std::fs::File::create(operations_dir.join("PokemonDetail.graphql")).unwrap();
+        writeln!(op_file, "query PokemonDetail($id: ID!) {{").unwrap();
+        writeln!(op_file, "  pokemon(id: $id) {{ ...PokemonDetail }}").unwrap();
+        writeln!(op_file, "}}").unwrap();
+
+        let project_config = ProjectConfig::new(
+            SchemaConfig::Path("graphql/*.graphql".to_string()),
+            Some(DocumentsConfig::Patterns(vec![
+                "graphql/fragments/*.ts".to_string(),
+                "graphql/operations/*.graphql".to_string(),
+            ])),
+            None,
+            None,
+            None,
+        );
+
+        let host = CliAnalysisHost::from_project_config(&project_config, workspace_path)
+            .expect("project should load");
+
+        let diagnostics = host.all_validation_diagnostics();
+        let messages: Vec<String> = diagnostics
+            .values()
+            .flat_map(|diags| diags.iter())
+            .filter(|d| d.severity == graphql_ide::DiagnosticSeverity::Error)
+            .map(|d| d.message.clone())
+            .collect();
+        assert!(
+            messages.is_empty(),
+            "expected no validation errors but got: {messages:#?}",
+        );
+    }
 }
