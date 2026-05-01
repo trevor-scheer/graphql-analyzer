@@ -106,6 +106,18 @@ pub enum ConfigValidationError {
     },
     /// The resolved schema file was not found on disk.
     ResolvedSchemaNotFound { project: String, path: String },
+    /// An analyzer-specific extension key (`lint`, `client`, `extractConfig`,
+    /// `resolvedSchema`) appeared at the top of `extensions:` instead of
+    /// nested under the `graphql-analyzer:` namespace, so the analyzer
+    /// silently ignores it. Also fires for the legacy camelCase
+    /// `graphqlAnalyzer:` namespace key.
+    MisnamespacedExtension {
+        project: String,
+        /// The actual key the user wrote (e.g. `lint`, `graphqlAnalyzer`).
+        key: String,
+        /// The corrected nesting the user should write instead.
+        suggestion: String,
+    },
 }
 
 impl ConfigValidationError {
@@ -120,6 +132,7 @@ impl ConfigValidationError {
             Self::UnknownLintRule { .. } => "unknown-lint-rule",
             Self::UnknownPreset { .. } => "unknown-preset",
             Self::ResolvedSchemaNotFound { .. } => "resolved-schema-not-found",
+            Self::MisnamespacedExtension { .. } => "misnamespaced-extension",
         }
     }
 
@@ -129,7 +142,8 @@ impl ConfigValidationError {
         match self {
             Self::UnmatchedPattern { .. }
             | Self::NoFilesFound { .. }
-            | Self::ResolvedSchemaNotFound { .. } => Severity::Warning,
+            | Self::ResolvedSchemaNotFound { .. }
+            | Self::MisnamespacedExtension { .. } => Severity::Warning,
             Self::OverlappingPattern { .. }
             | Self::ContentMismatch { .. }
             | Self::UnknownLintRule { .. }
@@ -207,6 +221,14 @@ impl ConfigValidationError {
             Self::ResolvedSchemaNotFound { path, .. } => {
                 format!("Resolved schema file not found: '{path}'")
             }
+            Self::MisnamespacedExtension {
+                key, suggestion, ..
+            } => {
+                format!(
+                    "`extensions.{key}` is ignored — graphql-analyzer reads its config from \
+                    the `graphql-analyzer` namespace. Move it under `extensions.{suggestion}`."
+                )
+            }
         }
     }
 
@@ -237,6 +259,9 @@ impl ConfigValidationError {
             Self::ResolvedSchemaNotFound { path, .. } => {
                 find_pattern_location(config_content, path, 0)
             }
+            Self::MisnamespacedExtension { key, .. } => {
+                find_pattern_location(config_content, &format!("{key}:"), 0)
+            }
         }
     }
 }
@@ -258,8 +283,54 @@ pub fn validate(
     errors.extend(validate_file_uniqueness(config, workspace_path));
     errors.extend(validate_unmatched_patterns(config, workspace_path));
     errors.extend(validate_resolved_schema(config, workspace_path));
+    errors.extend(validate_extension_namespace(config));
     if let Some(ctx) = lint_context {
         errors.extend(validate_lint_config(config, ctx));
+    }
+    errors
+}
+
+/// Catch the common mistake of putting analyzer-specific config (`lint`,
+/// `client`, `extractConfig`, `resolvedSchema`) at the top of `extensions:`
+/// instead of nested under `graphql-analyzer:`. graphql-config namespaces
+/// extensions per tool, so an unscoped `lint:` block is silently ignored.
+/// Also flags the legacy camelCase `graphqlAnalyzer:` key.
+///
+/// Public so the CLI can surface these warnings up-front without triggering
+/// the full filesystem-traversing validator.
+#[must_use]
+pub fn extension_namespace_warnings(config: &GraphQLConfig) -> Vec<ConfigValidationError> {
+    validate_extension_namespace(config)
+}
+
+fn validate_extension_namespace(config: &GraphQLConfig) -> Vec<ConfigValidationError> {
+    // Keys that are uniquely meaningful to this tool. If a user writes them at
+    // the top level of `extensions:` they almost certainly meant to nest them
+    // under `graphql-analyzer:`. Generic graphql-config keys (e.g. `endpoints`,
+    // `codegen`) are intentionally not in this list.
+    const ANALYZER_KEYS: &[&str] = &["lint", "client", "extractConfig", "resolvedSchema"];
+
+    let mut errors = Vec::new();
+    for (project_name, project_config) in config.projects() {
+        let Some(ext) = &project_config.extensions else {
+            continue;
+        };
+
+        for key in ext.keys() {
+            if key == "graphqlAnalyzer" {
+                errors.push(ConfigValidationError::MisnamespacedExtension {
+                    project: project_name.to_string(),
+                    key: key.clone(),
+                    suggestion: "graphql-analyzer".to_string(),
+                });
+            } else if ANALYZER_KEYS.contains(&key.as_str()) {
+                errors.push(ConfigValidationError::MisnamespacedExtension {
+                    project: project_name.to_string(),
+                    key: key.clone(),
+                    suggestion: format!("graphql-analyzer.{key}"),
+                });
+            }
+        }
     }
     errors
 }
@@ -1280,5 +1351,85 @@ projects:
         assert!(loc.is_some());
         let loc = loc.unwrap();
         assert_eq!(loc.line, 4);
+    }
+
+    fn project_with_extensions(ext: &serde_json::Value) -> ProjectConfig {
+        let map: StdHashMap<String, serde_json::Value> = ext
+            .as_object()
+            .expect("extensions must be an object")
+            .iter()
+            .map(|(k, v)| (k.clone(), v.clone()))
+            .collect();
+        ProjectConfig::new(
+            SchemaConfig::Path("schema.graphql".to_string()),
+            None,
+            None,
+            None,
+            Some(map),
+        )
+    }
+
+    fn single_project_config(ext: &serde_json::Value) -> GraphQLConfig {
+        let mut projects = std::collections::HashMap::new();
+        projects.insert("myapp".to_string(), project_with_extensions(ext));
+        GraphQLConfig::Multi { projects }
+    }
+
+    #[test]
+    fn test_misnamespaced_lint_at_extensions_root() {
+        let config = single_project_config(&serde_json::json!({
+            "lint": { "rules": { "no-deprecated": "error" } }
+        }));
+
+        let errors = validate_extension_namespace(&config);
+        assert_eq!(errors.len(), 1);
+        let err = &errors[0];
+        assert_eq!(err.code(), "misnamespaced-extension");
+        assert_eq!(err.severity(), Severity::Warning);
+        assert!(
+            err.message().contains("graphql-analyzer.lint"),
+            "expected suggestion to point at `graphql-analyzer.lint`, got: {}",
+            err.message()
+        );
+    }
+
+    #[test]
+    fn test_misnamespaced_camelcase_namespace_key() {
+        let config = single_project_config(&serde_json::json!({
+            "graphqlAnalyzer": { "lint": "recommended" }
+        }));
+
+        let errors = validate_extension_namespace(&config);
+        assert_eq!(errors.len(), 1);
+        let err = &errors[0];
+        assert_eq!(err.code(), "misnamespaced-extension");
+        assert!(
+            err.message().contains("graphql-analyzer"),
+            "expected suggestion to recommend `graphql-analyzer`, got: {}",
+            err.message()
+        );
+    }
+
+    #[test]
+    fn test_correctly_namespaced_extension_is_silent() {
+        let config = single_project_config(&serde_json::json!({
+            "graphql-analyzer": { "lint": "recommended" }
+        }));
+
+        let errors = validate_extension_namespace(&config);
+        assert!(errors.is_empty(), "expected no warnings, got: {errors:?}");
+    }
+
+    #[test]
+    fn test_unrelated_extensions_are_not_flagged() {
+        // Other tools (codegen, endpoints) live at the root of `extensions:`
+        // — we must not warn on those, only on analyzer-specific keys.
+        let config = single_project_config(&serde_json::json!({
+            "endpoints": { "default": "https://example.com/graphql" },
+            "codegen": { "generates": {} }
+        }));
+
+        let errors = validate_extension_namespace(&config);
+        assert!(errors.is_empty(), "expected no warnings, got: {errors:?}");
     }
 }
