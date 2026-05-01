@@ -143,18 +143,19 @@ fn load_all_project_files(
         let project_start = std::time::Instant::now();
         tracing::debug!("Loading project: {}", project_name);
 
-        let extract_config = project_config
-            .extract_config()
-            .and_then(
-                |v| match serde_json::from_value::<graphql_extract::ExtractConfig>(v) {
-                    Ok(config) => Some(config),
-                    Err(e) => {
-                        tracing::warn!("Failed to parse extract config: {e}, using defaults");
-                        None
-                    }
-                },
-            )
-            .unwrap_or_default();
+        // Use the documents-scoped permissive default (issue #1035): files
+        // matched by the project's `documents:` config are explicit GraphQL
+        // sources, so a bare `gql` tag without an `import` should still be
+        // extracted. Fields the user specifies in
+        // `extensions.graphql-analyzer.extractConfig` override the defaults.
+        let extract_value = project_config.extract_config();
+        let extract_config = graphql_extract::resolve_for_documents(extract_value.as_ref());
+        tracing::debug!(
+            project = project_name,
+            allow_global_identifiers = extract_config.allow_global_identifiers,
+            tag_identifiers = ?extract_config.tag_identifiers,
+            "Resolved extract config",
+        );
 
         let lint_config =
             project_config
@@ -464,4 +465,107 @@ pub fn install_workspace_from_init_options(
         .configs
         .insert(workspace_uri.to_string(), config);
     Ok(())
+}
+
+#[cfg(all(test, feature = "native"))]
+mod tests {
+    use super::*;
+    use crate::global_state::{GlobalState, InlineDispatcher};
+    use crossbeam_channel::{unbounded, Receiver};
+    use lsp_server::Message;
+    use std::io::Write;
+
+    /// Build a `GlobalState` plus the matching receivers. The receivers must
+    /// stay alive for the duration of the test or `send_notification` panics
+    /// with `client channel open` (the LSP server treats a closed channel as
+    /// fatal and unwraps).
+    fn make_state() -> (
+        GlobalState,
+        Receiver<Message>,
+        Receiver<IntrospectionRequest>,
+    ) {
+        let (msg_sender, msg_receiver) = unbounded();
+        let (intro_req_sender, intro_req_receiver) = unbounded();
+        let (_intro_res_sender, intro_res_receiver) = unbounded();
+        let state = GlobalState::new(
+            msg_sender,
+            Box::new(InlineDispatcher),
+            intro_req_sender,
+            intro_res_receiver,
+        );
+        (state, msg_receiver, intro_req_receiver)
+    }
+
+    /// Regression test for issue #1035 in the LSP loading path.
+    ///
+    /// A fragment defined in a `.ts` file via a bare `gql` tag (no import,
+    /// no explicit `extractConfig`) should be visible to `.graphql` operation
+    /// files in the same project. Previously the LSP's `load_all_project_files`
+    /// fell back to `ExtractConfig::default()` (`allow_global_identifiers: false`),
+    /// so the bare `gql` tag was skipped entirely and the operation reported
+    /// `cannot find fragment X`.
+    #[test]
+    fn lsp_loads_ts_fragment_with_bare_gql_tag() {
+        let temp_dir = tempfile::TempDir::new().unwrap();
+        let workspace_path = temp_dir.path();
+
+        let schema_dir = workspace_path.join("graphql");
+        std::fs::create_dir(&schema_dir).unwrap();
+        let mut schema_file = std::fs::File::create(schema_dir.join("schema.graphql")).unwrap();
+        writeln!(schema_file, "type Query {{ pokemon(id: ID!): Pokemon }}").unwrap();
+        writeln!(
+            schema_file,
+            "type Pokemon {{ id: ID!, name: String!, flavorText: String }}",
+        )
+        .unwrap();
+
+        let fragments_dir = workspace_path.join("graphql/fragments");
+        std::fs::create_dir(&fragments_dir).unwrap();
+        let mut fragment_file =
+            std::fs::File::create(fragments_dir.join("PokemonDetail.fragment.ts")).unwrap();
+        writeln!(fragment_file, "export const POKEMON_DETAIL_FRAGMENT = gql`").unwrap();
+        writeln!(
+            fragment_file,
+            "  fragment PokemonDetail on Pokemon {{ id name flavorText }}",
+        )
+        .unwrap();
+        writeln!(fragment_file, "`;").unwrap();
+
+        let operations_dir = workspace_path.join("graphql/operations");
+        std::fs::create_dir(&operations_dir).unwrap();
+        let mut op_file =
+            std::fs::File::create(operations_dir.join("PokemonDetail.graphql")).unwrap();
+        writeln!(op_file, "query PokemonDetail($id: ID!) {{").unwrap();
+        writeln!(op_file, "  pokemon(id: $id) {{ ...PokemonDetail }}").unwrap();
+        writeln!(op_file, "}}").unwrap();
+
+        // Minimal .graphqlrc.yaml so load_workspace_config picks it up.
+        let mut rc = std::fs::File::create(workspace_path.join(".graphqlrc.yaml")).unwrap();
+        writeln!(rc, "schema: graphql/*.graphql").unwrap();
+        writeln!(rc, "documents:").unwrap();
+        writeln!(rc, "  - graphql/fragments/*.ts").unwrap();
+        writeln!(rc, "  - graphql/operations/*.graphql").unwrap();
+
+        let (mut state, _msg_receiver, _intro_req_receiver) = make_state();
+        let workspace_uri = format!("file://{}", workspace_path.display());
+        load_workspace_config(&mut state, &workspace_uri, workspace_path);
+
+        // Project name defaults to "default" for single-project configs.
+        let host = state
+            .workspace
+            .get_host(&workspace_uri, "default")
+            .expect("LSP should have created an analysis host for the project");
+        let snapshot = host.snapshot();
+        let diagnostics = snapshot.all_diagnostics();
+        let errors: Vec<String> = diagnostics
+            .values()
+            .flat_map(|diags| diags.iter())
+            .filter(|d| d.severity == graphql_ide::DiagnosticSeverity::Error)
+            .map(|d| d.message.clone())
+            .collect();
+        assert!(
+            errors.is_empty(),
+            "expected no validation errors but got: {errors:#?}",
+        );
+    }
 }
