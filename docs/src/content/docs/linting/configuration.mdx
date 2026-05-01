@@ -22,7 +22,7 @@ extensions:
       extends: recommended
       rules:
         noDeprecated: off # Disable a recommended rule
-        requireIdField: error # Enable an additional rule
+        requireSelections: error # Enable an additional rule
 ```
 
 ## Rules only (no preset)
@@ -54,17 +54,18 @@ extensions:
   graphql-analyzer:
     lint:
       rules:
-        requireIdField: [warn, { fields: ["id", "uuid"] }]
+        requireSelections: [warn, { fieldName: ["id", "uuid"], requireAllFields: true }]
 
 # Object syntax
 extensions:
   graphql-analyzer:
     lint:
       rules:
-        requireIdField:
+        requireSelections:
           severity: warn
           options:
-            fields: ["id", "uuid"]
+            fieldName: ["id", "uuid"]
+            requireAllFields: true
 ```
 
 ## Rule name format

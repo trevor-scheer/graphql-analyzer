@@ -29,7 +29,7 @@ query GetUserWithEmail($id: ID!) {
 
 # --- Multiple rules, all used ---
 # Both rules fire here: noDeprecated (views is deprecated) and
-# requireIdField (author selection is missing id). Both are suppressed.
+# requireSelections (author selection is missing id). Both are suppressed.
 # Expected: no warnings on this ignore comment.
 query GetPostSuppressBoth($id: ID!) {
   post(id: $id) {
@@ -37,7 +37,7 @@ query GetPostSuppressBoth($id: ID!) {
     title
     # graphql-analyzer-ignore: noDeprecated
     views
-    # graphql-analyzer-ignore: requireIdField
+    # graphql-analyzer-ignore: requireSelections
     author {
       name
     }
@@ -46,14 +46,14 @@ query GetPostSuppressBoth($id: ID!) {
 
 # --- Partial unused (per-rule warning) ---
 # Only noDeprecated applies here (views is deprecated), but
-# requireIdField does NOT fire on this line — it targets the parent
+# requireSelections does NOT fire on this line — it targets the parent
 # field whose selection set is missing id, not a leaf field.
-# Expected warning: Unused rule 'requireIdField' in graphql-analyzer-ignore directive
+# Expected warning: Unused rule 'requireSelections' in graphql-analyzer-ignore directive
 query GetPostPartialUnused($id: ID!) {
   post(id: $id) {
     id
     title
-    # graphql-analyzer-ignore: noDeprecated, requireIdField
+    # graphql-analyzer-ignore: noDeprecated, requireSelections
     views
     author {
       name
