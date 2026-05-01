@@ -210,6 +210,141 @@ test("fires no-anonymous-operations on embedded GraphQL in .js", async () => {
   assert.ok(diags[0].line >= 3, `expected embedded position remap; got line ${diags[0].line}`);
 });
 
+// SFC formats (`.vue`, `.svelte`, `.astro`) flow through the same processor
+// path. The host parse via espree will fail (espree can't parse SFC syntax)
+// and surface a fatal "Parsing error" diagnostic, but that's separate from
+// the GraphQL extraction we care about here — filtering to
+// `@graphql-analyzer/*` rule ids isolates the embedded-GraphQL contract.
+// Users in real projects pair these blocks with the matching SFC parser
+// (`vue-eslint-parser`, `svelte-eslint-parser`, `astro-eslint-parser`); we
+// don't take a devDep on those here just to assert the extraction works.
+//
+// These tests sit BEFORE the multi-project test below because the addon's
+// `init()` is global and the multi-project test points it at a tmpdir
+// that's torn down after the test — leaving the in-memory analyzer state
+// pointing at a path that no longer exists. Running our SFC checks first
+// keeps us on the eslint-migration `.graphqlrc.yaml` (which has the rules
+// we depend on enabled) for the duration of this assertion.
+function sfcLinter() {
+  return new ESLint({
+    overrideConfigFile: true,
+    cwd: fixtureRoot,
+    overrideConfig: [
+      {
+        files: ["**/*.graphql"],
+        languageOptions: { parser: plugin.parser },
+        plugins: { "@graphql-analyzer": plugin },
+        rules: {
+          "@graphql-analyzer/no-anonymous-operations": "error",
+        },
+      },
+      {
+        files: ["**/*.{vue,svelte,astro}"],
+        plugins: { "@graphql-analyzer": plugin },
+        processor: "@graphql-analyzer/graphql",
+      },
+    ],
+  });
+}
+
+test("fires no-anonymous-operations on embedded GraphQL in .vue", async () => {
+  const results = await sfcLinter().lintFiles(["src/component.vue"]);
+  const diags = results[0].messages.filter(
+    (m) => m.ruleId === "@graphql-analyzer/no-anonymous-operations",
+  );
+  assert.ok(
+    diags.length >= 1,
+    `expected ≥1 no-anonymous-operations diagnostic in component.vue; got ${diags.length}\n` +
+      `messages: ${JSON.stringify(results[0].messages, null, 2)}`,
+  );
+  // The anonymous `query` token sits on line 5 of the host; remap should
+  // place the diagnostic at or after that line.
+  assert.ok(diags[0].line >= 4, `expected line remap into <script>; got line ${diags[0].line}`);
+});
+
+test("fires no-anonymous-operations on embedded GraphQL in .svelte", async () => {
+  const results = await sfcLinter().lintFiles(["src/component.svelte"]);
+  const diags = results[0].messages.filter(
+    (m) => m.ruleId === "@graphql-analyzer/no-anonymous-operations",
+  );
+  assert.ok(
+    diags.length >= 1,
+    `expected ≥1 no-anonymous-operations diagnostic in component.svelte; got ${diags.length}\n` +
+      `messages: ${JSON.stringify(results[0].messages, null, 2)}`,
+  );
+  assert.ok(diags[0].line >= 4, `expected line remap into <script>; got line ${diags[0].line}`);
+});
+
+test("fires no-anonymous-operations on embedded GraphQL in .astro", async () => {
+  const results = await sfcLinter().lintFiles(["src/page.astro"]);
+  const diags = results[0].messages.filter(
+    (m) => m.ruleId === "@graphql-analyzer/no-anonymous-operations",
+  );
+  assert.ok(
+    diags.length >= 1,
+    `expected ≥1 no-anonymous-operations diagnostic in page.astro; got ${diags.length}\n` +
+      `messages: ${JSON.stringify(results[0].messages, null, 2)}`,
+  );
+  // Anonymous `query` in the frontmatter sits on line 5 of the host.
+  assert.ok(diags[0].line >= 4, `expected line remap into frontmatter; got line ${diags[0].line}`);
+});
+
+// SFC autofix: prove fix-range remapping works through the SFC byte offset.
+// Uses `alphabetize` (one of the rules with full autofix support) inside a
+// Svelte `<script>` block — applying `--fix` should reorder the fields
+// inside the gql template without disturbing the surrounding markup.
+test("autofix remaps fix range correctly in .svelte host", async () => {
+  const root = mkdtempSync(path.join(tmpdir(), "sfc-fix-"));
+  try {
+    writeFileSync(path.join(root, ".graphqlrc.yaml"), 'schema: "schema.graphql"\n');
+    writeFileSync(
+      path.join(root, "schema.graphql"),
+      "type Query { user(id: ID!): User }\ntype User { id: ID! name: String email: String }\n",
+    );
+    const before =
+      `<script lang="ts">\n` +
+      `  import { gql } from "graphql-tag";\n` +
+      `  const Q = gql\`query GetUser { user(id: "1") { name id } }\`;\n` +
+      `</script>\n` +
+      `<p>hi</p>\n`;
+    writeFileSync(path.join(root, "Test.svelte"), before);
+
+    const eslint = new ESLint({
+      overrideConfigFile: true,
+      cwd: root,
+      fix: true,
+      overrideConfig: [
+        {
+          files: ["**/*.graphql"],
+          languageOptions: { parser: plugin.parser },
+          plugins: { "@graphql-analyzer": plugin },
+          rules: {
+            "@graphql-analyzer/alphabetize": ["error", { selections: ["OperationDefinition"] }],
+          },
+        },
+        {
+          files: ["**/*.svelte"],
+          plugins: { "@graphql-analyzer": plugin },
+          processor: "@graphql-analyzer/graphql",
+        },
+      ],
+    });
+    const [result] = await eslint.lintFiles(["Test.svelte"]);
+    // ESLint only sets `output` when at least one fix was applied.
+    assert.ok(result.output, "expected SFC autofix to produce output");
+    assert.match(
+      result.output,
+      /id name/,
+      `alphabetize should reorder the gql body fields in-place; got:\n${result.output}`,
+    );
+    // Markup outside the <script> block must be left untouched.
+    assert.match(result.output, /<p>hi<\/p>/);
+    assert.match(result.output, /<\/script>/);
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
 // Multi-project `.graphqlrc.yaml`: two projects in the same workspace,
 // each with its own schema and `lint.rules` block. The plugin must route
 // each file to the matching project so the per-project lint config takes
@@ -291,10 +426,10 @@ test("multi-project .graphqlrc routes files to matching project", async () => {
   }
 });
 
-// `.tsx`/`.ts`/`.vue`/`.svelte` extraction goes through the same processor
-// path verified by the `.js` test above, but ESLint can't lint the host
-// source without a parser that understands the host's syntax (espree can't
-// parse JSX/TS). Users must wire e.g. `@typescript-eslint/parser` in a
-// matching config block; that's a host-side concern documented in
+// `.tsx`/`.ts` extraction goes through the same processor path verified by
+// the `.js` test above, but ESLint can't lint the host source without a
+// parser that understands the host's syntax (espree can't parse JSX/TS).
+// Users must wire e.g. `@typescript-eslint/parser` in a matching config
+// block; that's a host-side concern documented in
 // `docs/.../eslint-plugin.mdx`. We don't add a devDep on
 // `@typescript-eslint/parser` here just to assert that.
