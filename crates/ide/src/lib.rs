@@ -3688,12 +3688,12 @@ export const typeDefs = gql`
                 None,
             );
 
-            // Load schemas
+            // Load schemas. Default config keeps `gql` and `graphql` in
+            // `globalGqlIdentifierName`, so `import { gql } from 'graphql-tag'`
+            // (a named import from a no-identifier module) extracts via the
+            // global fallback.
             let mut host = AnalysisHost::new();
-            host.set_extract_config(graphql_extract::ExtractConfig {
-                allow_global_identifiers: false,
-                ..Default::default()
-            });
+            host.set_extract_config(graphql_extract::ExtractConfig::default());
             let result = host
                 .load_schemas_from_config(&config, temp_dir.path())
                 .unwrap();

@@ -79,10 +79,10 @@ impl CliAnalysisHost {
             tracing::debug!("No lint configuration found in project config, using defaults");
         }
 
-        let extract_config = Self::resolve_extract_config(project_config);
+        let extract_config = Self::resolve_extract_config(project_config)?;
         tracing::debug!(
-            allow_global_identifiers = extract_config.allow_global_identifiers,
-            tag_identifiers = ?extract_config.tag_identifiers,
+            global_gql_identifier_name = ?extract_config.global_gql_identifier_name,
+            module_count = extract_config.modules.len(),
             "Resolved extract config"
         );
         host.set_extract_config(extract_config.clone());
@@ -269,12 +269,18 @@ impl CliAnalysisHost {
     ///
     /// Thin wrapper around `graphql_extract::resolve_for_documents` that pulls
     /// the user override out of the project's `extensions.graphql-analyzer.extractConfig`
-    /// block. CLI users explicitly enumerate document files via `documents:`
-    /// globs, so the helper's permissive default (`allow_global_identifiers: true`)
-    /// is the right choice here (issue #1035).
-    fn resolve_extract_config(project_config: &ProjectConfig) -> graphql_extract::ExtractConfig {
-        let extract_value = project_config.extract_config();
-        graphql_extract::resolve_for_documents(extract_value.as_ref())
+    /// (or its `pluckConfig` alias). CLI users explicitly enumerate document
+    /// files via `documents:` globs, so the helper's permissive default is the
+    /// right choice here (issue #1035).
+    ///
+    /// Returns an error if both `extractConfig` and `pluckConfig` are set.
+    fn resolve_extract_config(
+        project_config: &ProjectConfig,
+    ) -> anyhow::Result<graphql_extract::ExtractConfig> {
+        let extract_value = project_config.extract_config()?;
+        Ok(graphql_extract::resolve_for_documents(
+            extract_value.as_ref(),
+        ))
     }
 
     /// Expand brace patterns like "src/**/*.{ts,tsx}" into separate patterns
@@ -897,23 +903,23 @@ mod tests {
             None,
         );
 
-        let cfg = CliAnalysisHost::resolve_extract_config(&project_config);
-        assert!(
-            cfg.allow_global_identifiers,
-            "CLI should default allow_global_identifiers to true (issue #1035)"
+        let cfg = CliAnalysisHost::resolve_extract_config(&project_config).unwrap();
+        assert_eq!(
+            cfg.global_gql_identifier_name,
+            vec!["gql".to_string(), "graphql".to_string()],
+            "CLI default should keep pluck's permissive globalGqlIdentifierName (issue #1035)"
         );
-        assert_eq!(cfg.tag_identifiers, vec!["gql", "graphql"]);
     }
 
     #[test]
-    fn test_resolve_extract_config_honors_user_opt_out() {
+    fn test_resolve_extract_config_honors_user_strict_mode() {
         use graphql_config::{ProjectConfig, SchemaConfig};
         use std::collections::HashMap;
 
         let mut analyzer = serde_json::Map::new();
         analyzer.insert(
             "extractConfig".to_string(),
-            serde_json::json!({ "allowGlobalIdentifiers": false }),
+            serde_json::json!({ "globalGqlIdentifierName": false }),
         );
         let mut extensions = HashMap::new();
         extensions.insert(
@@ -929,10 +935,10 @@ mod tests {
             Some(extensions),
         );
 
-        let cfg = CliAnalysisHost::resolve_extract_config(&project_config);
+        let cfg = CliAnalysisHost::resolve_extract_config(&project_config).unwrap();
         assert!(
-            !cfg.allow_global_identifiers,
-            "explicit allowGlobalIdentifiers: false should win over CLI default"
+            cfg.global_gql_identifier_name.is_empty(),
+            "explicit globalGqlIdentifierName: false should disable bare extraction"
         );
     }
 
@@ -941,13 +947,11 @@ mod tests {
         use graphql_config::{ProjectConfig, SchemaConfig};
         use std::collections::HashMap;
 
-        // User overrides only tagIdentifiers; allowGlobalIdentifiers should
-        // stay at our permissive default rather than reverting to upstream
-        // ExtractConfig::default's `false`.
+        // User overrides only modules; other fields keep defaults.
         let mut analyzer = serde_json::Map::new();
         analyzer.insert(
             "extractConfig".to_string(),
-            serde_json::json!({ "tagIdentifiers": ["myTag"] }),
+            serde_json::json!({ "modules": ["my-tag-lib"] }),
         );
         let mut extensions = HashMap::new();
         extensions.insert(
@@ -963,9 +967,87 @@ mod tests {
             Some(extensions),
         );
 
-        let cfg = CliAnalysisHost::resolve_extract_config(&project_config);
-        assert!(cfg.allow_global_identifiers);
-        assert_eq!(cfg.tag_identifiers, vec!["myTag"]);
+        let cfg = CliAnalysisHost::resolve_extract_config(&project_config).unwrap();
+        assert_eq!(cfg.modules.len(), 1);
+        assert_eq!(cfg.modules[0].name, "my-tag-lib");
+        assert_eq!(
+            cfg.global_gql_identifier_name,
+            vec!["gql".to_string(), "graphql".to_string()],
+            "unset fields should keep defaults"
+        );
+    }
+
+    #[test]
+    fn test_resolve_extract_config_accepts_pluck_config_alias() {
+        use graphql_config::{ProjectConfig, SchemaConfig};
+        use std::collections::HashMap;
+
+        // Users migrating from @graphql-tools/graphql-tag-pluck can paste
+        // their pluck config under the `pluckConfig` key — same shape, same
+        // defaults.
+        let mut analyzer = serde_json::Map::new();
+        analyzer.insert(
+            "pluckConfig".to_string(),
+            serde_json::json!({
+                "modules": [{ "name": "@apollo/client", "identifier": "gql" }],
+                "globalGqlIdentifierName": ["gql"],
+            }),
+        );
+        let mut extensions = HashMap::new();
+        extensions.insert(
+            "graphql-analyzer".to_string(),
+            serde_json::Value::Object(analyzer),
+        );
+
+        let project_config = ProjectConfig::new(
+            SchemaConfig::Path("schema.graphql".to_string()),
+            None,
+            None,
+            None,
+            Some(extensions),
+        );
+
+        let cfg = CliAnalysisHost::resolve_extract_config(&project_config).unwrap();
+        assert_eq!(cfg.modules.len(), 1);
+        assert_eq!(cfg.modules[0].name, "@apollo/client");
+        assert_eq!(cfg.modules[0].identifier.as_deref(), Some("gql"));
+        assert_eq!(cfg.global_gql_identifier_name, vec!["gql".to_string()]);
+    }
+
+    #[test]
+    fn test_resolve_extract_config_errors_when_both_keys_set() {
+        use graphql_config::{ProjectConfig, SchemaConfig};
+        use std::collections::HashMap;
+
+        let mut analyzer = serde_json::Map::new();
+        analyzer.insert(
+            "extractConfig".to_string(),
+            serde_json::json!({ "globalGqlIdentifierName": ["gql"] }),
+        );
+        analyzer.insert(
+            "pluckConfig".to_string(),
+            serde_json::json!({ "globalGqlIdentifierName": ["graphql"] }),
+        );
+        let mut extensions = HashMap::new();
+        extensions.insert(
+            "graphql-analyzer".to_string(),
+            serde_json::Value::Object(analyzer),
+        );
+
+        let project_config = ProjectConfig::new(
+            SchemaConfig::Path("schema.graphql".to_string()),
+            None,
+            None,
+            None,
+            Some(extensions),
+        );
+
+        let err = CliAnalysisHost::resolve_extract_config(&project_config).unwrap_err();
+        let msg = format!("{err}");
+        assert!(
+            msg.contains("extractConfig") && msg.contains("pluckConfig"),
+            "error should mention both keys, got: {msg}"
+        );
     }
 
     /// Regression test for issue #1035.

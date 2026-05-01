@@ -69,9 +69,12 @@ impl NapiAnalysisHost {
 
             // Files matched by the project's `documents:` config are explicit
             // GraphQL sources, so a bare `gql` tag without an `import` should
-            // still be extracted (issue #1035). User overrides come from the
-            // modern `extensions.graphql-analyzer.extractConfig` namespace.
-            let extract_value = project.extract_config();
+            // still be extracted (issue #1035). User overrides come from
+            // `extensions.graphql-analyzer.extractConfig` (or its `pluckConfig`
+            // alias). Conflict between the two is a config error.
+            let extract_value = project
+                .extract_config()
+                .map_err(|e| anyhow::anyhow!("Invalid extract config in project '{name}': {e}"))?;
             let extract_config = graphql_extract::resolve_for_documents(extract_value.as_ref());
             host.set_extract_config(extract_config);
 
