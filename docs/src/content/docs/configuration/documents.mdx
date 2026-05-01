@@ -62,21 +62,26 @@ For Vue, Svelte, and Astro files, the analyzer first extracts `<script>` blocks 
 
 ### Configuring extraction
 
-By default, the tool recognizes `gql` imported from common modules. You can customize this:
+The `extractConfig` schema mirrors [`@graphql-tools/graphql-tag-pluck`](https://the-guild.dev/graphql/tools/docs/graphql-tag-pluck) so users coming from `@graphql-eslint` (or any pluck-based pipeline) can paste their pluck config directly. The `pluckConfig` key is accepted as an alias for `extractConfig`; setting both on the same project is a configuration error.
+
+By default, the tool recognizes `gql` and `graphql` from common GraphQL libraries. You can customize this:
 
 ```yaml
 documents: "src/**/*.tsx"
 extensions:
   graphql-analyzer:
     extractConfig:
-      tagIdentifiers: ["gql", "graphql", "query"]
-      modules: ["graphql-tag", "@apollo/client", "custom-gql"]
-      allowGlobalIdentifiers: true
+      modules:
+        - "graphql-tag"
+        - { name: "@apollo/client", identifier: "gql" }
+        - { name: "custom-gql", identifier: "query" }
+      globalGqlIdentifierName: ["gql", "graphql", "query"]
 ```
 
-| Option                   | Default                                                                                                | Description                                                                                                  |
-| ------------------------ | ------------------------------------------------------------------------------------------------------ | ------------------------------------------------------------------------------------------------------------ |
-| `tagIdentifiers`         | `["gql", "graphql"]`                                                                                   | Tag function names to recognize                                                                              |
-| `modules`                | `["graphql-tag", "@apollo/client", "apollo-server", "apollo-server-express", "gatsby", "react-relay"]` | Import sources to recognize                                                                                  |
-| `magicComment`           | `"GraphQL"`                                                                                            | Enables extraction from string literals and untagged template literals preceded by a `/* GraphQL */` comment |
-| `allowGlobalIdentifiers` | `false`                                                                                                | Allow unimported tag identifiers                                                                             |
+| Option                    | Default                                                                                                                                                                                                                                                                                | Description                                                                                                                                                                                                                                                              |
+| ------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| `modules`                 | `graphql-tag`, `graphql-tag.macro`, `@apollo/client`, `@apollo/client/core`, `gatsby`, `react-relay`, `react-relay/hooks`, `relay-runtime`, `babel-plugin-relay/macro`, `graphql.macro`, `urql`, `@urql/core`, `@urql/preact`, `@urql/svelte`, `@urql/vue` (with appropriate identifiers) | Modules whose imports of GraphQL tags are recognized. Each entry is either a string (shorthand for `{ name }`) or `{ name, identifier? }`. When a module specifies an `identifier`, only the named import matching that identifier is recognized as a GraphQL tag.       |
+| `gqlMagicComment`         | `"graphql"`                                                                                                                                                                                                                                                                            | Magic comment for `/* graphql */ \`...\`` style extraction.                                                                                                                                                                                                              |
+| `globalGqlIdentifierName` | `["gql", "graphql"]`                                                                                                                                                                                                                                                                   | Identifiers recognized as GraphQL tags **without** an import. Pass `false` (or `[]`) to require an import for every tag.                                                                                                                                                |
+| `gqlVueBlock`             | _(unset)_                                                                                                                                                                                                                                                                              | Optional Vue SFC block name (e.g. `"graphql"`) for raw GraphQL inside custom blocks.                                                                                                                                                                                     |
+| `skipIndent`              | `false`                                                                                                                                                                                                                                                                                | Normalize indentation by stripping common leading whitespace from extracted GraphQL.                                                                                                                                                                                     |

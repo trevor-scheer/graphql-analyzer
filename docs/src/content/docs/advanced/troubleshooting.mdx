@@ -87,8 +87,12 @@ Add custom modules:
 extensions:
   graphql-analyzer:
     extractConfig:
-      modules: ["graphql-tag", "custom-module"]
+      modules:
+        - "graphql-tag"
+        - { name: "custom-module", identifier: "gql" }
 ```
+
+Setting `identifier` constrains which export from the module is recognized as the GraphQL tag (matches `@graphql-tools/graphql-tag-pluck` semantics). Omit it to accept any default import from that module.
 
 ## Performance issues
 
