@@ -67,29 +67,13 @@ impl CliAnalysisHost {
             tracing::debug!("No lint configuration found in project config, using defaults");
         }
 
-        if let Some(ref extensions) = project_config.extensions {
-            if let Some(extract_config_value) = extensions.get("extractConfig") {
-                tracing::debug!("Raw extract configuration: {extract_config_value:?}");
-                match serde_json::from_value::<graphql_extract::ExtractConfig>(
-                    extract_config_value.clone(),
-                ) {
-                    Ok(extract_config) => {
-                        tracing::info!("Loaded extract configuration from project config");
-                        tracing::debug!(
-                            allow_global_identifiers = extract_config.allow_global_identifiers,
-                            tag_identifiers = ?extract_config.tag_identifiers,
-                            "Parsed extract config"
-                        );
-                        host.set_extract_config(extract_config);
-                    }
-                    Err(e) => {
-                        tracing::warn!(
-                            "Failed to parse extract configuration: {e}, using defaults"
-                        );
-                    }
-                }
-            }
-        }
+        let extract_config = Self::resolve_extract_config(project_config);
+        tracing::debug!(
+            allow_global_identifiers = extract_config.allow_global_identifiers,
+            tag_identifiers = ?extract_config.tag_identifiers,
+            "Resolved extract config"
+        );
+        host.set_extract_config(extract_config.clone());
 
         let schema_result = host.load_schemas_from_config(project_config, base_dir)?;
 
@@ -131,9 +115,11 @@ impl CliAnalysisHost {
                     _ => (Language::GraphQL, DocumentKind::Executable),
                 };
 
-                // For TS/JS files, extract GraphQL first
+                // For TS/JS files, extract GraphQL first using the same effective
+                // extract config we hand to the analysis host. Using the default
+                // here would silently drop bare `gql`...` tags (no import) and
+                // mis-classify the file as having no GraphQL at all (issue #1035).
                 let graphql_content = if language.requires_extraction() {
-                    let extract_config = graphql_extract::ExtractConfig::default();
                     graphql_extract::extract_from_source(
                         content,
                         language,
@@ -265,6 +251,65 @@ impl CliAnalysisHost {
         }
 
         Ok(files)
+    }
+
+    /// Resolve the effective `ExtractConfig` for the CLI.
+    ///
+    /// CLI users explicitly enumerate document files via `documents:` globs, so
+    /// any matched `.ts`/`.js` file is, by user declaration, a GraphQL source.
+    /// Defaulting `allow_global_identifiers` to `true` lets a bare tagged
+    /// template literal (no `import { gql } from ...`) be extracted in this
+    /// scoped context, which matches user expectations and what graphql-eslint
+    /// does for files matched by the project's documents config (issue #1035).
+    ///
+    /// If the user explicitly sets `extractConfig.allowGlobalIdentifiers`, that
+    /// value wins. Other fields (`tagIdentifiers`, `modules`, `magicComment`)
+    /// merge over the defaults the same way `serde` deserialization would.
+    fn resolve_extract_config(project_config: &ProjectConfig) -> graphql_extract::ExtractConfig {
+        let mut config = graphql_extract::ExtractConfig {
+            allow_global_identifiers: true,
+            ..graphql_extract::ExtractConfig::default()
+        };
+
+        let Some(extract_value) = project_config.extract_config() else {
+            return config;
+        };
+
+        let serde_json::Value::Object(map) = extract_value else {
+            tracing::warn!(
+                "extractConfig is not an object ({extract_value:?}); using CLI defaults"
+            );
+            return config;
+        };
+
+        // Apply user-specified fields one at a time so unset fields keep our
+        // permissive defaults rather than reverting to ExtractConfig::default.
+        if let Some(v) = map
+            .get("allowGlobalIdentifiers")
+            .and_then(serde_json::Value::as_bool)
+        {
+            config.allow_global_identifiers = v;
+        }
+        if let Some(v) = map.get("magicComment").and_then(serde_json::Value::as_str) {
+            config.magic_comment = v.to_string();
+        }
+        if let Some(arr) = map
+            .get("tagIdentifiers")
+            .and_then(serde_json::Value::as_array)
+        {
+            config.tag_identifiers = arr
+                .iter()
+                .filter_map(|v| v.as_str().map(str::to_string))
+                .collect();
+        }
+        if let Some(arr) = map.get("modules").and_then(serde_json::Value::as_array) {
+            config.modules = arr
+                .iter()
+                .filter_map(|v| v.as_str().map(str::to_string))
+                .collect();
+        }
+
+        config
     }
 
     /// Expand brace patterns like "src/**/*.{ts,tsx}" into separate patterns
@@ -800,6 +845,89 @@ mod tests {
         assert!(!host.schema_loaded());
     }
 
+    #[test]
+    fn test_resolve_extract_config_defaults_to_permissive() {
+        use graphql_config::{ProjectConfig, SchemaConfig};
+
+        let project_config = ProjectConfig::new(
+            SchemaConfig::Path("schema.graphql".to_string()),
+            None,
+            None,
+            None,
+            None,
+        );
+
+        let cfg = CliAnalysisHost::resolve_extract_config(&project_config);
+        assert!(
+            cfg.allow_global_identifiers,
+            "CLI should default allow_global_identifiers to true (issue #1035)"
+        );
+        assert_eq!(cfg.tag_identifiers, vec!["gql", "graphql"]);
+    }
+
+    #[test]
+    fn test_resolve_extract_config_honors_user_opt_out() {
+        use graphql_config::{ProjectConfig, SchemaConfig};
+        use std::collections::HashMap;
+
+        let mut analyzer = serde_json::Map::new();
+        analyzer.insert(
+            "extractConfig".to_string(),
+            serde_json::json!({ "allowGlobalIdentifiers": false }),
+        );
+        let mut extensions = HashMap::new();
+        extensions.insert(
+            "graphql-analyzer".to_string(),
+            serde_json::Value::Object(analyzer),
+        );
+
+        let project_config = ProjectConfig::new(
+            SchemaConfig::Path("schema.graphql".to_string()),
+            None,
+            None,
+            None,
+            Some(extensions),
+        );
+
+        let cfg = CliAnalysisHost::resolve_extract_config(&project_config);
+        assert!(
+            !cfg.allow_global_identifiers,
+            "explicit allowGlobalIdentifiers: false should win over CLI default"
+        );
+    }
+
+    #[test]
+    fn test_resolve_extract_config_merges_partial_user_config() {
+        use graphql_config::{ProjectConfig, SchemaConfig};
+        use std::collections::HashMap;
+
+        // User overrides only tagIdentifiers; allowGlobalIdentifiers should
+        // stay at our permissive default rather than reverting to upstream
+        // ExtractConfig::default's `false`.
+        let mut analyzer = serde_json::Map::new();
+        analyzer.insert(
+            "extractConfig".to_string(),
+            serde_json::json!({ "tagIdentifiers": ["myTag"] }),
+        );
+        let mut extensions = HashMap::new();
+        extensions.insert(
+            "graphql-analyzer".to_string(),
+            serde_json::Value::Object(analyzer),
+        );
+
+        let project_config = ProjectConfig::new(
+            SchemaConfig::Path("schema.graphql".to_string()),
+            None,
+            None,
+            None,
+            Some(extensions),
+        );
+
+        let cfg = CliAnalysisHost::resolve_extract_config(&project_config);
+        assert!(cfg.allow_global_identifiers);
+        assert_eq!(cfg.tag_identifiers, vec!["myTag"]);
+    }
+
     /// Regression test for issue #1035.
     ///
     /// A fragment defined in a `.ts` file via a bare `gql` tag (no import,
@@ -819,8 +947,7 @@ mod tests {
 
         let schema_dir = workspace_path.join("graphql");
         std::fs::create_dir(&schema_dir).unwrap();
-        let mut schema_file =
-            std::fs::File::create(schema_dir.join("schema.graphql")).unwrap();
+        let mut schema_file = std::fs::File::create(schema_dir.join("schema.graphql")).unwrap();
         writeln!(schema_file, "type Query {{ pokemon(id: ID!): Pokemon }}").unwrap();
         writeln!(
             schema_file,
@@ -833,11 +960,7 @@ mod tests {
         let mut fragment_file =
             std::fs::File::create(fragments_dir.join("PokemonDetail.fragment.ts")).unwrap();
         // Bare `gql` tag - no import, no `extractConfig` in project config.
-        writeln!(
-            fragment_file,
-            "export const POKEMON_DETAIL_FRAGMENT = gql`"
-        )
-        .unwrap();
+        writeln!(fragment_file, "export const POKEMON_DETAIL_FRAGMENT = gql`").unwrap();
         writeln!(
             fragment_file,
             "  fragment PokemonDetail on Pokemon {{ id name flavorText }}"
