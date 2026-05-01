@@ -1,7 +1,10 @@
 use crate::ExitCode;
 use anyhow::{Context, Result};
 use colored::Colorize;
-use graphql_config::{find_config, load_config, GraphQLConfig, ProjectConfig, CONFIG_FILES};
+use graphql_config::{
+    extension_namespace_warnings, find_config, load_config, GraphQLConfig, ProjectConfig,
+    CONFIG_FILES,
+};
 use std::path::PathBuf;
 
 /// Common context for all CLI commands that require config and project selection
@@ -57,6 +60,15 @@ documents: \"src/**/*.graphql\"",
         };
 
         let config = load_config(&config_path).context("Failed to load config")?;
+
+        // Surface silent-config-drop warnings (e.g. `extensions.lint:` placed
+        // outside the `graphql-analyzer:` namespace, which the loader ignores
+        // without complaint). The full file/lint validators run later in the
+        // pipeline; we deliberately only print the namespacing warning here so
+        // we don't double-report errors that downstream code will also surface.
+        for warning in extension_namespace_warnings(&config) {
+            eprintln!("{} {}", "warning:".yellow().bold(), warning.message());
+        }
 
         // Validate project requirement for multi-project configs.
         // Special case: Allow omitting --project if there's a "default" project,
