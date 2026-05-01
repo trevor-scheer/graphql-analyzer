@@ -448,4 +448,62 @@ mod tests {
             .collect();
         assert_eq!(orphan_warnings.len(), 1);
     }
+
+    // Regression test for #1037: object types that implement a reachable
+    // interface must themselves be considered reachable. Clients reach them
+    // via inline fragments and the resolver's `__resolveType` dispatches.
+    // Mirrors the exact repro from the issue.
+    #[test]
+    fn test_interface_implementors_are_reachable_regression_1037() {
+        let db = RootDatabase::default();
+        let rule = NoUnreachableTypesRuleImpl;
+        let schema = "
+            interface Move { id: ID! }
+            type PhysicalMove implements Move { id: ID!, makesContact: Boolean! }
+            type SpecialMove implements Move { id: ID!, effectChance: Int }
+            type StatusMove implements Move { id: ID!, inflicts: String }
+            type Pokemon { moves: [Move!]! }
+            type Query { pokemon: Pokemon }
+        ";
+        let project_files = create_schema_project(&db, schema);
+        let diagnostics = rule.check(&db, project_files, None);
+        let all: Vec<_> = diagnostics.values().flatten().collect();
+        for n in ["PhysicalMove", "SpecialMove", "StatusMove"] {
+            let hits: Vec<_> = all
+                .iter()
+                .filter(|d| d.message.contains(&format!("`{n}`")))
+                .collect();
+            assert!(
+                hits.is_empty(),
+                "expected `{n}` to be reachable via interface dispatch, got: {hits:?}"
+            );
+        }
+    }
+
+    // Companion regression test for #1037: union members are reachable via
+    // the same dispatch mechanism (inline fragments on the union type).
+    #[test]
+    fn test_union_members_are_reachable_regression_1037() {
+        let db = RootDatabase::default();
+        let rule = NoUnreachableTypesRuleImpl;
+        let schema = "
+            type Cat { meows: Boolean! }
+            type Dog { barks: Boolean! }
+            union Pet = Cat | Dog
+            type Query { pet: Pet }
+        ";
+        let project_files = create_schema_project(&db, schema);
+        let diagnostics = rule.check(&db, project_files, None);
+        let all: Vec<_> = diagnostics.values().flatten().collect();
+        for n in ["Cat", "Dog"] {
+            let hits: Vec<_> = all
+                .iter()
+                .filter(|d| d.message.contains(&format!("`{n}`")))
+                .collect();
+            assert!(
+                hits.is_empty(),
+                "expected union member `{n}` to be reachable, got: {hits:?}"
+            );
+        }
+    }
 }
