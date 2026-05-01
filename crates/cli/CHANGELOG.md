@@ -2,6 +2,15 @@
 
 All notable changes to the GraphQL CLI will be documented in this file.
 
+## 0.2.5 (2026-05-01)
+
+### Fixes
+
+- Run schema-only lint rules (`noUnreachableTypes`, etc.) from `graphql lint`, `graphql check`, and `graphql fix`. Previously the CLI walked document files only, so these rules silently dropped diagnostics on schema files even when configured ([#1074](https://github.com/trevor-scheer/graphql-analyzer/pull/1074))
+- Surface a `misnamespaced-extension` warning when an analyzer-specific config key (`lint`, `client`, `extractConfig`, `resolvedSchema`) appears at the top of `extensions:` rather than under `extensions.graphql-analyzer.*`. Previously the loader silently ignored these blocks, masking the misconfiguration entirely. Also flags the legacy camelCase `graphqlAnalyzer:` namespace key. The CLI prints these warnings up-front from `graphql check`, `graphql lint`, and other commands; the LSP surfaces them as config-file diagnostics.
+- Fix `validate`, the LSP server, and the napi-based ESLint integration failing to resolve fragments defined in `.ts`/`.js` document files when the `gql` tag has no matching `import { gql } from ...` declaration. All three loading paths now default `extractConfig.allowGlobalIdentifiers` to `true` for files that the user has explicitly listed via `documents:`. Set `extensions.graphql-analyzer.extractConfig.allowGlobalIdentifiers: false` to opt back into the strict behavior. The napi loader additionally now reads `extractConfig` from the modern `extensions.graphql-analyzer.extractConfig` namespace (it was previously looking at the legacy `extensions.extractConfig`). ([#1035](https://github.com/trevor-scheer/graphql-analyzer/issues/1035))
+- Add regression coverage so `graphql validate` keeps exiting non-zero when validation errors are reported, fixing the gap that let CI integrations silently pass on errors ([#1054](https://github.com/trevor-scheer/graphql-analyzer/pull/1054))
+
 ## 0.2.4 (2026-04-30)
 
 ### Features
