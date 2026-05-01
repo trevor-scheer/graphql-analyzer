@@ -4,9 +4,8 @@
 // of `versioned_files`, not dependency strings, so without this consumers of a
 // published package would pick up a stale (or non-existent) sibling version.
 //
-// Auto-discovers workspace packages by reading the root `package.json#workspaces`
-// (with glob support) so adding a new package doesn't require updating this
-// script.
+// Auto-discovers workspace packages by reading `pnpm-workspace.yaml` (with
+// glob support) so adding a new package doesn't require updating this script.
 //
 // Usage:
 //   node scripts/sync-workspace-deps.mjs           # rewrite files in place
@@ -20,6 +19,8 @@
 import { readFileSync, writeFileSync, readdirSync, statSync } from "node:fs";
 import { join, dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
+
+import { readPnpmWorkspaces } from "./lib/pnpm-workspaces.mjs";
 
 const REPO_ROOT = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 const DEP_SECTIONS = [
@@ -53,8 +54,7 @@ function expandWorkspaceGlob(pattern) {
 }
 
 function collectWorkspacePackages() {
-  const root = readJson(join(REPO_ROOT, "package.json"));
-  const dirs = (root.workspaces ?? []).flatMap(expandWorkspaceGlob);
+  const dirs = readPnpmWorkspaces().flatMap(expandWorkspaceGlob);
 
   // Workspace packages can themselves contain nested package.json files (e.g.
   // packages/core/npm/<platform>/package.json). Knope versions these, so we
