@@ -87,7 +87,7 @@ configs:
   `Query`/`Mutation`/`Subscription`.
 - `redundant-fields` — flags fields that are already covered by a sibling
   fragment spread.
-- `require-id-field` — flags object selections that don't request `id`.
+- `require-selections` — enforces required field selections (e.g. `id`, `__typename`) on object types.
 - `unique-names` — enforces project-wide uniqueness of operation/fragment
   names (useful for persisted-queries setups).
 

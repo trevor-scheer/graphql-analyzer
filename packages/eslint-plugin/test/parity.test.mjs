@@ -24,7 +24,7 @@
 //     configs don't see "rule not found" errors — but the configurable shim
 //     never fires, since the underlying check is always-on.
 //   - A handful of linter-specific rules we have that graphql-eslint doesn't
-//     (`operation-name-suffix`, `redundant-fields`, `require-id-field`, etc.).
+//     (`operation-name-suffix`, `redundant-fields`, `resty-field-names`, etc.).
 
 import test from "node:test";
 import assert from "node:assert/strict";
@@ -50,7 +50,6 @@ const THEIRS_RUNNER = path.join(__dirname, "_lint-theirs.mjs");
 const KNOWN_EXTRA = new Set([
   "operation-name-suffix",
   "redundant-fields",
-  "require-id-field",
   "resty-field-names",
   "unique-names",
 ]);

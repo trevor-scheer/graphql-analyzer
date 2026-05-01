@@ -143,7 +143,6 @@ export default defineConfig({
               label: "requireFieldOfTypeQueryInMutationResult",
               slug: "rules/requireFieldOfTypeQueryInMutationResult",
             },
-            { label: "requireIdField", slug: "rules/requireIdField" },
             { label: "requireImportFragment", slug: "rules/requireImportFragment" },
             {
               label: "requireNullableFieldsWithOneof",

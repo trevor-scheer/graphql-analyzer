@@ -273,10 +273,6 @@
               "$ref": "#/definitions/LintRuleConfig",
               "description": "Ensure operation and fragment names are unique across the project"
             },
-            "requireIdField": {
-              "$ref": "#/definitions/LintRuleConfig",
-              "description": "Require selection of ID fields on object types"
-            },
             "requireImportFragment": {
               "$ref": "#/definitions/LintRuleConfig",
               "description": "Require fragment spreads to have a corresponding import comment"

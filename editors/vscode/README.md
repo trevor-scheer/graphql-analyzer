@@ -91,7 +91,7 @@ extensions:
     extends: recommended
     rules:
       noDeprecated: warn
-      requireIdField: error
+      requireSelections: error
       redundantFields: error
       noUnusedFields: off
 

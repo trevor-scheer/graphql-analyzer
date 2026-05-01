@@ -145,7 +145,7 @@ extensions:
         uniqueNames: error
         noDeprecated: warn
         # ESLint-style array format with options
-        requireIdField: [warn, { fields: ["id", "nodeId"] }]
+        requireSelections: [warn, { fieldName: ["id", "nodeId"], requireAllFields: true }]
 ```
 
 ### Preset with Overrides
@@ -227,7 +227,6 @@ Available lint rules (use camelCase in config):
 | `noDeprecated`          | Warn about usage of deprecated fields and enum values             |
 | `noAnonymousOperations` | Require all operations to have names                              |
 | `uniqueNames`           | Ensure operation and fragment names are unique across the project |
-| `requireIdField`        | Require selection of ID fields on object types                    |
 | `noUnusedFragments`     | Warn about fragments that are defined but never used              |
 | `noUnusedFields`        | Warn about fields that are selected but unused                    |
 | `redundantFields`       | Warn about redundant field selections                             |
@@ -243,13 +242,14 @@ Rule configuration formats:
 noDeprecated: warn
 
 # Object with options
-requireIdField:
+requireSelections:
   severity: warn
   options:
-    fields: ["id", "nodeId"]
+    fieldName: ["id", "nodeId"]
+    requireAllFields: true
 
 # ESLint-style array
-requireIdField: [warn, { fields: ["id", "nodeId"] }]
+requireSelections: [warn, { fieldName: ["id", "nodeId"], requireAllFields: true }]
 ```
 
 #### `extensions.graphql-analyzer.extractConfig` (alias: `pluckConfig`)

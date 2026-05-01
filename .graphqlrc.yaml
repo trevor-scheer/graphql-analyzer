@@ -10,7 +10,7 @@ projects:
           extends: recommended
           rules:
             uniqueNames: error
-            requireIdField: warn
+            requireSelections: [warn, { requireAllFields: true }]
 
   starwars:
     schema: "test-workspace/starwars/schema.graphql"
@@ -22,7 +22,7 @@ projects:
           extends: recommended
           rules:
             uniqueNames: error
-            requireIdField: warn
+            requireSelections: [warn, { requireAllFields: true }]
 
   github:
     schema:
@@ -40,7 +40,7 @@ projects:
           rules:
             uniqueNames: error
             noDeprecated: warn
-            requireIdField: [warn, { fields: ["id", "databaseId"] }]
+            requireSelections: [warn, { fieldName: ["id", "databaseId"], requireAllFields: true }]
 
   github-admin:
     schema: "test-workspace/github/admin/schema/*.graphql"
@@ -53,10 +53,11 @@ projects:
           rules:
             uniqueNames: error
             noDeprecated: error
-            requireIdField:
+            requireSelections:
               severity: error
               options:
-                fields: ["id"]
+                fieldName: ["id"]
+                requireAllFields: true
 
   countries:
     schema:
@@ -71,7 +72,7 @@ projects:
           extends: recommended
           rules:
             uniqueNames: error
-            requireIdField: warn
+            requireSelections: [warn, { requireAllFields: true }]
 
   apollo-app:
     schema:
@@ -119,7 +120,7 @@ projects:
           extends: recommended
           rules:
             noDeprecated: warn
-            requireIdField: warn
+            requireSelections: [warn, { requireAllFields: true }]
 
   misconfigured-schema:
     # expect 2 errors: schema file does not exist, and documents file does not exist
