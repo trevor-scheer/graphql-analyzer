@@ -1648,6 +1648,60 @@ query GetUser {
     }
 
     #[test]
+    fn test_or_mode_emits_one_suggestion_per_id_name() {
+        // Mirror graphql-eslint's `require-selections`: when multiple `idName`
+        // candidates are configured and none are selected, the diagnostic
+        // surfaces one `suggest` entry per candidate so the user can pick
+        // which field to add. (Picking which `idName` to add is a semantic
+        // choice — concatenating all of them into one fix is wrong.)
+        let db = RootDatabase::default();
+        let rule = RequireSelectionsRuleImpl;
+
+        let source = "
+query GetUser {
+    user(id: \"1\") {
+        email
+    }
+}
+";
+        let options = serde_json::json!({ "fieldName": ["id", "name"] });
+
+        let (file_id, content, metadata, project_files) =
+            create_test_project(&db, TEST_SCHEMA, source);
+
+        let diagnostics = rule.check(
+            &db,
+            file_id,
+            content,
+            metadata,
+            project_files,
+            Some(&options),
+        );
+
+        assert_eq!(diagnostics.len(), 1);
+        let descs: Vec<&str> = diagnostics[0]
+            .suggestions
+            .iter()
+            .map(|s| s.desc.as_str())
+            .collect();
+        assert_eq!(descs, vec!["Add `id` selection", "Add `name` selection"]);
+
+        // Each suggestion's fix should insert exactly one field at the
+        // selection-set insertion point — not the concatenated list.
+        for sug in &diagnostics[0].suggestions {
+            assert_eq!(sug.fix.edits.len(), 1);
+            let inserted = &sug.fix.edits[0].new_text;
+            // No suggestion should mention the *other* candidate.
+            let added_one = (inserted.contains("id") && !inserted.contains("name"))
+                || (inserted.contains("name") && !inserted.contains("id"));
+            assert!(
+                added_one,
+                "suggestion fix should insert exactly one candidate; got: {inserted:?}"
+            );
+        }
+    }
+
+    #[test]
     fn test_inline_fragment_provides_field() {
         let db = RootDatabase::default();
         let rule = RequireSelectionsRuleImpl;
