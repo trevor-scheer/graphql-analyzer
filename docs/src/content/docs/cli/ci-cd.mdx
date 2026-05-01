@@ -17,7 +17,7 @@ jobs:
       - name: Install GraphQL CLI
         run: |
           curl --proto '=https' --tlsv1.2 -LsSf \
-            https://github.com/trevor-scheer/graphql-analyzer/releases/latest/download/graphql-cli-installer.sh | sh
+            https://raw.githubusercontent.com/trevor-scheer/graphql-analyzer/main/scripts/install.sh | sh
       - name: Check GraphQL
         run: graphql check --format github
 ```
@@ -40,7 +40,7 @@ jobs:
       - name: Install GraphQL CLI
         run: |
           curl --proto '=https' --tlsv1.2 -LsSf \
-            https://github.com/trevor-scheer/graphql-analyzer/releases/latest/download/graphql-cli-installer.sh | sh
+            https://raw.githubusercontent.com/trevor-scheer/graphql-analyzer/main/scripts/install.sh | sh
       - name: Check GraphQL
         run: graphql check --format sarif > results.sarif
       - name: Upload SARIF
@@ -63,7 +63,7 @@ To run validation and linting as separate steps:
 ```yaml
 graphql:
   script:
-    - curl --proto '=https' --tlsv1.2 -LsSf https://github.com/trevor-scheer/graphql-analyzer/releases/latest/download/graphql-cli-installer.sh | sh
+    - curl --proto '=https' --tlsv1.2 -LsSf https://raw.githubusercontent.com/trevor-scheer/graphql-analyzer/main/scripts/install.sh | sh
     - graphql check --format json
 ```
 
@@ -71,7 +71,7 @@ graphql:
 
 ```sh
 # Install
-curl -LsSf https://github.com/trevor-scheer/graphql-analyzer/releases/latest/download/graphql-cli-installer.sh | sh
+curl -LsSf https://raw.githubusercontent.com/trevor-scheer/graphql-analyzer/main/scripts/install.sh | sh
 
 # Run checks
 graphql check --format json > results.json

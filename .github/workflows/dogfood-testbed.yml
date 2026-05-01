@@ -115,7 +115,15 @@ jobs:
       - name: Run testbed CI (lint + typecheck + build + test)
         working-directory: testbed
         run: |
-          graphql check .
+          # The released binary is installed on PATH as `graphql` (see prior
+          # step). It is not an npm-published `graphql-cli` package, so invoke
+          # it directly rather than through `pnpm`. The `check` subcommand
+          # has no positional path argument and `--project` is required when
+          # the discovered `.graphqlrc.yaml` defines multiple projects, which
+          # the testbed root config does. Run against the main app project,
+          # mirroring the testbed's own CI which runs `graphql validate
+          # --project web`.
+          graphql check --project web
           pnpm lint
           pnpm --filter @analyzer-testbed/web prisma generate
           pnpm tsc --noEmit --project tsconfig.json 2>/dev/null || \
@@ -126,7 +134,7 @@ jobs:
         run: |
           fail_if_passes() {
             local project="$1"
-            if graphql check --project "$project" .; then
+            if graphql check --project "$project"; then
               echo "ERROR: $project exited 0 — expected errors but found none"
               return 1
             fi

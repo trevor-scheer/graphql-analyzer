@@ -46,3 +46,6 @@ documents intentional gaps.
 | `schema.graphql`           | Sample schema with intentional lint issues |
 | `src/operations.graphql`   | Sample operations with lint issues         |
 | `src/component.tsx`        | Embedded GraphQL in TypeScript             |
+| `src/component.vue`        | Embedded GraphQL in a Vue SFC `<script>`   |
+| `src/component.svelte`     | Embedded GraphQL in a Svelte `<script>`    |
+| `src/page.astro`           | Embedded GraphQL in Astro frontmatter      |

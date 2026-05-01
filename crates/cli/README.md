@@ -415,7 +415,7 @@ jobs:
       - name: Install CLI
         run: |
           curl --proto '=https' --tlsv1.2 -LsSf \
-            https://github.com/trevor-scheer/graphql-analyzer/releases/latest/download/graphql-cli-installer.sh | sh
+            https://raw.githubusercontent.com/trevor-scheer/graphql-analyzer/main/scripts/install.sh | sh
       - name: Validate GraphQL
         run: graphql validate --format github
       - name: Lint GraphQL
