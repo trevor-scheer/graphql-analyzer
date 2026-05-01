@@ -112,7 +112,7 @@ jobs:
           echo "$HOME/.local/bin" >> "$GITHUB_PATH"
           graphql --version
 
-      - name: Run testbed CI (lint + typecheck + build + test)
+      - name: Run testbed CI (lint + typecheck)
         working-directory: testbed
         run: |
           # The released binary is installed on PATH as `graphql` (see prior
@@ -125,9 +125,16 @@ jobs:
           # --project web`.
           graphql check --project web
           pnpm lint
-          pnpm --filter @analyzer-testbed/web prisma generate
-          pnpm tsc --noEmit --project tsconfig.json 2>/dev/null || \
-            pnpm -r exec tsc --noEmit
+          # Mirror the testbed's own CI script names rather than guessing.
+          # `apps/web` exposes Prisma codegen as `db:generate` (not `prisma`)
+          # and its tsc invocation as `tsc` (not `typecheck`). Examples expose
+          # `typecheck`. Relay needs its compiler to run first so generated
+          # artifacts exist before tsc sees them. The testbed has no root
+          # `tsconfig.json`; per-package typechecks are the source of truth.
+          pnpm --filter @analyzer-testbed/web db:generate
+          pnpm --filter @analyzer-testbed/web tsc
+          pnpm --filter @analyzer-testbed/example-relay relay
+          pnpm -r --if-present run typecheck
 
       - name: Run expect-failure fixtures
         working-directory: testbed
