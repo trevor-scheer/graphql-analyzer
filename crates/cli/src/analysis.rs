@@ -6,9 +6,21 @@
 
 use anyhow::{Context, Result};
 use graphql_config::ProjectConfig;
-use graphql_ide::{AnalysisHost, Diagnostic, DocumentKind, FilePath, Language};
+use graphql_ide::{path_to_file_uri, AnalysisHost, Diagnostic, DocumentKind, FilePath, Language};
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
+
+/// Build a [`FilePath`] for a schema file matching how
+/// `AnalysisHost::load_schemas_from_config` registers them.
+///
+/// On Windows, schemas are registered via `path_to_file_uri` (which converts
+/// backslashes to forward slashes in the URI), while documents go through
+/// `FilePath::from_path` (which preserves backslashes). Looking up a schema
+/// by `FilePath::from_path` therefore misses on Windows and returns no
+/// diagnostics. This helper picks the schema-side path representation.
+fn schema_file_path(path: &Path) -> FilePath {
+    FilePath::new(path_to_file_uri(path))
+}
 
 /// CLI adapter for `AnalysisHost`
 ///
@@ -297,7 +309,7 @@ impl CliAnalysisHost {
         let mut results = HashMap::new();
 
         for path in &self.schema_files {
-            let file_path = FilePath::from_path(path);
+            let file_path = schema_file_path(path);
             let diagnostics = snapshot.validation_diagnostics(&file_path);
 
             if !diagnostics.is_empty() {
@@ -332,14 +344,25 @@ impl CliAnalysisHost {
         let snapshot = self.host.snapshot();
         let mut results = HashMap::new();
 
-        // Lint document files (schema files don't have lint rules)
-        for (idx, path) in self.document_files.iter().enumerate() {
+        // Walk both schema and document files so schema-only rules
+        // (e.g. `noUnreachableTypes`) fire from `graphql lint` / `graphql
+        // check`. The per-file `lint_diagnostics` query dispatches to the
+        // appropriate rule set based on each file's `DocumentKind`.
+        let all_files = self
+            .schema_files
+            .iter()
+            .map(|p| (p, schema_file_path(p)))
+            .chain(
+                self.document_files
+                    .iter()
+                    .map(|p| (p, FilePath::from_path(p))),
+            );
+        for (idx, (path, file_path)) in all_files.enumerate() {
             tracing::debug!(
                 file = %path.display(),
-                progress = format!("{}/{}", idx + 1, self.document_files.len()),
+                progress = format!("{}/{}", idx + 1, total_files),
                 "Checking file for lint issues"
             );
-            let file_path = FilePath::from_path(path);
             let diagnostics = snapshot.lint_diagnostics(&file_path);
 
             if !diagnostics.is_empty() {
@@ -491,9 +514,18 @@ impl CliAnalysisHost {
         let snapshot = self.host.snapshot();
         let mut results = HashMap::new();
 
-        // Get file-level lint diagnostics with fixes
-        for path in &self.document_files {
-            let file_path = FilePath::from_path(path);
+        // Walk both schema and document files so schema-only rules contribute
+        // their fixes to `graphql fix` (mirrors `all_lint_diagnostics`).
+        let all_files = self
+            .schema_files
+            .iter()
+            .map(|p| (p, schema_file_path(p)))
+            .chain(
+                self.document_files
+                    .iter()
+                    .map(|p| (p, FilePath::from_path(p))),
+            );
+        for (path, file_path) in all_files {
             let diagnostics = snapshot.lint_diagnostics_with_fixes(&file_path);
 
             if !diagnostics.is_empty() {
@@ -775,6 +807,61 @@ mod tests {
 
         let host = CliAnalysisHost::from_project_config(&project_config, workspace_path).unwrap();
         assert!(host.schema_loaded());
+    }
+
+    #[test]
+    fn test_all_lint_diagnostics_runs_schema_only_rules() {
+        // Regression for #1061: `all_lint_diagnostics` only walked
+        // `document_files`, so schema-only rules (e.g. `noUnreachableTypes`)
+        // never fired from `graphql lint` / `graphql check`.
+        use graphql_config::{ProjectConfig, SchemaConfig};
+        use std::io::Write;
+        use tempfile::TempDir;
+
+        let temp_dir = TempDir::new().unwrap();
+        let workspace_path = temp_dir.path();
+
+        let schema_dir = workspace_path.join("schema");
+        std::fs::create_dir(&schema_dir).unwrap();
+        let mut schema_file = std::fs::File::create(schema_dir.join("schema.graphql")).unwrap();
+        writeln!(schema_file, "type Query {{ hello: String }}").unwrap();
+        // Type that no root operation can reach. `noUnreachableTypes` should
+        // flag it, but only if the rule actually runs over schema files.
+        writeln!(schema_file, "type Orphan {{ id: ID! }}").unwrap();
+
+        let analyzer_ext = serde_json::json!({
+            "lint": { "rules": { "noUnreachableTypes": "warn" } },
+        });
+        let extensions = HashMap::from([("graphql-analyzer".to_string(), analyzer_ext)]);
+
+        let project_config = ProjectConfig::new(
+            SchemaConfig::Path("schema/*.graphql".to_string()),
+            None,
+            None,
+            None,
+            Some(extensions),
+        );
+
+        let host = CliAnalysisHost::from_project_config(&project_config, workspace_path).unwrap();
+        let diagnostics = host.all_lint_diagnostics();
+
+        // Look up by filename rather than full path: on Windows, `tempfile`
+        // and `glob` can disagree on short-name (`RUNNER~1`) vs. long-name
+        // representations of the temp dir, so PathBuf equality is unreliable.
+        let schema_diags = diagnostics
+            .iter()
+            .find_map(|(p, d)| {
+                (p.file_name() == Some(std::ffi::OsStr::new("schema.graphql"))).then_some(d)
+            })
+            .unwrap_or_else(|| {
+                panic!("expected lint diagnostics for schema.graphql, got: {diagnostics:?}")
+            });
+        assert!(
+            schema_diags
+                .iter()
+                .any(|d| d.message.contains("Orphan") || d.message.contains("noUnreachableTypes")),
+            "expected `noUnreachableTypes` violation for `Orphan`, got: {schema_diags:?}",
+        );
     }
 
     #[test]
