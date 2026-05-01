@@ -147,13 +147,19 @@ fn load_all_project_files(
         // matched by the project's `documents:` config are explicit GraphQL
         // sources, so a bare `gql` tag without an `import` should still be
         // extracted. Fields the user specifies in
-        // `extensions.graphql-analyzer.extractConfig` override the defaults.
-        let extract_value = project_config.extract_config();
+        // `extensions.graphql-analyzer.extractConfig` (or its `pluckConfig`
+        // alias) override the defaults.
+        let extract_value = project_config.extract_config().unwrap_or_else(|e| {
+            tracing::warn!(
+                "Project '{project_name}' has conflicting extract config: {e}. Using defaults."
+            );
+            None
+        });
         let extract_config = graphql_extract::resolve_for_documents(extract_value.as_ref());
         tracing::debug!(
             project = project_name,
-            allow_global_identifiers = extract_config.allow_global_identifiers,
-            tag_identifiers = ?extract_config.tag_identifiers,
+            global_gql_identifier_name = ?extract_config.global_gql_identifier_name,
+            module_count = extract_config.modules.len(),
             "Resolved extract config",
         );
 

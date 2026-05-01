@@ -82,7 +82,11 @@
                 },
                 "extractConfig": {
                   "$ref": "#/definitions/ExtractConfig",
-                  "description": "Configuration for extracting GraphQL from TypeScript/JavaScript files"
+                  "description": "Configuration for extracting GraphQL from TypeScript/JavaScript files. Schema mirrors @graphql-tools/graphql-tag-pluck. Mutually exclusive with `pluckConfig` (alias)."
+                },
+                "pluckConfig": {
+                  "$ref": "#/definitions/ExtractConfig",
+                  "description": "Alias for `extractConfig`, provided for users migrating from @graphql-tools/graphql-tag-pluck or @graphql-eslint. Same shape and semantics. Mutually exclusive with `extractConfig`."
                 },
                 "resolvedSchema": {
                   "type": "string",
@@ -168,39 +172,57 @@
     },
     "ExtractConfig": {
       "type": "object",
-      "description": "Configuration for extracting GraphQL from TypeScript/JavaScript",
+      "description": "Configuration for extracting GraphQL from TypeScript/JavaScript. Schema mirrors @graphql-tools/graphql-tag-pluck so configs are portable between tools.",
+      "additionalProperties": false,
       "properties": {
-        "magicComment": {
-          "type": "string",
-          "description": "Magic comment to look for (e.g., /* GraphQL */)",
-          "default": "GraphQL"
-        },
-        "tagIdentifiers": {
-          "type": "array",
-          "description": "Tag identifiers to extract (e.g., gql, graphql)",
-          "items": {
-            "type": "string"
-          },
-          "default": ["gql", "graphql"]
-        },
         "modules": {
           "type": "array",
-          "description": "Module names to recognize as GraphQL sources",
+          "description": "Modules whose imports of GraphQL tags are recognized. Each entry is either a string (shorthand for { name }) or an object with a required `name` and optional `identifier` constraining which export from the module is the GraphQL tag.",
           "items": {
-            "type": "string"
-          },
-          "default": [
-            "graphql-tag",
-            "@apollo/client",
-            "apollo-server",
-            "apollo-server-express",
-            "gatsby",
-            "react-relay"
-          ]
+            "oneOf": [
+              {
+                "type": "string",
+                "description": "Module name (shorthand)"
+              },
+              {
+                "type": "object",
+                "required": ["name"],
+                "additionalProperties": false,
+                "properties": {
+                  "name": {
+                    "type": "string",
+                    "description": "Module specifier (e.g. `graphql-tag`, `@apollo/client`)"
+                  },
+                  "identifier": {
+                    "type": "string",
+                    "description": "Only the export with this name is recognized as the GraphQL tag. When unset, default imports from this module are recognized; named imports fall through to `globalGqlIdentifierName`."
+                  }
+                }
+              }
+            ]
+          }
         },
-        "allowGlobalIdentifiers": {
+        "gqlMagicComment": {
+          "type": "string",
+          "description": "Magic comment to look for (e.g., /* graphql */ `query`).",
+          "default": "graphql"
+        },
+        "globalGqlIdentifierName": {
+          "description": "Identifiers recognized as GraphQL tags without an import. Pass `false` (or an empty array) to disable bare/global tag extraction.",
+          "oneOf": [
+            { "type": "string" },
+            { "type": "array", "items": { "type": "string" } },
+            { "type": "boolean", "enum": [false] }
+          ],
+          "default": ["gql", "graphql"]
+        },
+        "gqlVueBlock": {
+          "type": "string",
+          "description": "Vue SFC block name (e.g. `graphql`) that contains raw GraphQL source. Blocks with this name are extracted directly without going through tagged-template logic."
+        },
+        "skipIndent": {
           "type": "boolean",
-          "description": "Allow extraction without imports (global identifiers)",
+          "description": "If true, normalize indentation by stripping the minimum common leading whitespace from extracted GraphQL.",
           "default": false
         }
       }

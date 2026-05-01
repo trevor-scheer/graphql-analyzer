@@ -1,58 +1,223 @@
 use crate::{ExtractError, Language, Position, Range, Result, SourceLocation};
-use serde::{Deserialize, Serialize};
+use serde::de::{self, MapAccess, SeqAccess, Visitor};
+use serde::{Deserialize, Deserializer, Serialize};
+use std::fmt;
 use std::fs;
 use std::path::Path;
 
-/// Configuration for GraphQL extraction
+/// Configuration for extracting GraphQL from TypeScript/JavaScript.
+///
+/// Schema mirrors `@graphql-tools/graphql-tag-pluck` so that a user migrating
+/// from `@graphql-eslint` (or any pluck-based pipeline) can paste their pluck
+/// config directly into `extensions.graphql-analyzer.extractConfig` (or its
+/// `pluckConfig` alias) and have it work.
+///
+/// We deliberately omit pluck's legacy `apollo-*` (unscoped) modules from the
+/// defaults — modern Apollo lives at `@apollo/client` and `@apollo/client/core`,
+/// and the unscoped `apollo-server*` packages no longer re-export `gql`. Users
+/// still on a legacy stack can list those modules explicitly.
 #[derive(Debug, Clone, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct ExtractConfig {
-    /// Magic comment to look for (default: "GraphQL")
-    /// Matches comments like: /* GraphQL */ `query { ... }`
-    #[serde(default = "default_magic_comment")]
-    pub magic_comment: String,
-
-    /// Tag identifiers to extract (default: `["gql", "graphql"]`)
-    /// Matches: `gql`query { ... }`\` or `graphql`query { ... }`\`
-    #[serde(default = "default_tag_identifiers")]
-    pub tag_identifiers: Vec<String>,
-
-    /// Module names to recognize as GraphQL sources
-    /// Default includes: graphql-tag, @apollo/client, etc.
+    /// Modules whose imports of GraphQL tags are recognized.
+    /// JSON entries may be either a string (shorthand for `{ "name": <string> }`)
+    /// or `{ "name": ..., "identifier"?: ... }`.
     #[serde(default = "default_modules")]
-    pub modules: Vec<String>,
+    pub modules: Vec<ModuleConfig>,
 
-    /// Allow extraction without imports (global identifiers)
+    /// Magic comment recognized for ``/* graphql */ `...` `` extraction.
+    /// Default: `"graphql"` (matches pluck).
+    #[serde(default = "default_gql_magic_comment")]
+    pub gql_magic_comment: String,
+
+    /// Names of identifiers recognized as GraphQL tags without an import.
+    /// JSON accepts a string, an array of strings, or `false` (disable bare
+    /// extraction entirely). Default: `["gql", "graphql"]`.
+    #[serde(
+        default = "default_global_gql_identifier_name",
+        deserialize_with = "deserialize_global_gql_identifier_name"
+    )]
+    pub global_gql_identifier_name: Vec<String>,
+
+    /// Optional Vue SFC block name (e.g., `"graphql"` for `<graphql>` blocks
+    /// containing raw GraphQL source). Blocks with this name are extracted
+    /// directly without going through tagged-template logic.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub gql_vue_block: Option<String>,
+
+    /// If true, normalize indentation in extracted GraphQL by stripping the
+    /// minimum common leading whitespace from each line.
     #[serde(default)]
-    pub allow_global_identifiers: bool,
+    pub skip_indent: bool,
 }
 
-fn default_magic_comment() -> String {
-    "GraphQL".to_string()
+/// One entry in `modules`. JSON accepts either a bare string (shorthand for
+/// `{ "name": <string> }`) or `{ "name": ..., "identifier"?: ... }`.
+#[derive(Debug, Clone, Serialize, PartialEq, Eq)]
+pub struct ModuleConfig {
+    /// Module specifier (e.g., `"graphql-tag"`, `"@apollo/client"`).
+    pub name: String,
+    /// When set, only the export with this name is recognized as the GraphQL tag.
+    /// When unset, any default import from this module is recognized; named
+    /// imports fall through to `globalGqlIdentifierName` (matches pluck).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub identifier: Option<String>,
 }
 
-fn default_tag_identifiers() -> Vec<String> {
+impl<'de> Deserialize<'de> for ModuleConfig {
+    fn deserialize<D>(deserializer: D) -> std::result::Result<Self, D::Error>
+    where
+        D: Deserializer<'de>,
+    {
+        struct ModuleConfigVisitor;
+
+        impl<'de> Visitor<'de> for ModuleConfigVisitor {
+            type Value = ModuleConfig;
+
+            fn expecting(&self, f: &mut fmt::Formatter) -> fmt::Result {
+                f.write_str("a module name string or `{ name, identifier? }` object")
+            }
+
+            fn visit_str<E: de::Error>(self, value: &str) -> std::result::Result<ModuleConfig, E> {
+                Ok(ModuleConfig {
+                    name: value.to_string(),
+                    identifier: None,
+                })
+            }
+
+            fn visit_string<E: de::Error>(
+                self,
+                value: String,
+            ) -> std::result::Result<ModuleConfig, E> {
+                Ok(ModuleConfig {
+                    name: value,
+                    identifier: None,
+                })
+            }
+
+            fn visit_map<M: MapAccess<'de>>(
+                self,
+                mut map: M,
+            ) -> std::result::Result<ModuleConfig, M::Error> {
+                let mut name: Option<String> = None;
+                let mut identifier: Option<String> = None;
+                while let Some(key) = map.next_key::<String>()? {
+                    match key.as_str() {
+                        "name" => name = Some(map.next_value()?),
+                        "identifier" => identifier = Some(map.next_value()?),
+                        other => {
+                            return Err(de::Error::unknown_field(other, &["name", "identifier"]))
+                        }
+                    }
+                }
+                Ok(ModuleConfig {
+                    name: name.ok_or_else(|| de::Error::missing_field("name"))?,
+                    identifier,
+                })
+            }
+        }
+
+        deserializer.deserialize_any(ModuleConfigVisitor)
+    }
+}
+
+fn deserialize_global_gql_identifier_name<'de, D>(
+    deserializer: D,
+) -> std::result::Result<Vec<String>, D::Error>
+where
+    D: Deserializer<'de>,
+{
+    struct GlobalIdVisitor;
+
+    impl<'de> Visitor<'de> for GlobalIdVisitor {
+        type Value = Vec<String>;
+
+        fn expecting(&self, f: &mut fmt::Formatter) -> fmt::Result {
+            f.write_str("`false`, a string, or an array of strings")
+        }
+
+        fn visit_bool<E: de::Error>(self, b: bool) -> std::result::Result<Vec<String>, E> {
+            if b {
+                Err(de::Error::custom(
+                    "globalGqlIdentifierName: `true` is not valid; use a string, an array of strings, or `false` to disable",
+                ))
+            } else {
+                Ok(Vec::new())
+            }
+        }
+
+        fn visit_str<E: de::Error>(self, s: &str) -> std::result::Result<Vec<String>, E> {
+            Ok(vec![s.to_string()])
+        }
+
+        fn visit_string<E: de::Error>(self, s: String) -> std::result::Result<Vec<String>, E> {
+            Ok(vec![s])
+        }
+
+        fn visit_seq<S: SeqAccess<'de>>(
+            self,
+            mut seq: S,
+        ) -> std::result::Result<Vec<String>, S::Error> {
+            let mut v = Vec::new();
+            while let Some(item) = seq.next_element::<String>()? {
+                v.push(item);
+            }
+            Ok(v)
+        }
+    }
+
+    deserializer.deserialize_any(GlobalIdVisitor)
+}
+
+fn default_gql_magic_comment() -> String {
+    "graphql".to_string()
+}
+
+fn default_global_gql_identifier_name() -> Vec<String> {
     vec!["gql".to_string(), "graphql".to_string()]
 }
 
-fn default_modules() -> Vec<String> {
+fn default_modules() -> Vec<ModuleConfig> {
+    // Mirrors `@graphql-tools/graphql-tag-pluck`'s defaults minus the legacy
+    // unscoped `apollo-*` packages (apollo-server*, apollo-boost, apollo-angular)
+    // and `' apollo-server-lambda'` (a longstanding upstream typo with a leading
+    // space). Modern Apollo lives at `@apollo/client(/core)`. Users on a legacy
+    // Apollo stack can list those modules explicitly via `extractConfig.modules`.
+    let with_id = |name: &str, id: &str| ModuleConfig {
+        name: name.to_string(),
+        identifier: Some(id.to_string()),
+    };
+    let no_id = |name: &str| ModuleConfig {
+        name: name.to_string(),
+        identifier: None,
+    };
     vec![
-        "graphql-tag".to_string(),
-        "@apollo/client".to_string(),
-        "apollo-server".to_string(),
-        "apollo-server-express".to_string(),
-        "gatsby".to_string(),
-        "react-relay".to_string(),
+        no_id("graphql-tag"),
+        no_id("graphql-tag.macro"),
+        with_id("@apollo/client", "gql"),
+        with_id("@apollo/client/core", "gql"),
+        with_id("gatsby", "graphql"),
+        with_id("react-relay", "graphql"),
+        with_id("react-relay/hooks", "graphql"),
+        with_id("relay-runtime", "graphql"),
+        with_id("babel-plugin-relay/macro", "graphql"),
+        with_id("graphql.macro", "gql"),
+        with_id("urql", "gql"),
+        with_id("@urql/core", "gql"),
+        with_id("@urql/preact", "gql"),
+        with_id("@urql/svelte", "gql"),
+        with_id("@urql/vue", "gql"),
     ]
 }
 
 impl Default for ExtractConfig {
     fn default() -> Self {
         Self {
-            magic_comment: default_magic_comment(),
-            tag_identifiers: default_tag_identifiers(),
             modules: default_modules(),
-            allow_global_identifiers: false,
+            gql_magic_comment: default_gql_magic_comment(),
+            global_gql_identifier_name: default_global_gql_identifier_name(),
+            gql_vue_block: None,
+            skip_indent: false,
         }
     }
 }
@@ -61,66 +226,24 @@ impl Default for ExtractConfig {
 /// declared as GraphQL document sources (e.g., matched by a project's
 /// `documents:` glob).
 ///
-/// In that scoped context, defaulting `allow_global_identifiers` to `true`
-/// matches user expectations and graphql-eslint's behavior: a bare
-/// ``gql`...` `` tag with no `import { gql } from ...` statement should still
-/// be extracted, because the user has already opted the file in by listing it
-/// under `documents:`. The strict `ExtractConfig::default()` (which keeps
-/// `allow_global_identifiers: false`) is the right choice for ad-hoc /
-/// untrusted extraction, but not for declared documents (issue #1035).
+/// Pass the JSON value at `extensions.graphql-analyzer.extractConfig`
+/// (or its `pluckConfig` alias). Pass `None` if the user provided neither.
 ///
-/// User-supplied fields from the project's `extensions.graphql-analyzer.extractConfig`
-/// JSON object override the permissive defaults one field at a time, so a
-/// user who only sets `tagIdentifiers` keeps the permissive
-/// `allowGlobalIdentifiers: true` rather than silently reverting to the
-/// strict default that `serde::Deserialize` would produce.
-///
-/// Pass `None` when the project has no `extensions.graphql-analyzer.extractConfig`
-/// block; pass the JSON value otherwise.
+/// Unset fields fall back to the pluck-aligned defaults (permissive — bare
+/// `gql`/`graphql` tags are recognized without an import; matches pluck and
+/// `@graphql-eslint` behavior — see issue #1035).
 #[must_use]
 pub fn resolve_for_documents(user_override: Option<&serde_json::Value>) -> ExtractConfig {
-    let mut config = ExtractConfig {
-        allow_global_identifiers: true,
-        ..ExtractConfig::default()
-    };
-
     let Some(value) = user_override else {
-        return config;
+        return ExtractConfig::default();
     };
-
-    let serde_json::Value::Object(map) = value else {
-        tracing::warn!("extractConfig is not an object ({value:?}); using permissive defaults");
-        return config;
-    };
-
-    // Apply user-specified fields one at a time so unset fields keep our
-    // permissive defaults rather than reverting to ExtractConfig::default.
-    if let Some(v) = map
-        .get("allowGlobalIdentifiers")
-        .and_then(serde_json::Value::as_bool)
-    {
-        config.allow_global_identifiers = v;
+    match serde_json::from_value::<ExtractConfig>(value.clone()) {
+        Ok(cfg) => cfg,
+        Err(e) => {
+            tracing::warn!("Failed to parse extractConfig: {e}; falling back to defaults");
+            ExtractConfig::default()
+        }
     }
-    if let Some(v) = map.get("magicComment").and_then(serde_json::Value::as_str) {
-        config.magic_comment = v.to_string();
-    }
-    if let Some(arr) = map
-        .get("tagIdentifiers")
-        .and_then(serde_json::Value::as_array)
-    {
-        config.tag_identifiers = arr
-            .iter()
-            .filter_map(|v| v.as_str().map(str::to_string))
-            .collect();
-    }
-    if let Some(arr) = map.get("modules").and_then(serde_json::Value::as_array) {
-        config.modules = arr
-            .iter()
-            .filter_map(|v| v.as_str().map(str::to_string))
-            .collect();
-    }
-
-    config
 }
 
 /// Extracted GraphQL content with source location
@@ -435,9 +558,10 @@ struct GraphQLVisitor<'a> {
     source: &'a str,
     config: &'a ExtractConfig,
     extracted: Vec<ExtractedGraphQL>,
-    /// Map of imported identifiers to their module source
-    /// e.g., "gql" -> "graphql-tag"
-    imports: std::collections::HashMap<String, String>,
+    /// Local binding names imported from a recognized module that satisfy
+    /// the module's identifier rule. Pluck-aligned: only entries here plus
+    /// `globalGqlIdentifierName` are accepted as GraphQL tags.
+    defined_identifiers: std::collections::HashSet<String>,
     /// Track comments for magic comment detection
     pending_comments: Vec<(usize, String)>,
     /// Declaration range set by `visit_var_decl`/`visit_export_decl` for single-declarator statements
@@ -450,23 +574,24 @@ impl<'a> GraphQLVisitor<'a> {
             source,
             config,
             extracted: Vec::new(),
-            imports: std::collections::HashMap::new(),
+            defined_identifiers: std::collections::HashSet::new(),
             pending_comments: Vec::new(),
             current_declaration_range: None,
         }
     }
 
-    /// Check if a tag identifier is valid (imported or global allowed)
+    /// Check if a local binding is recognized as a GraphQL tag.
+    ///
+    /// Pluck rule: accept if the name is either (a) a tracked import binding
+    /// from `modules` that satisfied that module's identifier rule, or (b)
+    /// listed in `globalGqlIdentifierName`.
     fn is_valid_tag(&self, tag_name: &str) -> bool {
-        if self.config.allow_global_identifiers {
-            return true;
-        }
-
-        if let Some(module_source) = self.imports.get(tag_name) {
-            return self.config.modules.contains(module_source);
-        }
-
-        false
+        self.defined_identifiers.contains(tag_name)
+            || self
+                .config
+                .global_gql_identifier_name
+                .iter()
+                .any(|s| s == tag_name)
     }
 
     /// Extract string content from a template literal
@@ -506,7 +631,7 @@ impl<'a> GraphQLVisitor<'a> {
     fn check_magic_comment(&self, pos: usize) -> bool {
         // Look for a comment that precedes this position
         self.pending_comments.iter().any(|(comment_pos, content)| {
-            *comment_pos < pos && content.trim() == self.config.magic_comment
+            *comment_pos < pos && content.trim() == self.config.gql_magic_comment
         })
     }
 }
@@ -572,37 +697,64 @@ impl swc_core::ecma::visit::Visit for GraphQLVisitor<'_> {
         self.current_declaration_range = None;
     }
 
-    /// Visit import declarations to track GraphQL imports
+    /// Visit import declarations to track which local bindings refer to a
+    /// GraphQL tag from a configured module.
+    ///
+    /// Pluck-aligned matching:
+    /// - Module has `identifier`: only the named import whose *imported* name
+    ///   matches (post-aliasing) is tracked; the local binding is what we record.
+    /// - Module has no `identifier`: only the default import is tracked
+    ///   (the binding can have any local name); named imports from such modules
+    ///   fall through to `globalGqlIdentifierName`.
+    /// - Namespace imports (`import * as X from 'mod'`) are tracked
+    ///   unconditionally so member calls like ``X.gql`...` `` keep working —
+    ///   pluck doesn't track these, but our existing tests rely on this and
+    ///   dropping it would be a silent regression.
     fn visit_import_decl(&mut self, import: &swc_core::ecma::ast::ImportDecl) {
+        use swc_core::ecma::ast::{ImportSpecifier, ModuleExportName};
         use swc_core::ecma::visit::VisitWith;
         let module_source = String::from_utf8_lossy(import.src.value.as_bytes()).to_string();
 
-        // Only track imports from configured modules
-        if self.config.modules.contains(&module_source) {
-            for specifier in &import.specifiers {
-                use swc_core::ecma::ast::ImportSpecifier;
-                match specifier {
-                    ImportSpecifier::Named(named) => {
-                        // Map local name to module source
-                        let local_name =
-                            String::from_utf8_lossy(named.local.sym.as_bytes()).to_string();
-                        self.imports.insert(local_name, module_source.clone());
+        let Some(module_config) = self.config.modules.iter().find(|m| m.name == module_source)
+        else {
+            import.visit_children_with(self);
+            return;
+        };
+
+        for specifier in &import.specifiers {
+            match specifier {
+                ImportSpecifier::Named(named) => {
+                    if let Some(expected) = module_config.identifier.as_deref() {
+                        let imported_name = match &named.imported {
+                            Some(ModuleExportName::Ident(i)) => {
+                                String::from_utf8_lossy(i.sym.as_bytes()).to_string()
+                            }
+                            Some(ModuleExportName::Str(s)) => {
+                                String::from_utf8_lossy(s.value.as_bytes()).to_string()
+                            }
+                            None => String::from_utf8_lossy(named.local.sym.as_bytes()).to_string(),
+                        };
+                        if imported_name == expected {
+                            let local_name =
+                                String::from_utf8_lossy(named.local.sym.as_bytes()).to_string();
+                            self.defined_identifiers.insert(local_name);
+                        }
                     }
-                    ImportSpecifier::Default(default) => {
+                }
+                ImportSpecifier::Default(default) => {
+                    if module_config.identifier.is_none() {
                         let local_name =
                             String::from_utf8_lossy(default.local.sym.as_bytes()).to_string();
-                        self.imports.insert(local_name, module_source.clone());
+                        self.defined_identifiers.insert(local_name);
                     }
-                    ImportSpecifier::Namespace(ns) => {
-                        let local_name =
-                            String::from_utf8_lossy(ns.local.sym.as_bytes()).to_string();
-                        self.imports.insert(local_name, module_source.clone());
-                    }
+                }
+                ImportSpecifier::Namespace(ns) => {
+                    let local_name = String::from_utf8_lossy(ns.local.sym.as_bytes()).to_string();
+                    self.defined_identifiers.insert(local_name);
                 }
             }
         }
 
-        // Continue traversal into child nodes
         import.visit_children_with(self);
     }
 
@@ -626,11 +778,6 @@ impl swc_core::ecma::visit::Visit for GraphQLVisitor<'_> {
                 return;
             }
         };
-
-        if !self.config.tag_identifiers.contains(&tag_name) {
-            tagged.visit_children_with(self);
-            return;
-        }
 
         if !self.is_valid_tag(&tag_name) {
             tagged.visit_children_with(self);
@@ -656,21 +803,13 @@ impl swc_core::ecma::visit::Visit for GraphQLVisitor<'_> {
             Callee::Expr(expr) => match &**expr {
                 Expr::Ident(ident) => {
                     let name = String::from_utf8_lossy(ident.sym.as_bytes()).to_string();
-                    if self.config.tag_identifiers.contains(&name) && self.is_valid_tag(&name) {
-                        Some(name)
-                    } else {
-                        None
-                    }
+                    self.is_valid_tag(&name).then_some(name)
                 }
                 Expr::Member(member) => {
                     // Handle member expressions like `graphql.default`
                     if let Expr::Ident(obj) = &*member.obj {
                         let name = String::from_utf8_lossy(obj.sym.as_bytes()).to_string();
-                        if self.config.tag_identifiers.contains(&name) && self.is_valid_tag(&name) {
-                            Some(name)
-                        } else {
-                            None
-                        }
+                        self.is_valid_tag(&name).then_some(name)
                     } else {
                         None
                     }
@@ -821,62 +960,118 @@ mod tests {
     #[test]
     fn test_default_config() {
         let config = ExtractConfig::default();
-        assert_eq!(config.magic_comment, "GraphQL");
-        assert!(config.tag_identifiers.contains(&"gql".to_string()));
-        assert!(config.modules.contains(&"graphql-tag".to_string()));
+        assert_eq!(config.gql_magic_comment, "graphql");
+        assert_eq!(
+            config.global_gql_identifier_name,
+            vec!["gql".to_string(), "graphql".to_string()]
+        );
+        assert!(
+            config.modules.iter().any(|m| m.name == "graphql-tag"),
+            "default modules should include graphql-tag"
+        );
+        assert!(
+            config
+                .modules
+                .iter()
+                .any(|m| m.name == "@apollo/client" && m.identifier.as_deref() == Some("gql")),
+            "default modules should include @apollo/client with identifier gql"
+        );
+        assert!(
+            !config.modules.iter().any(|m| m.name.starts_with("apollo-")),
+            "default modules should not include any unscoped apollo-* legacy packages"
+        );
+        assert!(!config.skip_indent);
+        assert!(config.gql_vue_block.is_none());
     }
 
     #[test]
-    fn test_resolve_for_documents_defaults_to_permissive() {
+    fn test_resolve_for_documents_uses_default_when_user_override_is_none() {
         let cfg = resolve_for_documents(None);
-        assert!(
-            cfg.allow_global_identifiers,
-            "documents-scoped default should allow global identifiers (issue #1035)"
+        assert_eq!(
+            cfg.global_gql_identifier_name,
+            vec!["gql".to_string(), "graphql".to_string()]
         );
-        assert_eq!(cfg.tag_identifiers, vec!["gql", "graphql"]);
-        assert_eq!(cfg.magic_comment, "GraphQL");
+        assert_eq!(cfg.gql_magic_comment, "graphql");
     }
 
     #[test]
-    fn test_resolve_for_documents_honors_user_opt_out() {
-        let user = serde_json::json!({ "allowGlobalIdentifiers": false });
+    fn test_resolve_for_documents_honors_explicit_strict_mode() {
+        // `globalGqlIdentifierName: false` disables bare/global tag extraction.
+        let user = serde_json::json!({ "globalGqlIdentifierName": false });
         let cfg = resolve_for_documents(Some(&user));
-        assert!(
-            !cfg.allow_global_identifiers,
-            "explicit allowGlobalIdentifiers: false should win over permissive default"
-        );
+        assert!(cfg.global_gql_identifier_name.is_empty());
     }
 
     #[test]
     fn test_resolve_for_documents_merges_partial_user_config() {
-        // User overrides only tagIdentifiers; allowGlobalIdentifiers should
-        // stay at the permissive default rather than reverting to upstream
-        // ExtractConfig::default's `false`.
-        let user = serde_json::json!({ "tagIdentifiers": ["myTag"] });
+        // User overrides only modules; other fields keep defaults.
+        let user = serde_json::json!({ "modules": ["my-tag-lib"] });
         let cfg = resolve_for_documents(Some(&user));
-        assert!(cfg.allow_global_identifiers);
-        assert_eq!(cfg.tag_identifiers, vec!["myTag"]);
-        assert_eq!(cfg.magic_comment, "GraphQL");
+        assert_eq!(cfg.modules.len(), 1);
+        assert_eq!(cfg.modules[0].name, "my-tag-lib");
+        assert!(cfg.modules[0].identifier.is_none());
+        assert_eq!(cfg.gql_magic_comment, "graphql");
+        assert_eq!(
+            cfg.global_gql_identifier_name,
+            vec!["gql".to_string(), "graphql".to_string()]
+        );
     }
 
     #[test]
-    fn test_resolve_for_documents_overrides_modules_and_magic_comment() {
+    fn test_resolve_for_documents_accepts_module_object_form() {
         let user = serde_json::json!({
-            "modules": ["my-tag-lib"],
-            "magicComment": "GQL",
+            "modules": [
+                "graphql-tag",
+                { "name": "my-tag-lib", "identifier": "tag" },
+            ],
+            "gqlMagicComment": "GQL",
         });
         let cfg = resolve_for_documents(Some(&user));
-        assert_eq!(cfg.modules, vec!["my-tag-lib"]);
-        assert_eq!(cfg.magic_comment, "GQL");
-        assert!(cfg.allow_global_identifiers);
+        assert_eq!(cfg.modules.len(), 2);
+        assert_eq!(cfg.modules[0].name, "graphql-tag");
+        assert!(cfg.modules[0].identifier.is_none());
+        assert_eq!(cfg.modules[1].name, "my-tag-lib");
+        assert_eq!(cfg.modules[1].identifier.as_deref(), Some("tag"));
+        assert_eq!(cfg.gql_magic_comment, "GQL");
+    }
+
+    #[test]
+    fn test_resolve_for_documents_accepts_global_identifier_string_form() {
+        let user = serde_json::json!({ "globalGqlIdentifierName": "myTag" });
+        let cfg = resolve_for_documents(Some(&user));
+        assert_eq!(cfg.global_gql_identifier_name, vec!["myTag".to_string()]);
     }
 
     #[test]
     fn test_resolve_for_documents_falls_back_when_value_is_not_an_object() {
         let user = serde_json::json!("not-an-object");
         let cfg = resolve_for_documents(Some(&user));
-        assert!(cfg.allow_global_identifiers);
-        assert_eq!(cfg.tag_identifiers, vec!["gql", "graphql"]);
+        // Falls back to defaults on parse error rather than erroring.
+        assert_eq!(
+            cfg.global_gql_identifier_name,
+            vec!["gql".to_string(), "graphql".to_string()]
+        );
+    }
+
+    #[test]
+    fn test_module_config_rejects_global_true() {
+        let user = serde_json::json!({ "globalGqlIdentifierName": true });
+        let result = serde_json::from_value::<ExtractConfig>(user);
+        assert!(
+            result.is_err(),
+            "globalGqlIdentifierName: true should be rejected (only false, string, or array are valid)"
+        );
+    }
+
+    #[test]
+    fn test_extract_config_rejects_unknown_field() {
+        // Catch typos like `magicComment` (old name) vs `gqlMagicComment` (new).
+        let user = serde_json::json!({ "magicComment": "GraphQL" });
+        let result = serde_json::from_value::<ExtractConfig>(user);
+        assert!(
+            result.is_err(),
+            "unknown field `magicComment` should be rejected to surface schema migration issues"
+        );
     }
 
     #[test]
@@ -937,7 +1132,32 @@ const query = gql`
         }
 
         #[test]
-        fn test_extract_tagged_template_without_import_disallowed() {
+        fn test_extract_tagged_template_without_import_strict_mode() {
+            // Setting `globalGqlIdentifierName` to an empty list disables
+            // bare/global tag extraction (pluck's `globalGqlIdentifierName: false`).
+            let source = r"
+const query = gql`
+  query GetUser {
+    user {
+      id
+    }
+  }
+`;
+";
+            let config = ExtractConfig {
+                global_gql_identifier_name: Vec::new(),
+                ..Default::default()
+            };
+            let result =
+                extract_from_source(source, Language::TypeScript, &config, "test").unwrap();
+
+            assert_eq!(result.len(), 0);
+        }
+
+        #[test]
+        fn test_extract_tagged_template_without_import_default_extracts() {
+            // Pluck-aligned default: bare `gql`/`graphql` tags extract without
+            // requiring an import (issue #1035).
             let source = r"
 const query = gql`
   query GetUser {
@@ -951,29 +1171,6 @@ const query = gql`
             let result =
                 extract_from_source(source, Language::TypeScript, &config, "test").unwrap();
 
-            // Should not extract because gql is not imported
-            assert_eq!(result.len(), 0);
-        }
-
-        #[test]
-        fn test_extract_tagged_template_without_import_allowed() {
-            let source = r"
-const query = gql`
-  query GetUser {
-    user {
-      id
-    }
-  }
-`;
-";
-            let config = ExtractConfig {
-                allow_global_identifiers: true,
-                ..Default::default()
-            };
-            let result =
-                extract_from_source(source, Language::TypeScript, &config, "test").unwrap();
-
-            // Should extract because global identifiers are allowed
             assert_eq!(result.len(), 1);
             assert!(result[0].source.contains("query GetUser"));
             assert_eq!(result[0].tag_name, Some("gql".to_string()));
@@ -1093,14 +1290,16 @@ function UserComponent({ userId }) {
         }
 
         #[test]
-        fn test_extract_with_custom_tag() {
+        fn test_extract_with_custom_global_identifier() {
+            // Adding a custom name to `globalGqlIdentifierName` makes it
+            // recognized as a bare GraphQL tag.
             let source = r"
-import { customGql } from 'graphql-tag';
-
 const query = customGql`query Custom { field }`;
 ";
             let mut config = ExtractConfig::default();
-            config.tag_identifiers.push("customGql".to_string());
+            config
+                .global_gql_identifier_name
+                .push("customGql".to_string());
             let result =
                 extract_from_source(source, Language::TypeScript, &config, "test").unwrap();
 
@@ -1110,22 +1309,54 @@ const query = customGql`query Custom { field }`;
         }
 
         #[test]
-        fn test_import_from_unknown_module() {
+        fn test_extract_with_custom_module_and_identifier() {
+            // Per-module `identifier` lets users scope which export from a
+            // module is recognized as the GraphQL tag.
+            let source = r"
+import { tag } from 'my-tag-lib';
+
+const query = tag`query Custom { field }`;
+";
+            let mut config = ExtractConfig {
+                global_gql_identifier_name: Vec::new(),
+                ..Default::default()
+            };
+            config.modules.push(ModuleConfig {
+                name: "my-tag-lib".to_string(),
+                identifier: Some("tag".to_string()),
+            });
+            let result =
+                extract_from_source(source, Language::TypeScript, &config, "test").unwrap();
+
+            assert_eq!(result.len(), 1);
+            assert!(result[0].source.contains("query Custom"));
+            assert_eq!(result[0].tag_name, Some("tag".to_string()));
+        }
+
+        #[test]
+        fn test_import_from_unknown_module_strict_mode() {
+            // With global fallback disabled, an import from an unrecognized
+            // module gives no path to extraction.
             let source = r"
 import { gql } from 'unknown-module';
 
 const query = gql`query Test { field }`;
 ";
-            let config = ExtractConfig::default();
+            let config = ExtractConfig {
+                global_gql_identifier_name: Vec::new(),
+                ..Default::default()
+            };
             let result =
                 extract_from_source(source, Language::TypeScript, &config, "test").unwrap();
 
-            // Should not extract because module is not in the allowed list
             assert_eq!(result.len(), 0);
         }
 
         #[test]
         fn test_default_import() {
+            // graphql-tag has no `identifier` constraint in defaults, so any
+            // default-imported binding from it is treated as a GraphQL tag
+            // (matches pluck).
             let source = r"
 import gql from 'graphql-tag';
 
@@ -1140,19 +1371,61 @@ const query = gql`query Test { field }`;
         }
 
         #[test]
-        fn test_renamed_import() {
+        fn test_renamed_named_import_from_module_with_identifier() {
+            // `@apollo/client` has `identifier: 'gql'`. Pluck-aligned: the
+            // *imported* name must match `gql`, while the *local* binding
+            // can be anything.
             let source = r"
-import { gql as query } from 'graphql-tag';
+import { gql as query } from '@apollo/client';
 
 const q = query`query Test { field }`;
 ";
-            let mut config = ExtractConfig::default();
-            config.tag_identifiers.push("query".to_string());
+            // Disable global fallback so we exercise the import-tracking path.
+            let config = ExtractConfig {
+                global_gql_identifier_name: Vec::new(),
+                ..Default::default()
+            };
             let result =
                 extract_from_source(source, Language::TypeScript, &config, "test").unwrap();
 
             assert_eq!(result.len(), 1);
             assert!(result[0].source.contains("query Test"));
+            assert_eq!(result[0].tag_name, Some("query".to_string()));
+        }
+
+        #[test]
+        fn test_named_import_from_no_identifier_module_falls_through_to_global() {
+            // Pluck rule: named imports from a module without `identifier`
+            // are NOT tracked — they fall through to `globalGqlIdentifierName`.
+            // `gql` is in the global list by default, so this still works:
+            let source = r"
+import { gql } from 'graphql-tag';
+
+const q = gql`query Test { field }`;
+";
+            let config = ExtractConfig::default();
+            let result =
+                extract_from_source(source, Language::TypeScript, &config, "test").unwrap();
+            assert_eq!(result.len(), 1);
+
+            // But aliased to a name not in globalGqlIdentifierName, it should not match.
+            let source_aliased = r"
+import { gql as customGql } from 'graphql-tag';
+
+const q = customGql`query Test { field }`;
+";
+            let strict_config = ExtractConfig {
+                global_gql_identifier_name: Vec::new(),
+                ..Default::default()
+            };
+            let result =
+                extract_from_source(source_aliased, Language::TypeScript, &strict_config, "test")
+                    .unwrap();
+            assert_eq!(
+                result.len(),
+                0,
+                "aliased named import from no-identifier module should not match without global fallback"
+            );
         }
 
         #[test]

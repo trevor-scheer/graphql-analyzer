@@ -89,8 +89,9 @@ projects:
       graphql-analyzer:
         client: apollo
         extractConfig:
-          tagIdentifiers: ["gql"]
-          modules: ["@apollo/client"]
+          modules:
+            - { name: "@apollo/client", identifier: "gql" }
+          globalGqlIdentifierName: ["gql"]
         lint: recommended
 ```
 
@@ -103,11 +104,32 @@ extensions:
   graphql-analyzer:
     client: apollo
     extractConfig:
-      magicComment: "MyGraphQL"
-      tagIdentifiers: ["myGql", "graphql"]
-      modules: ["my-graphql-lib"]
-      allowGlobalIdentifiers: true
+      gqlMagicComment: "MyGraphQL"
+      modules:
+        - { name: "my-graphql-lib", identifier: "myGql" }
+      globalGqlIdentifierName: ["myGql", "graphql"]
 ```
+
+### Migrating from `@graphql-tools/graphql-tag-pluck`
+
+The `extractConfig` schema mirrors pluck's. Users coming from
+`@graphql-eslint` or any pluck-based pipeline can paste their pluck config
+under the `pluckConfig` key (alias for `extractConfig`):
+
+```yaml
+schema: schema.graphql
+documents: "**/*.ts"
+extensions:
+  graphql-analyzer:
+    pluckConfig:
+      modules:
+        - graphql-tag
+        - { name: "@apollo/client", identifier: gql }
+      globalGqlIdentifierName: ["gql", "graphql"]
+```
+
+> **Note:** Setting both `extractConfig` and `pluckConfig` on the same project
+> is a configuration error — they are aliases.
 
 ### Lint Rules with Options
 
@@ -230,14 +252,15 @@ requireIdField:
 requireIdField: [warn, { fields: ["id", "nodeId"] }]
 ```
 
-#### `extensions.graphql-analyzer.extractConfig`
+#### `extensions.graphql-analyzer.extractConfig` (alias: `pluckConfig`)
 
-Configuration for extracting GraphQL from TypeScript/JavaScript files:
+Configuration for extracting GraphQL from TypeScript/JavaScript files. Schema mirrors `@graphql-tools/graphql-tag-pluck` so configs are portable between tools.
 
-- `magicComment`: String to look for in comments (default: `"GraphQL"`)
-- `tagIdentifiers`: Array of tag names to extract (default: `["gql", "graphql"]`)
-- `modules`: Array of module names to recognize (default: graphql-tag, @apollo/client, etc.)
-- `allowGlobalIdentifiers`: Boolean to allow extraction without imports (default: `false`)
+- `modules`: Modules whose imports of GraphQL tags are recognized. Each entry is either a string (shorthand for `{ name }`) or `{ name, identifier? }`. Default: graphql-tag, graphql-tag.macro, @apollo/client, @apollo/client/core, gatsby, react-relay (and hooks/runtime variants), babel-plugin-relay/macro, graphql.macro, urql, @urql/{core,preact,svelte,vue}.
+- `gqlMagicComment`: Magic comment string for `/* graphql */` style (default: `"graphql"`).
+- `globalGqlIdentifierName`: Identifiers recognized as GraphQL tags without an import. Accepts a string, an array of strings, or `false` to disable (default: `["gql", "graphql"]`).
+- `gqlVueBlock`: Optional Vue SFC block name (e.g. `"graphql"`) for raw GraphQL in custom blocks.
+- `skipIndent`: If true, normalize indentation by stripping common leading whitespace from each line (default: `false`).
 
 #### `extensions.graphql-analyzer.resolvedSchema`
 

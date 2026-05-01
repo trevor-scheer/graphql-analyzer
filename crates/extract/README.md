@@ -190,20 +190,29 @@ All three frameworks work by extracting `<script>` blocks (or frontmatter) and d
 
 ## Configuration
 
-### Custom Tag Names and Modules
+The `ExtractConfig` schema mirrors `@graphql-tools/graphql-tag-pluck` so configs are portable between this crate and the JS/TS ecosystem.
+
+### Custom Modules and Identifiers
 
 ```rust
-use graphql_extract::ExtractConfig;
+use graphql_extract::{ExtractConfig, ModuleConfig};
 
 let config = ExtractConfig {
-    magic_comment: "GraphQL".to_string(),
-    tag_identifiers: vec!["gql".to_string(), "query".to_string()],
+    gql_magic_comment: "graphql".to_string(),
     modules: vec![
-        "graphql-tag".to_string(),
-        "@apollo/client".to_string(),
-        "my-custom-module".to_string(),
+        ModuleConfig { name: "graphql-tag".to_string(), identifier: None },
+        ModuleConfig {
+            name: "@apollo/client".to_string(),
+            identifier: Some("gql".to_string()),
+        },
+        ModuleConfig {
+            name: "my-custom-module".to_string(),
+            identifier: Some("gql".to_string()),
+        },
     ],
-    allow_global_identifiers: false,
+    global_gql_identifier_name: vec!["gql".to_string(), "graphql".to_string()],
+    gql_vue_block: None,
+    skip_indent: false,
 };
 
 let result = extract_from_file("src/queries.ts", &config)?;
@@ -211,44 +220,37 @@ let result = extract_from_file("src/queries.ts", &config)?;
 
 ### Default Configuration
 
-By default, the extractor recognizes:
+Defaults follow `@graphql-tools/graphql-tag-pluck` (minus the legacy unscoped `apollo-*` packages — modern Apollo lives at `@apollo/client(/core)`).
 
-**Tag identifiers:**
+**Bare/global identifiers (`globalGqlIdentifierName`):** `gql`, `graphql` — recognized as GraphQL tags without an import. Set to an empty list (or `false` in JSON) to require imports for every tag.
 
-- `gql`
-- `graphql`
-
-**Modules:**
-
-- `graphql-tag`
-- `@apollo/client`
-- `apollo-server`
-- `apollo-server-express`
-- `gatsby`
-- `react-relay`
+**Modules:** `graphql-tag`, `graphql-tag.macro`, `@apollo/client`, `@apollo/client/core`, `gatsby`, `react-relay`, `react-relay/hooks`, `relay-runtime`, `babel-plugin-relay/macro`, `graphql.macro`, `urql`, `@urql/core`, `@urql/preact`, `@urql/svelte`, `@urql/vue`. Modules with an `identifier` constraint only recognize the named import matching that identifier.
 
 ## Import Tracking
 
-By default, the extractor only extracts GraphQL from recognized module imports:
+The extractor accepts a tag if its local binding is either tracked from a recognized module import or matches `globalGqlIdentifierName`:
 
 ```typescript
-// ✓ Will be extracted (gql imported from graphql-tag)
+// ✓ `gql` is in globalGqlIdentifierName by default — extracted
 import { gql } from "graphql-tag";
 const query = gql`query { ... }`;
 
-// ✗ Will NOT be extracted (gql imported from unknown module)
-import { gql } from "unknown-module";
+// ✓ `gql` matches @apollo/client's identifier constraint — extracted
+import { gql } from "@apollo/client";
 const query = gql`query { ... }`;
 
-// ✗ Will NOT be extracted by default (no import)
+// ✓ Bare `gql` matches globalGqlIdentifierName — extracted by default
 const query = gql`query { ... }`;
+
+// ✗ Tag name is not in globals and no recognized import — not extracted
+const query = mytag`query { ... }`;
 ```
 
-To allow extraction without imports (when `gql` is globally available):
+To require imports for every tag (no bare/global extraction):
 
 ```rust
 let config = ExtractConfig {
-    allow_global_identifiers: true,
+    global_gql_identifier_name: Vec::new(),
     ..Default::default()
 };
 ```
@@ -332,10 +334,16 @@ pub struct ExtractionResult {
 
 ```rust
 pub struct ExtractConfig {
-    pub magic_comment: String,
-    pub tag_identifiers: Vec<String>,
-    pub modules: Vec<String>,
-    pub allow_global_identifiers: bool,
+    pub modules: Vec<ModuleConfig>,
+    pub gql_magic_comment: String,
+    pub global_gql_identifier_name: Vec<String>,
+    pub gql_vue_block: Option<String>,
+    pub skip_indent: bool,
+}
+
+pub struct ModuleConfig {
+    pub name: String,
+    pub identifier: Option<String>,
 }
 ```
 
@@ -369,13 +377,21 @@ fn extract_from_directory(dir: &Path) -> Result<Vec<String>> {
 ### Custom Configuration for a Framework
 
 ```rust
-use graphql_extract::{ExtractConfig, extract_from_file, Language};
+use graphql_extract::{ExtractConfig, ModuleConfig, extract_from_file};
 
-// Configuration for Relay
+// Configuration for Relay (matches pluck's defaults for these modules)
 let relay_config = ExtractConfig {
-    tag_identifiers: vec!["graphql".to_string()],
-    modules: vec!["react-relay".to_string()],
-    allow_global_identifiers: true,  // Relay uses global graphql
+    modules: vec![
+        ModuleConfig {
+            name: "react-relay".to_string(),
+            identifier: Some("graphql".to_string()),
+        },
+        ModuleConfig {
+            name: "relay-runtime".to_string(),
+            identifier: Some("graphql".to_string()),
+        },
+    ],
+    global_gql_identifier_name: vec!["graphql".to_string()],
     ..Default::default()
 };
 

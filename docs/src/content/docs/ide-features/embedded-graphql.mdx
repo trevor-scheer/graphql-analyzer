@@ -101,25 +101,29 @@ The analyzer extracts GraphQL from tagged template literals and maps positions b
 
 ## Configuring extraction
 
-By default, the tool recognizes `gql` and `graphql` tags imported from any of these modules: `graphql-tag`, `@apollo/client`, `apollo-server`, `apollo-server-express`, `gatsby`, and `react-relay`. Customize which tags and modules are recognized:
+The `extractConfig` schema mirrors [`@graphql-tools/graphql-tag-pluck`](https://the-guild.dev/graphql/tools/docs/graphql-tag-pluck), so users coming from `@graphql-eslint` or any pluck-based pipeline can paste their pluck config directly. The `pluckConfig` key is also accepted as an alias.
+
+By default, the tool recognizes `gql` and `graphql` as bare/global GraphQL tags, and tracks tags imported from `graphql-tag`, `graphql-tag.macro`, `@apollo/client(/core)`, `gatsby`, the Relay packages, `graphql.macro`, and the `urql`/`@urql/*` family. Customize:
 
 ```yaml
 extensions:
   graphql-analyzer:
     extractConfig:
-      tagIdentifiers: ["gql", "graphql", "query"]
-      modules: ["graphql-tag", "@apollo/client", "custom-gql"]
-      allowGlobalIdentifiers: true
+      modules:
+        - "graphql-tag"
+        - { name: "@apollo/client", identifier: "gql" }
+        - { name: "custom-gql", identifier: "query" }
+      globalGqlIdentifierName: ["gql", "graphql", "query"]
 ```
 
-See [Documents configuration](/graphql-analyzer/configuration/documents/) for details.
+See [Documents configuration](/graphql-analyzer/configuration/documents/) for the full option list.
 
 ## Magic comment extraction
 
-In addition to tagged template literals, the analyzer extracts GraphQL from untagged string literals and template literals preceded by a `/* GraphQL */` comment:
+In addition to tagged template literals, the analyzer extracts GraphQL from untagged string literals and template literals preceded by a `/* graphql */` comment (matches `gqlMagicComment`, default `"graphql"`):
 
 ```typescript
-const query = /* GraphQL */ `
+const query = /* graphql */ `
   query GetUser($id: ID!) {
     user(id: $id) {
       id
@@ -128,7 +132,7 @@ const query = /* GraphQL */ `
   }
 `;
 
-const mutation = /* GraphQL */ `
+const mutation = /* graphql */ `
   mutation UpdateUser($id: ID!, $name: String!) {
     updateUser(id: $id, name: $name) {
       id
