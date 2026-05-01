@@ -820,10 +820,17 @@ mod tests {
         let host = CliAnalysisHost::from_project_config(&project_config, workspace_path).unwrap();
         let diagnostics = host.all_lint_diagnostics();
 
-        let schema_path = schema_dir.join("schema.graphql");
+        // Look up by filename rather than full path: on Windows, `tempfile`
+        // and `glob` can disagree on short-name (`RUNNER~1`) vs. long-name
+        // representations of the temp dir, so PathBuf equality is unreliable.
         let schema_diags = diagnostics
-            .get(&schema_path)
-            .unwrap_or_else(|| panic!("expected lint diagnostics for {}", schema_path.display()));
+            .iter()
+            .find_map(|(p, d)| {
+                (p.file_name() == Some(std::ffi::OsStr::new("schema.graphql"))).then_some(d)
+            })
+            .unwrap_or_else(|| {
+                panic!("expected lint diagnostics for schema.graphql, got: {diagnostics:?}")
+            });
         assert!(
             schema_diags
                 .iter()
