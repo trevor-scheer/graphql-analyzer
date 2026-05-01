@@ -1541,7 +1541,7 @@ extensions:
     client: apollo
     lint:
       rules:
-        requireIdField: [warn, { fields: ["id", "nodeId"] }]
+        requireSelections: [warn, { fieldName: ["id", "nodeId"], requireAllFields: true }]
 "#,
             "lint ESLint array style",
         );
@@ -1557,10 +1557,11 @@ extensions:
     client: apollo
     lint:
       rules:
-        requireIdField:
+        requireSelections:
           severity: error
           options:
-            fields: ["id"]
+            fieldName: ["id"]
+            requireAllFields: true
 "#,
             "lint object style with options",
         );

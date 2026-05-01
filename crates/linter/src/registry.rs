@@ -10,11 +10,11 @@ use crate::rules::{
     OperationNameSuffixRuleImpl, RedundantFieldsRuleImpl, RelayArgumentsRuleImpl,
     RelayConnectionTypesRuleImpl, RelayEdgeTypesRuleImpl, RelayPageInfoRuleImpl,
     RequireDeprecationDateRuleImpl, RequireDeprecationReasonRuleImpl, RequireDescriptionRuleImpl,
-    RequireFieldOfTypeQueryInMutationResultRuleImpl, RequireIdFieldRuleImpl,
-    RequireImportFragmentRuleImpl, RequireNullableFieldsWithOneofRuleImpl,
-    RequireNullableResultInRootRuleImpl, RequireSelectionsRuleImpl,
-    RequireTypePatternWithOneofRuleImpl, RestyFieldNamesRuleImpl, SelectionSetDepthRuleImpl,
-    StrictIdInTypesRuleImpl, UniqueEnumValueNamesRuleImpl, UniqueNamesRuleImpl,
+    RequireFieldOfTypeQueryInMutationResultRuleImpl, RequireImportFragmentRuleImpl,
+    RequireNullableFieldsWithOneofRuleImpl, RequireNullableResultInRootRuleImpl,
+    RequireSelectionsRuleImpl, RequireTypePatternWithOneofRuleImpl, RestyFieldNamesRuleImpl,
+    SelectionSetDepthRuleImpl, StrictIdInTypesRuleImpl, UniqueEnumValueNamesRuleImpl,
+    UniqueNamesRuleImpl,
 };
 use crate::traits::{
     DocumentSchemaLintRule, LintRule, ProjectLintRule, StandaloneDocumentLintRule,
@@ -49,7 +49,6 @@ static DOCUMENT_SCHEMA_RULES: LazyLock<Vec<Arc<dyn DocumentSchemaLintRule>>> =
     LazyLock::new(|| {
         vec![
             Arc::new(NoDeprecatedRuleImpl),
-            Arc::new(RequireIdFieldRuleImpl),
             Arc::new(RequireSelectionsRuleImpl),
         ]
     });
