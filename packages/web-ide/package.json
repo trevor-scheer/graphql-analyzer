@@ -9,7 +9,7 @@
     "test:e2e": "playwright test"
   },
   "dependencies": {
-    "monaco-editor": "^0.46.0",
+    "monaco-editor": "^0.55.0",
     "vscode-jsonrpc": "^8.2.0",
     "vscode-languageserver-protocol": "^3.17.5"
   },
