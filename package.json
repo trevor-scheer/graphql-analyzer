@@ -31,7 +31,7 @@
     "fmt:check": "oxfmt --check ."
   },
   "devDependencies": {
-    "oxfmt": "^0.46.0",
+    "oxfmt": "^0.47.0",
     "oxlint": "^1.51.0"
   },
   "volta": {
