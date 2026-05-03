@@ -22,7 +22,7 @@
     "build:debug": "napi build --cargo-cwd ../../crates/napi --platform"
   },
   "devDependencies": {
-    "@napi-rs/cli": "^2.18.0"
+    "@napi-rs/cli": "^3.0.0"
   },
   "optionalDependencies": {
     "@graphql-analyzer/core-darwin-arm64": "0.1.2",
