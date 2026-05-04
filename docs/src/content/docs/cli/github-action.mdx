@@ -86,26 +86,26 @@ steps:
 
 ## Inputs
 
-| Name                | Default                  | Description                                                       |
-| ------------------- | ------------------------ | ----------------------------------------------------------------- |
-| `command`           | `check`                  | One of `check`, `validate`, `lint`.                               |
-| `config`            | (auto-discover)          | Path to `.graphqlrc.yaml`.                                        |
-| `project`           | (none)                   | Multi-project name.                                               |
-| `version`           | `latest`                 | CLI version: `latest` or `X.Y.Z`.                                 |
-| `max-warnings`      | (none)                   | Threshold for `--max-warnings`. Set `0` to fail on any warning.   |
-| `annotate`          | `true`                   | Emit inline PR annotations.                                       |
-| `sarif`             | `false`                  | Produce a SARIF file at `sarif-file`.                             |
-| `sarif-file`        | `graphql-results.sarif`  | SARIF output path.                                                |
-| `comment`           | `false`                  | Post (or update) a PR summary comment.                            |
-| `working-directory` | `.`                      | Directory to run the CLI in.                                      |
+| Name                | Default                 | Description                                                     |
+| ------------------- | ----------------------- | --------------------------------------------------------------- |
+| `command`           | `check`                 | One of `check`, `validate`, `lint`.                             |
+| `config`            | (auto-discover)         | Path to `.graphqlrc.yaml`.                                      |
+| `project`           | (none)                  | Multi-project name.                                             |
+| `version`           | `latest`                | CLI version: `latest` or `X.Y.Z`.                               |
+| `max-warnings`      | (none)                  | Threshold for `--max-warnings`. Set `0` to fail on any warning. |
+| `annotate`          | `true`                  | Emit inline PR annotations.                                     |
+| `sarif`             | `false`                 | Produce a SARIF file at `sarif-file`.                           |
+| `sarif-file`        | `graphql-results.sarif` | SARIF output path.                                              |
+| `comment`           | `false`                 | Post (or update) a PR summary comment.                          |
+| `working-directory` | `.`                     | Directory to run the CLI in.                                    |
 
 ## Outputs
 
-| Name         | Description                                  |
-| ------------ | -------------------------------------------- |
-| `errors`     | Number of error-severity diagnostics.        |
-| `warnings`   | Number of warning-severity diagnostics.      |
-| `sarif-file` | Path to the SARIF file when `sarif: true`.   |
+| Name         | Description                                |
+| ------------ | ------------------------------------------ |
+| `errors`     | Number of error-severity diagnostics.      |
+| `warnings`   | Number of warning-severity diagnostics.    |
+| `sarif-file` | Path to the SARIF file when `sarif: true`. |
 
 ## Pinning the CLI version
 
