@@ -1,6 +1,12 @@
 packages:
   - "editors/vscode"
   - "packages/*"
+  # napi-rs platform stubs — versioned in lockstep with @graphql-analyzer/core.
+  # Including them as workspace members lets pnpm resolve `core`'s
+  # optionalDependencies locally during release-prep version bumps; otherwise
+  # pnpm silently drops un-resolvable optional deps from the lockfile and
+  # `--frozen-lockfile` rejects the inconsistency.
+  - "packages/core/npm/*"
   - "test-workspace/apollo-app"
   - "test-workspace/countries"
   - "test-workspace/eslint-migration"
