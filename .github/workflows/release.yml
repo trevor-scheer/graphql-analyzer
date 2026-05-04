@@ -357,6 +357,10 @@ jobs:
       - name: List VSIX files
         run: find vsix-artifacts -name "*.vsix" -type f
 
+      # `--skip-duplicate` makes this idempotent on rerun: already-published
+      # (version, target) combos log a skip message and exit 0, so a partial
+      # failure where some platforms uploaded successfully can be recovered
+      # by re-running the job.
       - name: Publish to VS Code Marketplace
         working-directory: editors/vscode
         env:
@@ -364,7 +368,7 @@ jobs:
         run: |
           for vsix in ../../vsix-artifacts/*.vsix; do
             echo "Publishing $vsix"
-            pnpm exec vsce publish --packagePath "$vsix"
+            pnpm exec vsce publish --packagePath "$vsix" --skip-duplicate
           done
 
   # Publish VS Code extension to Open VSX Registry
@@ -387,13 +391,15 @@ jobs:
           path: vsix-artifacts
           merge-multiple: true
 
+      # See note on publish-vscode — `--skip-duplicate` provides the same
+      # idempotency guard for Open VSX so partial-failure reruns are safe.
       - name: Publish to Open VSX Registry
         env:
           OVSX_PAT: ${{ secrets.OPENVSX_PUBLISH_PAT }}
         run: |
           for vsix in vsix-artifacts/*.vsix; do
             echo "Publishing $vsix"
-            pnpm dlx ovsx publish "$vsix" --pat "$OVSX_PAT"
+            pnpm dlx ovsx publish "$vsix" --pat "$OVSX_PAT" --skip-duplicate
           done
 
   # Publish @graphql-analyzer/* packages to npm.
