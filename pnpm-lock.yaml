@@ -65,19 +65,19 @@ importers:
         version: 3.6.2(@emnapi/core@1.10.0)(@emnapi/runtime@1.10.0)(@types/node@24.12.2)
     optionalDependencies:
       '@graphql-analyzer/core-darwin-arm64':
-        specifier: 0.1.2
+        specifier: 0.1.3
         version: link:npm/darwin-arm64
       '@graphql-analyzer/core-darwin-x64':
-        specifier: 0.1.2
+        specifier: 0.1.3
         version: link:npm/darwin-x64
       '@graphql-analyzer/core-linux-arm64-gnu':
-        specifier: 0.1.2
+        specifier: 0.1.3
         version: link:npm/linux-arm64-gnu
       '@graphql-analyzer/core-linux-x64-gnu':
-        specifier: 0.1.2
+        specifier: 0.1.3
         version: link:npm/linux-x64-gnu
       '@graphql-analyzer/core-win32-x64-msvc':
-        specifier: 0.1.2
+        specifier: 0.1.3
         version: link:npm/win32-x64-msvc
 
   packages/core/npm/darwin-arm64: {}
@@ -93,7 +93,7 @@ importers:
   packages/eslint-plugin:
     dependencies:
       '@graphql-analyzer/core':
-        specifier: 0.1.2
+        specifier: 0.1.3
         version: link:../core
     devDependencies:
       '@graphql-eslint/eslint-plugin':
