@@ -18,8 +18,8 @@
     "access": "public"
   },
   "scripts": {
-    "build": "napi build --cargo-cwd ../../crates/napi --platform --release",
-    "build:debug": "napi build --cargo-cwd ../../crates/napi --platform"
+    "build": "napi build --manifest-path ../../crates/napi/Cargo.toml --output-dir . --platform --release",
+    "build:debug": "napi build --manifest-path ../../crates/napi/Cargo.toml --output-dir . --platform"
   },
   "devDependencies": {
     "@napi-rs/cli": "^3.0.0"
@@ -32,14 +32,14 @@
     "@graphql-analyzer/core-win32-x64-msvc": "0.1.2"
   },
   "napi": {
-    "name": "graphql-analyzer",
-    "triples": {
-      "defaults": true,
-      "additional": [
-        "aarch64-apple-darwin",
-        "aarch64-unknown-linux-gnu"
-      ]
-    }
+    "binaryName": "graphql-analyzer",
+    "targets": [
+      "x86_64-apple-darwin",
+      "x86_64-pc-windows-msvc",
+      "x86_64-unknown-linux-gnu",
+      "aarch64-apple-darwin",
+      "aarch64-unknown-linux-gnu"
+    ]
   },
   "engines": {
     "node": ">=18"

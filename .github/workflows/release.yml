@@ -269,7 +269,7 @@ jobs:
 
       - name: Build native addon
         working-directory: packages/core
-        run: npx napi build --cargo-cwd ../../crates/napi --platform --release --target ${{ matrix.target }}
+        run: npx napi build --manifest-path ../../crates/napi/Cargo.toml --output-dir . --platform --release --target ${{ matrix.target }}
 
       - name: Upload .node binding
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
@@ -451,7 +451,7 @@ jobs:
       # files and copies each into packages/core/npm/<dir>/ based on the suffix.
       - name: Distribute .node bindings into platform stub dirs
         working-directory: packages/core
-        run: npx napi artifacts --dir ../../napi-artifacts
+        run: npx napi artifacts --output-dir ../../napi-artifacts
 
       - name: Confirm publish layout
         run: find packages/core packages/eslint-plugin -type f \( -name "*.node" -o -name "index.js" -o -name "index.d.ts" -o -name "package.json" \) -not -path "*/node_modules/*" | sort

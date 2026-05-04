@@ -12,8 +12,8 @@ publish = false
 crate-type = ["cdylib"]
 
 [dependencies]
-napi = { version = "2", features = ["napi9", "serde-json"] }
-napi-derive = "2"
+napi = { version = "3", features = ["napi9", "serde-json"] }
+napi-derive = "3"
 serde_json.workspace = true
 graphql-ide = { path = "../ide" }
 graphql-linter = { path = "../linter" }
