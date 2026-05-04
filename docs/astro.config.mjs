@@ -60,6 +60,7 @@ export default defineConfig({
             { label: "completions", slug: "cli/completions" },
             { label: "Output Formats", slug: "cli/output-formats" },
             { label: "CI/CD Integration", slug: "cli/ci-cd" },
+            { label: "GitHub Action", slug: "cli/github-action" },
           ],
         },
         {
