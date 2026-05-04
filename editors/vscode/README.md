@@ -153,7 +153,7 @@ query {
 ### Prerequisites
 
 - Rust toolchain (see `rust-toolchain.toml` in repo root)
-- Node.js and npm
+- Node.js and pnpm (versions pinned via `mise` — run `mise install`)
 
 ### Quick Install (Recommended)
 
@@ -186,8 +186,8 @@ If you need more control (e.g., for debugging the extension itself):
 
    ```bash
    cd editors/vscode
-   npm install
-   npm run compile
+   pnpm install
+   pnpm run compile
    ```
 
 3. **Launch extension in debug mode:**
@@ -310,22 +310,22 @@ Then view traces at http://localhost:16686 (requires Jaeger running).
 ### Building
 
 ```bash
-npm run compile    # Compile TypeScript
-npm run watch      # Watch mode for development
+pnpm run compile    # Compile TypeScript
+pnpm run watch      # Watch mode for development
 ```
 
 ### Formatting & Linting
 
 ```bash
-npm run format     # Format with Prettier
-npm run format:check  # Check formatting
-npm run lint       # Lint with oxlint
+pnpm run format     # Format with Prettier
+pnpm run format:check  # Check formatting
+pnpm run lint       # Lint with oxlint
 ```
 
 ### Packaging
 
 ```bash
-npm run package    # Creates .vsix file
+pnpm run package    # Creates .vsix file
 ```
 
 ### Publishing
@@ -334,7 +334,7 @@ The extension is automatically published to GitHub Releases via CI. For manual p
 
 ```bash
 # Increment version in package.json
-npm version patch  # or minor, major
+pnpm version patch  # or minor, major
 
 # Create and push tag
 git tag -a vscode-v0.1.0 -m "Release vscode v0.1.0"

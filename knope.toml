@@ -76,28 +76,28 @@ type = "PrepareRelease"
 
 # Knope only bumps `version` fields. Re-pin intra-workspace npm deps to the
 # new core version so published packages list the exact version they were
-# tested against (and so `npm ci` on the release branch can resolve via the
-# workspace).
+# tested against (and so `pnpm install --frozen-lockfile` on the release
+# branch can resolve via the workspace).
 [[workflows.steps]]
 type = "Command"
 command = "node scripts/sync-workspace-deps.mjs"
 
 [[workflows.steps]]
 type = "Command"
-command = "npm install --package-lock-only"
+command = "pnpm install --lockfile-only"
 
-# Verify the regenerated lockfile is consumable by `npm ci`. Without this, a
-# lockfile that fails downstream `npm ci` (e.g. produced by an off-version npm
-# in the prepare-release runner) would still be force-pushed to release/next
-# and only blow up on the auto-generated PR's CI. This makes the prepare-release
-# job itself fail before the push, with a clear, fail-fast signal.
+# Verify the regenerated lockfile is consumable by `pnpm install --frozen-lockfile`.
+# Without this, a lockfile that fails downstream installs (e.g. produced by an
+# off-version pnpm in the prepare-release runner) would still be force-pushed to
+# release/next and only blow up on the auto-generated PR's CI. This makes the
+# prepare-release job itself fail before the push, with a clear, fail-fast signal.
 [[workflows.steps]]
 type = "Command"
-command = "npm ci --ignore-scripts --no-audit --no-fund"
+command = "pnpm install --frozen-lockfile --ignore-scripts"
 
 [[workflows.steps]]
 type = "Command"
-command = "git add packages/ package-lock.json"
+command = "git add packages/ pnpm-lock.yaml"
 
 [[workflows.steps]]
 type = "Command"

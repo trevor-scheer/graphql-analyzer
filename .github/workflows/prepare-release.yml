@@ -45,20 +45,15 @@ jobs:
         if: steps.check.outputs.changeset_count > 0
         uses: Swatinem/rust-cache@e18b497796c12c097a38f9edb9d0641fb99eee32 # v2
 
-      # Knope runs `npm install --package-lock-only` to regenerate the lockfile.
-      # The CI jobs that consume the produced release PR (Format / VSCode /
-      # ESLint Plugin) all use `actions/setup-node` with the version pinned in
-      # `.node-version` (currently Node 24 / npm 11). npm 10 (the runner
-      # default) and npm 11 write structurally different lockfiles for optional
-      # deps that aren't yet on the registry — so a lockfile produced here
-      # without setup-node fails `npm ci` over there with
-      # `Missing: @graphql-analyzer/core-* from lock file`. Match CI by reading
-      # from `.node-version`.
-      - name: Setup Node.js
+      # knope's `prepare-release` workflow runs `pnpm install --lockfile-only`
+      # to regenerate `pnpm-lock.yaml` after version bumps. Match the local
+      # toolchain via mise so the lockfile is bit-identical to what CI/dev
+      # produce.
+      - name: Setup mise + pnpm
         if: steps.check.outputs.changeset_count > 0
-        uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e # v6
+        uses: jdx/mise-action@5228313ee0372e111a38da051671ca30fc5a96db # v3
         with:
-          node-version-file: .node-version
+          experimental: true
 
       - name: Install knope
         if: steps.check.outputs.changeset_count > 0

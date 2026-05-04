@@ -28,11 +28,11 @@ const fixtureRoot = path.resolve(__dirname, "../../../test-workspace/eslint-migr
 test("build artifacts exist", () => {
   assert.ok(
     fs.existsSync(path.resolve(__dirname, "../dist/index.js")),
-    "run `npm run build --workspace=@graphql-analyzer/eslint-plugin` first",
+    "run `pnpm --filter @graphql-analyzer/eslint-plugin run build` first",
   );
   const coreDir = path.resolve(__dirname, "../../core");
   const nodeBinaryExists = fs.readdirSync(coreDir).some((f) => f.endsWith(".node"));
-  assert.ok(nodeBinaryExists, "run `npm run build:debug --workspace=@graphql-analyzer/core` first");
+  assert.ok(nodeBinaryExists, "run `pnpm --filter @graphql-analyzer/core run build:debug` first");
 });
 
 function eslint() {

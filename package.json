@@ -3,38 +3,31 @@
   "version": "0.0.0",
   "private": true,
   "description": "Development tools for graphql-lsp",
-  "workspaces": [
-    "editors/vscode",
-    "packages/*",
-    "test-workspace/apollo-app",
-    "test-workspace/countries",
-    "test-workspace/eslint-migration",
-    "test-workspace/github",
-    "test-workspace/misconfigured-documents",
-    "test-workspace/misconfigured-schema",
-    "test-workspace/pokemon",
-    "test-workspace/relay-app",
-    "test-workspace/starwars"
-  ],
   "scripts": {
-    "build": "npm run build --workspaces --if-present",
-    "build:debug": "npm run build:debug --workspaces --if-present",
-    "compile": "npm run compile --workspaces --if-present",
-    "watch": "npm run watch --workspaces --if-present",
+    "build": "pnpm -r --if-present run build",
+    "build:debug": "pnpm -r --if-present run build:debug",
+    "compile": "pnpm -r --if-present run compile",
+    "watch": "pnpm -r --if-present run watch",
     "typecheck": "tsc -b",
     "lint": "oxlint .",
     "lint:fix": "oxlint --fix .",
-    "package": "npm run package --workspace=editors/vscode",
-    "test:unit": "npm run test:unit --workspaces --if-present",
-    "test:e2e": "npm run test:e2e --workspaces --if-present",
+    "package": "pnpm --filter graphql-analyzer run package",
+    "test:unit": "pnpm -r --if-present run test:unit",
+    "test:e2e": "pnpm -r --if-present run test:e2e",
     "fmt": "oxfmt --write .",
     "fmt:check": "oxfmt --check ."
   },
   "devDependencies": {
     "oxfmt": "^0.47.0",
-    "oxlint": "^1.51.0"
+    "oxlint": "^1.51.0",
+    "typescript": "^5.0.0"
   },
-  "volta": {
-    "node": "24.15.0"
+  "packageManager": "pnpm@10.33.2",
+  "pnpm": {
+    "onlyBuiltDependencies": [
+      "@vscode/vsce-sign",
+      "esbuild",
+      "keytar"
+    ]
   }
 }

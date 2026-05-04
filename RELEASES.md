@@ -161,10 +161,10 @@ knope --dry-run prepare-release
 knope --validate
 
 # Build the native addon locally (debug)
-npm run build:debug --workspace=@graphql-analyzer/core
+pnpm --filter @graphql-analyzer/core run build:debug
 
 # Build the ESLint plugin
-npm run build --workspace=@graphql-analyzer/eslint-plugin
+pnpm --filter @graphql-analyzer/eslint-plugin run build
 ```
 
 ## Installation methods

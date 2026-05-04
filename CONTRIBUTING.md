@@ -15,12 +15,24 @@ Thank you for your interest in contributing! This guide will help you get starte
 
 ---
 
+## Toolchain
+
+Node and pnpm are pinned via [mise](https://mise.jdx.dev). Node version
+lives in `.node-version`; pnpm major in `mise.toml`; the exact pnpm patch
+in `package.json#packageManager` (for tooling/Corepack detection).
+
+Install once: `mise install` from the repo root. After that, `mise` shims
+make `node` and `pnpm` available at the pinned versions inside this
+directory.
+
+---
+
 ## Getting Started
 
 ### Prerequisites
 
 - **Rust**: Install via [rustup](https://rustup.rs/). The project uses the toolchain specified in `rust-toolchain.toml`.
-- **Node.js & npm**: Required for VSCode extension development
+- **Node.js & pnpm**: Required for VSCode extension development
 - **Git**: For version control
 - **VSCode**: Recommended for extension development
 
@@ -112,13 +124,13 @@ cargo build --package graphql-cli
 ```bash
 # Install dependencies
 cd editors/vscode
-npm install
+pnpm install
 
 # Compile TypeScript
-npm run compile
+pnpm run compile
 
 # Watch mode (auto-recompile on changes)
-npm run watch
+pnpm run watch
 
 # Open in VSCode and press F5 to launch Extension Development Host
 code .
@@ -211,7 +223,7 @@ cargo clippy --workspace --all-targets --all-features
 cargo test --workspace
 
 # Format TS code (VSCode extension)
-npm run fmt
+pnpm run fmt
 ```
 
 ### Addressing Clippy Warnings

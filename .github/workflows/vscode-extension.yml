@@ -111,12 +111,10 @@ jobs:
         with:
           ref: ${{ needs.check-command.outputs.head_sha }}
 
-      - name: Setup Node.js
-        uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e # v6
+      - name: Setup mise + pnpm
+        uses: jdx/mise-action@5228313ee0372e111a38da051671ca30fc5a96db # v3
         with:
-          node-version-file: .node-version
-          cache: "npm"
-          cache-dependency-path: editors/vscode/package-lock.json
+          experimental: true
 
       - name: Download LSP binary
         uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8
@@ -129,16 +127,15 @@ jobs:
         run: chmod +x editors/vscode/bin/${{ matrix.binary_name }}
 
       - name: Install dependencies
-        working-directory: editors/vscode
-        run: npm ci
+        run: pnpm install --frozen-lockfile
 
       - name: Build extension
         working-directory: editors/vscode
-        run: npm run compile
+        run: pnpm run compile
 
       - name: Package extension
         working-directory: editors/vscode
-        run: npx vsce package --target ${{ matrix.vscode_target }}
+        run: pnpm exec vsce package --target ${{ matrix.vscode_target }}
 
       - name: Upload VSIX
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
