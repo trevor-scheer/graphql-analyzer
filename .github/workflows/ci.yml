@@ -55,7 +55,7 @@ jobs:
           shared-key: "ci-test"
 
       - name: Install cargo-nextest
-        uses: taiki-e/install-action@503e8716347bdf39d25c0bea02bbc3eadf603591 # nextest
+        uses: taiki-e/install-action@2e807a7ddd7369dd12a3ec9a19d156f0660ecc9e # nextest
         with:
           tool: nextest
 
@@ -140,12 +140,12 @@ jobs:
           shared-key: "ci-coverage"
 
       - name: Install cargo-nextest
-        uses: taiki-e/install-action@503e8716347bdf39d25c0bea02bbc3eadf603591 # nextest
+        uses: taiki-e/install-action@2e807a7ddd7369dd12a3ec9a19d156f0660ecc9e # nextest
         with:
           tool: nextest
 
       - name: Install cargo-llvm-cov
-        uses: taiki-e/install-action@ec28e287910af896fd98e04056d31fa68607e7ad # v2
+        uses: taiki-e/install-action@3771e22aa892e03fd35585fae288baad1755695c # v2
         with:
           tool: cargo-llvm-cov
 
@@ -294,7 +294,7 @@ jobs:
           shared-key: "ci-web"
 
       - name: Install wasm-pack
-        uses: taiki-e/install-action@ec28e287910af896fd98e04056d31fa68607e7ad # v2
+        uses: taiki-e/install-action@3771e22aa892e03fd35585fae288baad1755695c # v2
         with:
           tool: wasm-pack
 
