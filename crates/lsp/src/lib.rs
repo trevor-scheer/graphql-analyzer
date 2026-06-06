@@ -500,7 +500,5 @@ pub fn run_server() {
 
 #[cfg(feature = "native")]
 fn num_cpus() -> usize {
-    std::thread::available_parallelism()
-        .map(usize::from)
-        .unwrap_or(4)
+    std::thread::available_parallelism().map_or(4, usize::from)
 }

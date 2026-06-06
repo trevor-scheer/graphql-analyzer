@@ -478,9 +478,8 @@ fn init_telemetry() -> Option<opentelemetry_sdk::trace::SdkTracerProvider> {
     use tracing_subscriber::layer::SubscriberExt;
     use tracing_subscriber::util::SubscriberInitExt;
 
-    let otel_enabled = std::env::var("OTEL_TRACES_ENABLED")
-        .map(|v| v == "1" || v.to_lowercase() == "true")
-        .unwrap_or(false);
+    let otel_enabled =
+        std::env::var("OTEL_TRACES_ENABLED").is_ok_and(|v| v == "1" || v.to_lowercase() == "true");
 
     if !otel_enabled {
         init_tracing();

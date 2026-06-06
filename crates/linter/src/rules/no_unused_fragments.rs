@@ -126,45 +126,43 @@ impl ProjectLintRule for NoUnusedFragmentsRuleImpl {
                 let keyword_doc_start = frag_info.def_start;
                 let keyword_doc_end = frag_info.def_start + FRAGMENT_KEYWORD_LEN;
 
-                let (diag_span, fix) =
-                    if frag_info.block_def_count == 1 && frag_info.declaration_range.is_some() {
-                        #[allow(clippy::expect_used)] // safe: guarded by is_some() above
-                        let (decl_start, decl_end) = frag_info
-                            .declaration_range
-                            .expect("guarded by is_some() above");
-                        let byte_offset = frag_info.name_span.byte_offset;
+                let (diag_span, fix) = if let Some((decl_start, decl_end)) = frag_info
+                    .declaration_range
+                    .filter(|_| frag_info.block_def_count == 1)
+                {
+                    let byte_offset = frag_info.name_span.byte_offset;
 
-                        // File-level keyword span for the diagnostic underline.
-                        let file_span = graphql_syntax::SourceSpan {
-                            start: byte_offset + keyword_doc_start,
-                            end: byte_offset + keyword_doc_end,
-                            source: None,
-                            line_offset: 0,
-                            byte_offset: 0,
-                        };
-
-                        let fix = CodeFix::new(
-                            format!("Remove unused fragment '{}'", frag_info.name),
-                            vec![TextEdit::delete(decl_start, decl_end)],
-                        );
-
-                        (file_span, fix)
-                    } else {
-                        // Document-relative keyword span. Reuse `name_span` to
-                        // inherit block context (line_offset / source) for
-                        // embedded TS/JS fragments — only the start/end need
-                        // to point at the `fragment` keyword instead of the
-                        // name.
-                        let mut keyword_span = frag_info.name_span.clone();
-                        keyword_span.start = keyword_doc_start;
-                        keyword_span.end = keyword_doc_end;
-
-                        let fix = CodeFix::new(
-                            format!("Remove unused fragment '{}'", frag_info.name),
-                            vec![TextEdit::delete(frag_info.def_start, frag_info.def_end)],
-                        );
-                        (keyword_span, fix)
+                    // File-level keyword span for the diagnostic underline.
+                    let file_span = graphql_syntax::SourceSpan {
+                        start: byte_offset + keyword_doc_start,
+                        end: byte_offset + keyword_doc_end,
+                        source: None,
+                        line_offset: 0,
+                        byte_offset: 0,
                     };
+
+                    let fix = CodeFix::new(
+                        format!("Remove unused fragment '{}'", frag_info.name),
+                        vec![TextEdit::delete(decl_start, decl_end)],
+                    );
+
+                    (file_span, fix)
+                } else {
+                    // Document-relative keyword span. Reuse `name_span` to
+                    // inherit block context (line_offset / source) for
+                    // embedded TS/JS fragments — only the start/end need
+                    // to point at the `fragment` keyword instead of the
+                    // name.
+                    let mut keyword_span = frag_info.name_span.clone();
+                    keyword_span.start = keyword_doc_start;
+                    keyword_span.end = keyword_doc_end;
+
+                    let fix = CodeFix::new(
+                        format!("Remove unused fragment '{}'", frag_info.name),
+                        vec![TextEdit::delete(frag_info.def_start, frag_info.def_end)],
+                    );
+                    (keyword_span, fix)
+                };
 
                 let diag = LintDiagnostic::warning(diag_span, message, "noUnusedFragments")
                     .with_fix(fix)
