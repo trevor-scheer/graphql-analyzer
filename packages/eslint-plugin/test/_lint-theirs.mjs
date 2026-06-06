@@ -14,7 +14,9 @@
 //   5: optional rule options as JSON string ("undefined" for none)
 
 process.env.NODE_ENV = "test";
-import { ESLint } from "eslint";
+// @graphql-eslint v4 uses context.getSourceCode() which ESLint v10 removed.
+// Run their rules under v9 so the parity comparison stays valid.
+import { ESLint } from "eslint-v9";
 import theirsMod from "@graphql-eslint/eslint-plugin";
 const theirs = theirsMod.default ?? theirsMod;
 
