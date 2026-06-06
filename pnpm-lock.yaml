@@ -105,6 +105,9 @@ importers:
       eslint:
         specifier: ^10.0.0
         version: 10.4.1(jiti@2.6.1)
+      eslint-v9:
+        specifier: npm:eslint@^9.0.0
+        version: eslint@9.39.4(jiti@2.6.1)
       typescript:
         specifier: ^5.0.0
         version: 5.9.3
@@ -6748,7 +6751,7 @@ snapshots:
 
   eslint@9.39.4(jiti@2.6.1):
     dependencies:
-      '@eslint-community/eslint-utils': 4.9.1(eslint@9.39.4(jiti@2.6.1))
+      '@eslint-community/eslint-utils': 4.9.1(eslint@10.4.1(jiti@2.6.1))
       '@eslint-community/regexpp': 4.12.2
       '@eslint/config-array': 0.21.2
       '@eslint/config-helpers': 0.4.2
