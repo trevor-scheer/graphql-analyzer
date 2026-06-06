@@ -485,16 +485,17 @@ fn check_schema_document(
                 // upstream's array form). Bool `true` enables every context.
                 // These are `InputValueDefinition` nodes, so upstream calls them
                 // "input value" in its messages (same as field/input-type nodes).
-                if opts.arguments.includes_kind("DirectiveDefinition") {
-                    if let Some(args) = d.arguments_definition() {
-                        check_input_value_definition_order(
-                            args.input_value_definitions(),
-                            "input value",
-                            &opts.groups,
-                            doc,
-                            diagnostics,
-                        );
-                    }
+                if let Some(args) = d
+                    .arguments_definition()
+                    .filter(|_| opts.arguments.includes_kind("DirectiveDefinition"))
+                {
+                    check_input_value_definition_order(
+                        args.input_value_definitions(),
+                        "input value",
+                        &opts.groups,
+                        doc,
+                        diagnostics,
+                    );
                 }
             }
             _ => {}

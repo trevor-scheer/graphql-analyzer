@@ -360,7 +360,7 @@ mod tests {
 
         let file_diags = diagnostics.get(&file_id);
         assert!(
-            file_diags.is_none() || file_diags.is_some_and(Vec::is_empty),
+            file_diags.is_none_or(Vec::is_empty),
             "Expected no diagnostic for fragment used in multiple places"
         );
     }
