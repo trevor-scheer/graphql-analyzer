@@ -2,4 +2,4 @@
 # jdx/mise-action GitHub Action. Node version comes from `.node-version`
 # (also honored by mise) so it stays a universal pin.
 [tools]
-pnpm = "10"
+pnpm = "11"

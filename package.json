@@ -22,12 +22,5 @@
     "oxlint": "^1.51.0",
     "typescript": "^5.0.0"
   },
-  "packageManager": "pnpm@10.34.1",
-  "pnpm": {
-    "onlyBuiltDependencies": [
-      "@vscode/vsce-sign",
-      "esbuild",
-      "keytar"
-    ]
-  }
+  "packageManager": "pnpm@11.8.0"
 }

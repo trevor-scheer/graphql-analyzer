@@ -22,3 +22,67 @@ packages:
 # users install @graphql-analyzer/* into different frontend frameworks — same
 # reasoning as the docs/ site, they stay on npm to mirror what real consumers
 # do. Mirrors the pre-existing package.json#workspaces array.
+
+# ---------------------------------------------------------------------------
+# Supply-chain hardening (pnpm settings live here as of pnpm 10.16+)
+# ---------------------------------------------------------------------------
+# Defenses against "Shai-Hulud"-style self-replicating worms and hijacked
+# maintainer releases (e.g. the Sept 2025 debug/chalk/ansi-styles compromise,
+# the recurring axios takeovers). The common pattern: an attacker publishes a
+# malicious patch/minor version that runs an install script to exfiltrate
+# secrets and re-publish to packages the victim controls. Two independent
+# controls below break that chain.
+
+# 1) Install cooldown. Refuse to *resolve* any version published less than this
+#    many MINUTES ago. Malicious releases are almost always detected and yanked
+#    within hours-to-days, so a multi-day window means we simply never select
+#    them. This only affects resolution (pnpm add / update / lockfile changes);
+#    `--frozen-lockfile` installs in CI are unaffected because they reuse the
+#    already-pinned versions. 4320 = 3 days, matched to the Renovate cooldown.
+minimumReleaseAge: 4320
+# Our own first-party packages publish-then-consume during release prep, so
+# they must not be held back by the cooldown. (They resolve from the workspace
+# anyway, but the napi platform stubs can briefly resolve from the registry.)
+minimumReleaseAgeExclude:
+  - "@graphql-analyzer/*"
+
+# 2) Build-script allowlist. By default pnpm does NOT run dependency install
+#    lifecycle scripts (preinstall/install/postinstall) — the exact vector worms
+#    rely on. Only the packages below are permitted to run build scripts. This
+#    replaces the v10 `onlyBuiltDependencies` list (removed in pnpm 11).
+allowBuilds:
+  "@vscode/vsce-sign": true
+  esbuild: true
+  keytar: true
+
+# 3) Reject transitive deps sourced from git repos or arbitrary tarball URLs;
+#    require everything to come from the registry (where it can be audited and
+#    yanked). The tree is registry-only today, so this is a ratchet.
+blockExoticSubdeps: true
+
+# 4) Verify node_modules matches the lockfile before running scripts, so a
+#    tampered or out-of-sync install surfaces instead of silently executing.
+verifyDepsBeforeRun: warn
+
+# ---------------------------------------------------------------------------
+# Transitive vulnerability remediation (`pnpm audit`)
+# ---------------------------------------------------------------------------
+# Force known-vulnerable transitive dependencies up to their patched releases.
+# Each selector is scoped to the affected version range (and major) so we only
+# rewrite the vulnerable resolutions and never force a cross-major upgrade on an
+# unrelated consumer. Revisit when the parent packages catch up; the
+# `pnpm audit` CI job will tell us when a selector is no longer needed.
+overrides:
+  # high — CRLF injection (GHSA-hmw2-7cc7-3qxx), via @vscode/vsce
+  "form-data@>=4.0.0 <4.0.6": "^4.0.6"
+  # high — TLS bypass / SOCKS5 routing / WS DoS (GHSA-vmh5-mc38-953g et al.),
+  # via @vscode/vsce > cheerio
+  "undici@>=7.0.0 <7.28.0": "^7.28.0"
+  # high — memory-exhaustion DoS, via @graphql-eslint > graphql-config
+  "ws@>=8.0.0 <8.21.0": "^8.21.0"
+  # moderate cluster — sanitizer bypasses, via monaco-editor
+  "dompurify@>=3.0.0 <3.4.9": "^3.4.9"
+  # moderate — via various dev tooling
+  "js-yaml@>=4.0.0 <4.1.2": "^4.1.2"
+  # low — esbuild dev-server advisory; consolidate transitive copies on the fix
+  "esbuild@>=0.27.3 <0.28.1": "^0.28.1"

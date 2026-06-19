@@ -10,12 +10,20 @@ on:
       - "**/Cargo.toml"
       - "**/Cargo.lock"
       - "deny.toml"
+      - "pnpm-lock.yaml"
+      - "pnpm-workspace.yaml"
+      - "**/package.json"
+      - ".npmrc"
   pull_request:
     branches: [main]
     paths:
       - "**/Cargo.toml"
       - "**/Cargo.lock"
       - "deny.toml"
+      - "pnpm-lock.yaml"
+      - "pnpm-workspace.yaml"
+      - "**/package.json"
+      - ".npmrc"
 
 concurrency:
   group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
@@ -32,3 +40,22 @@ jobs:
         uses: EmbarkStudios/cargo-deny-action@bb137d7af7e4fb67e5f82a49c4fce4fad40782fe # v2
         with:
           command: check
+
+  pnpm-audit:
+    name: pnpm audit
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6
+
+      - name: Setup mise + pnpm
+        uses: jdx/mise-action@5228313ee0372e111a38da051671ca30fc5a96db # v3
+        with:
+          experimental: true
+
+      # `pnpm audit` resolves the lockfile against the registry advisory
+      # database without installing anything or running install scripts, so it
+      # is safe to run even against an untrusted lockfile in a PR. Fail on
+      # high/critical advisories — that is the signal that one of our locked
+      # versions has been flagged (e.g. a hijacked maintainer release).
+      - name: Audit pnpm workspace
+        run: pnpm audit --audit-level high

@@ -10,6 +10,15 @@
   "ignorePaths": [
     "test-workspace/**"
   ],
+  "minimumReleaseAge": "3 days",
+  "internalChecksFilter": "strict",
+  "osvVulnerabilityAlerts": true,
+  "vulnerabilityAlerts": {
+    "minimumReleaseAge": null,
+    "labels": [
+      "security"
+    ]
+  },
   "packageRules": [
     {
       "description": "Group all non-major updates for stable (>= 1.0) packages",
