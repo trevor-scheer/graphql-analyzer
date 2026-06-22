@@ -1,0 +1,17 @@
+- id: graphql-check
+  name: graphql-analyzer check
+  entry: graphql check
+  language: system
+  types_or: [graphql]
+
+- id: graphql-lint
+  name: graphql-analyzer lint
+  entry: graphql lint
+  language: system
+  types_or: [graphql]
+
+- id: graphql-validate
+  name: graphql-analyzer validate
+  entry: graphql validate
+  language: system
+  types_or: [graphql]
