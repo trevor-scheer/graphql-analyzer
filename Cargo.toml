@@ -89,7 +89,7 @@ opentelemetry-semantic-conventions = "0.32"
 tracing-opentelemetry = "0.33"
 
 # Incremental computation
-salsa = "0.26"
+salsa = "0.27"
 
 # Benchmarking
 criterion = { version = "0.8", features = ["html_reports"] }
