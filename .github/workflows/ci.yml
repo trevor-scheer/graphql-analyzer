@@ -55,7 +55,7 @@ jobs:
           shared-key: "ci-test"
 
       - name: Install cargo-nextest
-        uses: taiki-e/install-action@fea5ec4b3b61601cec82312580751f3083e6f651 # nextest
+        uses: taiki-e/install-action@96c7780c1d8a2b8723e12031def873a434d39d8d # nextest
         with:
           tool: nextest
 
@@ -140,12 +140,12 @@ jobs:
           shared-key: "ci-coverage"
 
       - name: Install cargo-nextest
-        uses: taiki-e/install-action@fea5ec4b3b61601cec82312580751f3083e6f651 # nextest
+        uses: taiki-e/install-action@96c7780c1d8a2b8723e12031def873a434d39d8d # nextest
         with:
           tool: nextest
 
       - name: Install cargo-llvm-cov
-        uses: taiki-e/install-action@59012be0884e296ca2da49b530610e72c49039ad # v2
+        uses: taiki-e/install-action@bffeee26d4db9be238a4ea78d8826604ebcb594d # v2
         with:
           tool: cargo-llvm-cov
 
@@ -153,7 +153,7 @@ jobs:
         run: cargo llvm-cov nextest --workspace --all-features --lcov --output-path lcov.info
 
       - name: Upload to Codecov
-        uses: codecov/codecov-action@75cd11691c0faa626561e295848008c8a7dddffe # v5
+        uses: codecov/codecov-action@0fb7174895f61a3b6b78fc075e0cd60383518dac # v5
         with:
           files: lcov.info
           token: ${{ secrets.CODECOV_TOKEN }}
@@ -294,7 +294,7 @@ jobs:
           shared-key: "ci-web"
 
       - name: Install wasm-pack
-        uses: taiki-e/install-action@59012be0884e296ca2da49b530610e72c49039ad # v2
+        uses: taiki-e/install-action@bffeee26d4db9be238a4ea78d8826604ebcb594d # v2
         with:
           tool: wasm-pack
 
