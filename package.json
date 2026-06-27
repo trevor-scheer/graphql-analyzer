@@ -20,7 +20,7 @@
   "devDependencies": {
     "oxfmt": "^0.56.0",
     "oxlint": "^1.51.0",
-    "typescript": "^5.0.0"
+    "typescript": "^7.0.1-rc"
   },
   "packageManager": "pnpm@10.34.1",
   "pnpm": {
