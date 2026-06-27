@@ -22,7 +22,7 @@
     "oxlint": "^1.51.0",
     "typescript": "^7.0.1-rc"
   },
-  "packageManager": "pnpm@10.34.1",
+  "packageManager": "pnpm@10.34.4",
   "pnpm": {
     "onlyBuiltDependencies": [
       "@vscode/vsce-sign",
