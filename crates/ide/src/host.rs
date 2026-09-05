@@ -568,7 +568,7 @@ impl AnalysisHost {
         }
     }
 
-    /// Set native ESLint suppression and return the previous setting.
+    /// Set native `ESLint` suppression and return the previous setting.
     pub fn set_eslint_suppressions_enabled(&mut self, enabled: bool) -> bool {
         if let Some(input) = self.db.lint_config_input {
             let previous = input.eslint_suppressions_enabled(&self.db);
