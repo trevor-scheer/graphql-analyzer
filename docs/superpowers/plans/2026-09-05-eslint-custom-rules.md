@@ -78,7 +78,7 @@ Each owner stages only owned files and uses terse commit messages without conven
 - [x] Sol reviewer pressure-tests the plan.
 - [x] Lead validates findings and revises decisions.
 - [x] Agents implement in intelligible commits.
-- [ ] Lead reviews and independently validates all work.
+- [x] Lead reviews and independently validates all work.
 - [x] Document measured performance and remaining compatibility limitations.
 - [ ] Open and verify a draft PR; inspect CI and resolve relevant failures.
 
@@ -91,3 +91,9 @@ The compatibility frontend eagerly loads configured schema and sibling services 
 The lead's independent release benchmark found a 50-file median of 66 ms for fast mode, 170 ms for compatibility mode, and 91 ms upstream. These results do not support a general compatible-mode speedup claim. See [the reproducible performance evidence](./2026-09-05-eslint-custom-rules-benchmarks.md) for distributions, workload limits, and artifact identity.
 
 Independent integration review found and sent back two defects: failed transformed-schema reloads could lose native state and stop retrying, and processor test fixtures resolved against the test runner's working directory. The native reload is transactional, and fixture paths are module-relative. Additional agent review reproduced unsafe autofixes that formed JavaScript interpolation across edit boundaries; those edits are suppressed.
+
+The final independent Sol review reproduced an ESLint persistent-cache failure caused by missing parser/processor metadata. The lead verified that our parser failed while upstream passed, and the implementation agent added failing tests before fixing all four entry points. The final independent plugin run passed 76 tests, including cache reuse across ESLint instances. The lead also ran 344 affected Rust tests, affected clippy checks, repository formatting/lint/typechecking, and external packed-package checks with strict TypeScript declarations. Packed consumers exercised Node 18 and ESLint 8.40, as well as ESLint 9. Existing repository lint warnings remain outside this change.
+
+Sol also reproduced stale native inventory after a new file is added to an existing schema glob. The lead retained this as a documented pre-existing limitation, not a new custom-frontend blocker. Native dependency refresh covers known files; compatible custom-rule services separately detect glob membership changes. Native inventory discovery, rule-option forwarding, and multi-project support need their own implementation scope.
+
+Release-preparation simulation failed under npm 11.19.0 because regeneration produced five native optional-package entries with missing versions. The lead ran the same script in isolated source copies of this branch and unchanged `bb444fe`; both failed with the same five missing entries. No release-workflow changes were made. The packed runtime dependency audit reported no critical or high findings and three moderate entries through Apollo's `uuid` dependency.
