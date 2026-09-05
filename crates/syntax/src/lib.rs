@@ -180,7 +180,7 @@ pub fn parse(
 
     #[cfg(feature = "extract")]
     if metadata.language(db).requires_extraction() {
-        return extract_and_parse(db, &content.text(db), uri.as_str());
+        return extract_and_parse(db, &content.text(db), uri.as_str(), metadata.language(db));
     }
     // When the extract feature is off (wasm), all files parse as raw GraphQL.
     parse_graphql(&content.text(db), uri.as_str())
@@ -223,10 +223,15 @@ fn parse_graphql(content: &str, uri: &str) -> Parse {
     }
 }
 
-/// Extract GraphQL from TypeScript/JavaScript and parse each block
+/// Extract GraphQL from its host language and parse each block
 #[cfg(feature = "extract")]
-fn extract_and_parse(db: &dyn GraphQLSyntaxDatabase, content: &str, uri: &str) -> Parse {
-    use graphql_extract::{extract_from_source, ExtractConfig, Language};
+fn extract_and_parse(
+    db: &dyn GraphQLSyntaxDatabase,
+    content: &str,
+    uri: &str,
+    language: Language,
+) -> Parse {
+    use graphql_extract::{extract_from_source, ExtractConfig};
 
     tracing::debug!(content_len = content.len(), "extract_and_parse called");
 
@@ -240,7 +245,6 @@ fn extract_and_parse(db: &dyn GraphQLSyntaxDatabase, content: &str, uri: &str) -
         "Using extract config"
     );
 
-    let language = Language::TypeScript;
     let extracted = match extract_from_source(content, language, &config, uri) {
         Ok(blocks) => {
             tracing::debug!(blocks_extracted = blocks.len(), "Extraction successful");
