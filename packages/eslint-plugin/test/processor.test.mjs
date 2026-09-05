@@ -402,6 +402,26 @@ test("embedded directive ownership stays isolated across blocks and the host", a
   ]);
 });
 
+test("disabling inline config preserves compatible native reports", async () => {
+  const linter = new ESLint({
+    cwd: fixtureRoot,
+    overrideConfigFile: true,
+    allowInlineConfig: false,
+    overrideConfig: [{
+      files: ["**/*.graphql"],
+      languageOptions: { parser: plugin.parser },
+      plugins: { "@graphql-analyzer": plugin },
+      rules: { "@graphql-analyzer/no-anonymous-operations": "error" },
+    }],
+  });
+  const [result] = await linter.lintText(
+    "# eslint-disable-next-line\n{ __typename }",
+    { filePath: path.join(fixtureRoot, "src/no-inline.graphql") },
+  );
+  assert.equal(result.messages.length, 1);
+  assert.equal(result.messages[0].ruleId, "@graphql-analyzer/no-anonymous-operations");
+});
+
 test("uses one physical native analysis across blocks and host rules", async () => {
   const binding = require("../dist/binding.js");
   const original = binding.lintFile;
