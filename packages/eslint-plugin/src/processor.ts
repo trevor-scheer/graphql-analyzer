@@ -1,44 +1,8 @@
 import type { Linter } from "eslint";
-import * as binding from "./binding";
-
-// Extension → language tag accepted by `binding.extractGraphql`. Anything not
-// in this map (e.g. `.graphql` itself) goes through unchanged — the file is
-// already pure GraphQL and the rules' `Program()` visitor will lint it
-// directly via `binding.lintFile`.
-const LANG_BY_EXT: Record<string, string> = {
-  ".ts": "ts",
-  ".tsx": "tsx",
-  ".js": "js",
-  ".jsx": "jsx",
-  ".mjs": "mjs",
-  ".cjs": "cjs",
-  ".vue": "vue",
-  ".svelte": "svelte",
-  ".astro": "astro",
-};
-
-// Per-file extraction metadata indexed by host filePath. Populated in
-// `preprocess`, consumed in `postprocess` to remap diagnostic positions
-// from per-block coordinates back to host-file coordinates. Cleared on
-// the next `preprocess` call for the same file (so stale entries from a
-// previous lint pass don't bleed into a re-lint).
-const blocksMeta = new Map<string, Array<{ lineOffset: number; byteOffset: number }>>();
-
-function lineOffsetForByteOffset(source: string, byteOffset: number): number {
-  let lineOffset = 0;
-  const limit = Math.min(byteOffset, source.length);
-  for (let i = 0; i < limit; i++) {
-    if (source.charCodeAt(i) === 10 /* \n */) lineOffset++;
-  }
-  return lineOffset;
-}
-
-function extOf(filePath: string): string {
-  const dot = filePath.lastIndexOf(".");
-  return dot === -1 ? "" : filePath.slice(dot);
-}
+import { name, version } from "./meta";
 
 export const fastProcessor = {
+  meta: { name: `${name}/fast-processor`, version },
   preprocess(code: string): Array<string> {
     return [code];
   },
@@ -76,6 +40,7 @@ export const fastProcessor = {
 };
 
 export const processor = {
+  meta: { name: `${name}/processor`, version },
   preprocess(code: string, filename: string): Array<string | { text: string; filename: string }> {
     return (
       require("./compat-processor") as typeof import("./compat-processor")

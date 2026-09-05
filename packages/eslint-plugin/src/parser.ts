@@ -1,4 +1,5 @@
 import type { ParserOptions, GraphQLESLintParseResult } from "./types";
+import { name, version } from "./meta";
 
 export function parseForESLint(
   code: string,
@@ -11,6 +12,7 @@ export function parseForESLint(
 }
 
 export const fastParser = {
+  meta: { name: `${name}/fast-parser`, version },
   parseForESLint(code: string) {
     const lines = code.split(/\r\n|[\n\r]/u);
     return {
