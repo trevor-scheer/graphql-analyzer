@@ -286,6 +286,18 @@ test("introspection JSON pointers build compatible schemas", (t) => {
   assert.equal(parsed.services.schema.getType("User").getFields().id.type.toString(), "ID!");
 });
 
+test("Vue schema pointers load through the framework TypeScript runtime", (t) => {
+  const directory = fixture(t, {
+    "graphql.config.json": JSON.stringify({ schema: "schema.vue" }),
+    "schema.vue":
+      '<script setup lang="ts">\nconst schema = gql`type Query { name: String }`;\n</script>',
+  });
+  const parsed = plugin.parseForESLint("query Named { name }", {
+    filePath: join(directory, "query.graphql"),
+  });
+  assert.equal(parsed.services.schema.getQueryType().getFields().name.type.toString(), "String");
+});
+
 test("CommonJS config edits are observed on the next parse", (t) => {
   const directory = fixture(t, {
     "graphql.config.cjs": "module.exports = {schema: 'type Query { first: String }'};",
