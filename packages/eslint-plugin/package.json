@@ -31,7 +31,11 @@
     "test:unit": "NODE_ENV=test node --test test/integration.test.mjs test/parity.test.mjs"
   },
   "dependencies": {
-    "@graphql-analyzer/core": "0.1.1-alpha.0"
+    "@graphql-analyzer/core": "0.1.1-alpha.0",
+    "@graphql-tools/code-file-loader": "8.1.32",
+    "@graphql-tools/graphql-tag-pluck": "8.3.31",
+    "@graphql-tools/utils": "10.11.0",
+    "graphql-config": "5.1.6"
   },
   "devDependencies": {
     "@graphql-eslint/eslint-plugin": "^4.0.0",
@@ -40,7 +44,8 @@
     "typescript": "^5.0.0"
   },
   "peerDependencies": {
-    "eslint": "^8.40.0 || ^9.0.0"
+    "eslint": "^8.40.0 || ^9.0.0",
+    "graphql": "^16.0.0"
   },
   "engines": {
     "node": ">=18"
