@@ -185,6 +185,32 @@ mod tests {
     use super::*;
 
     #[test]
+    fn recognizes_analyzer_eslint_names_without_suppressing_other_plugins() {
+        for name in [
+            "noAnonymousOperations",
+            "no-anonymous-operations",
+            "@graphql-analyzer/no-anonymous-operations",
+            "@graphql-eslint/no-anonymous-operations",
+        ] {
+            let source = format!("# eslint-disable {name}\nquery {{ hello }}\n# eslint-enable {name}\nquery {{ hello }}");
+            let suppressions = Suppressions::from_source(&source);
+            assert!(
+                suppressions.is_suppressed("noAnonymousOperations", 2),
+                "{name}"
+            );
+            assert!(
+                !suppressions.is_suppressed("noAnonymousOperations", 4),
+                "{name}"
+            );
+            assert!(!suppressions.is_suppressed("noDeprecated", 2), "{name}");
+        }
+        let suppressions = Suppressions::from_source(
+            "# eslint-disable-next-line other/no-anonymous-operations\nquery { hello }",
+        );
+        assert!(!suppressions.is_suppressed("noAnonymousOperations", 2));
+    }
+
+    #[test]
     fn bare_disable_next_line_suppresses_all_rules() {
         let src = "# eslint-disable-next-line\ntype Query {\n  foo: String\n}\n";
         let s = Suppressions::from_source(src);
