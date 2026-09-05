@@ -14,6 +14,7 @@ import { mergeTypeDefs } from "@graphql-tools/merge";
 import { parseGraphQLSDL } from "@graphql-tools/utils";
 import { findEmbeddedBlock } from "./embedded";
 import { getSiblings } from "./siblings";
+import { loadSources } from "./source-cache";
 import type { ParserOptions, ParserServices } from "./types";
 
 const codeFileLoader: GraphQLExtensionDeclaration = (api) => {
@@ -96,48 +97,55 @@ export function createServices(options: ParserOptions, document: DocumentNode): 
       if (!config.schema || (Array.isArray(config.schema) && config.schema.length === 0))
         return (schema = null);
       try {
-        const loaded = projectConfigs
-          .get(config)!
-          .extensions.loaders.schema.loadTypeDefsSync(config.schema, {
+        const loaded = loadSources(config, "schema", () =>
+          projectConfigs.get(config)!.extensions.loaders.schema.loadTypeDefsSync(config.schema, {
             pluckConfig: config.extensions.pluckConfig,
-          });
-        const definitions = loaded.flatMap((source) => {
+          }),
+        );
+        const replacements: typeof overlays = [];
+        const definitions = loaded.sources.flatMap((source) => {
           const location = source.location && resolve(source.location);
           const replacement =
             location === embedded?.record.filename
               ? overlays
               : overlays.filter((overlay) => overlay.location === location);
+          replacements.push(...replacement);
           return replacement.length
             ? replacement.map((overlay) => overlay.document)
             : source.document
               ? [source.document]
               : [];
         });
-        const typeDefs = mergeTypeDefs(definitions);
-        const federation = typeDefs.definitions.some(
-          (node) =>
-            (node.kind === Kind.SCHEMA_EXTENSION || node.kind === Kind.SCHEMA_DEFINITION) &&
-            node.directives?.some(
-              (directive) =>
-                directive.name.value === "link" &&
-                directive.arguments?.some(
-                  (argument) =>
-                    argument.name.value === "url" &&
-                    argument.value.kind === Kind.STRING &&
-                    argument.value.value.includes("specs.apollo.dev/federation/"),
-                ),
-            ),
-        );
-        const key = JSON.stringify([
-          config.filepath,
-          config.name,
-          definitions.map((definition) => [
-            definition.loc?.source.name,
-            definition.loc?.source.body,
-            print(definition),
-          ]),
-        ]);
+        const key = loaded.key
+          ? JSON.stringify([
+              loaded.key,
+              replacements.map((source) => [source.location, source.document.loc?.source.body]),
+            ])
+          : JSON.stringify([
+              config.filepath,
+              config.name,
+              definitions.map((definition) => [
+                definition.loc?.source.name,
+                definition.loc?.source.body,
+                print(definition),
+              ]),
+            ]);
         return (schema = cachedSchema(key, () => {
+          const typeDefs = mergeTypeDefs(definitions);
+          const federation = typeDefs.definitions.some(
+            (node) =>
+              (node.kind === Kind.SCHEMA_EXTENSION || node.kind === Kind.SCHEMA_DEFINITION) &&
+              node.directives?.some(
+                (directive) =>
+                  directive.name.value === "link" &&
+                  directive.arguments?.some(
+                    (argument) =>
+                      argument.name.value === "url" &&
+                      argument.value.kind === Kind.STRING &&
+                      argument.value.value.includes("specs.apollo.dev/federation/"),
+                  ),
+              ),
+          );
           if (federation) {
             const { buildSubgraphSchema } =
               require("@apollo/subgraph") as typeof import("@apollo/subgraph");
@@ -158,28 +166,28 @@ export function createServices(options: ParserOptions, document: DocumentNode): 
       const config = getProject();
       if (!config.documents) return (siblingOperations = getSiblings([]));
       const counts = new Map<string, number>();
-      const sources = config
-        .loadDocumentsSync(config.documents, {
+      const sources = loadSources(config, "documents", () =>
+        config.loadDocumentsSync(config.documents!, {
           skipGraphQLImport: true,
           pluckConfig: config.extensions.pluckConfig,
-        })
-        .flatMap((source) => {
-          if (!source.document || !source.location) return [];
-          let location = resolve(source.location);
-          if (!/\.(?:graphql|gql)$/u.test(location)) {
-            const index = counts.get(location) ?? 0;
-            counts.set(location, index + 1);
-            location = resolve(location, `${index}_document.graphql`);
-          }
-          return [
-            {
-              location,
-              document:
-                overlays.find((overlay) => overlay.location === location)?.document ??
-                source.document,
-            },
-          ];
-        });
+        }),
+      ).sources.flatMap((source) => {
+        if (!source.document || !source.location) return [];
+        let location = resolve(source.location);
+        if (!/\.(?:graphql|gql)$/u.test(location)) {
+          const index = counts.get(location) ?? 0;
+          counts.set(location, index + 1);
+          location = resolve(location, `${index}_document.graphql`);
+        }
+        return [
+          {
+            location,
+            document:
+              overlays.find((overlay) => overlay.location === location)?.document ??
+              source.document,
+          },
+        ];
+      });
       if (embedded) {
         for (let index = sources.length - 1; index >= 0; index--) {
           if (dirname(sources[index].location) === embedded.record.filename)
