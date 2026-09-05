@@ -172,12 +172,13 @@ async function child(lane, directory) {
 }
 
 function version(packageName) {
+  const manifestName = packageName === "eslint-v9" ? "eslint" : packageName;
   let directory = path.dirname(require.resolve(packageName));
   while (directory !== path.dirname(directory)) {
     const manifest = path.join(directory, "package.json");
     if (fs.existsSync(manifest)) {
       const parsed = JSON.parse(fs.readFileSync(manifest, "utf8"));
-      if (parsed.name === packageName) return parsed.version;
+      if (parsed.name === manifestName) return parsed.version;
     }
     directory = path.dirname(directory);
   }
