@@ -60,7 +60,7 @@ export function convertDocument(document: DocumentNode, getSchema: () => GraphQL
     const description = "description" in raw ? raw.description : undefined;
     return Object.assign(result, {
       type: raw.kind,
-      loc: location(raw.loc!.start, raw.loc!.end),
+      loc: { ...location(raw.loc!.start, raw.loc!.end), source },
       range: [raw.loc!.start, raw.loc!.end],
       leadingComments: description
         ? [{ type: description.block ? "Block" : "Line", value: description.value }]
