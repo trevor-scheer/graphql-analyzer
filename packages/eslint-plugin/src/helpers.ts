@@ -1,7 +1,7 @@
 import type { GraphQLESLintRuleContext, ParserServices } from "./types";
 
 function services(context: GraphQLESLintRuleContext<any>): ParserServices {
-  return context.sourceCode?.parserServices ?? context.parserServices;
+  return context.sourceCode.parserServices;
 }
 
 export function requireGraphQLSchema(ruleId: string, context: GraphQLESLintRuleContext<any>) {

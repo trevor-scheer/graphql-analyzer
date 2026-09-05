@@ -132,7 +132,6 @@ export type GraphQLESLintRuleContext<Options = any[]> = Omit<
   "options" | "parserServices" | "report" | "sourceCode"
 > & {
   options: Options;
-  parserServices: ParserServices;
   sourceCode: SourceCode & { parserServices: ParserServices };
   report(descriptor: ReportDescriptor): void;
 };
