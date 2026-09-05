@@ -131,6 +131,27 @@ test("native diagnostics use the latest text of preloaded operations", (t) => {
   );
 });
 
+test("native ESLint suppression can be delegated per call without disabling analyzer ignores", (t) => {
+  const p = project(t);
+  const file = path.join(p.root, "src/op.graphql");
+  const source = "# eslint-disable-next-line\nquery { hello }";
+  assert.equal(hasRule(lintFile(file, source), "noAnonymousOperations"), false);
+  assert.ok(hasRule(lintFile(file, source, undefined, true), "noAnonymousOperations"));
+  assert.equal(hasRule(lintFile(file, source), "noAnonymousOperations"), false);
+  assert.equal(
+    hasRule(
+      lintFile(
+        file,
+        "# graphql-analyzer-ignore: noAnonymousOperations\nquery { hello }",
+        undefined,
+        true,
+      ),
+      "noAnonymousOperations",
+    ),
+    false,
+  );
+});
+
 test("native schema overlays retain their schema classification", (t) => {
   const p = project(t);
   p.lint();
