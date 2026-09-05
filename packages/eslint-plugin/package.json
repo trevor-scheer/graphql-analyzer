@@ -31,7 +31,7 @@
     "test:unit": "NODE_ENV=test node --test test/integration.test.mjs test/parity.test.mjs"
   },
   "dependencies": {
-    "@apollo/subgraph": "2.11.3",
+    "@apollo/subgraph": "2.11.6",
     "@graphql-analyzer/core": "0.1.1-alpha.0",
     "@graphql-tools/code-file-loader": "8.1.32",
     "@graphql-tools/graphql-tag-pluck": "8.3.31",
