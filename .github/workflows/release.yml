@@ -57,7 +57,7 @@ jobs:
             cross: false
     runs-on: ${{ matrix.os }}
     steps:
-      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
 
       - name: Install Rust
         run: rustup show
@@ -68,13 +68,13 @@ jobs:
 
       - name: Rust cache
         if: ${{ !matrix.cross }}
-        uses: Swatinem/rust-cache@e18b497796c12c097a38f9edb9d0641fb99eee32 # v2
+        uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2
         with:
           shared-key: "release-${{ matrix.target }}"
 
       - name: Install cross
         if: matrix.cross
-        uses: taiki-e/install-action@019ff5fd0f8eae341c18fae38f5dcf1ad6dced0b # cross
+        uses: taiki-e/install-action@a82845735191974ac374fc0472388c6df0a158ca # cross
         with:
           tool: cross
 
@@ -168,7 +168,7 @@ jobs:
             binary_name: graphql-lsp.exe
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
 
       - name: Setup mise + pnpm
         uses: jdx/mise-action@5228313ee0372e111a38da051671ca30fc5a96db # v3
@@ -234,7 +234,7 @@ jobs:
             npm_dir: win32-x64-msvc
     runs-on: ${{ matrix.os }}
     steps:
-      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
 
       - name: Install Rust
         run: rustup show
@@ -243,7 +243,7 @@ jobs:
         run: rustup target add ${{ matrix.target }}
 
       - name: Rust cache
-        uses: Swatinem/rust-cache@e18b497796c12c097a38f9edb9d0641fb99eee32 # v2
+        uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2
         with:
           shared-key: "release-core-${{ matrix.target }}"
 
@@ -292,7 +292,7 @@ jobs:
     if: needs.check-release.outputs.should_release == 'true'
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
         with:
           fetch-depth: 0
 
@@ -337,7 +337,7 @@ jobs:
     if: needs.check-release.outputs.should_release == 'true'
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
 
       - name: Setup mise + pnpm
         uses: jdx/mise-action@5228313ee0372e111a38da051671ca30fc5a96db # v3
@@ -377,7 +377,7 @@ jobs:
     if: needs.check-release.outputs.should_release == 'true'
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
 
       - name: Setup mise + pnpm
         uses: jdx/mise-action@5228313ee0372e111a38da051671ca30fc5a96db # v3
@@ -421,7 +421,7 @@ jobs:
       contents: read
       id-token: write
     steps:
-      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
 
       - name: Setup mise + pnpm
         uses: jdx/mise-action@5228313ee0372e111a38da051671ca30fc5a96db # v3
@@ -429,7 +429,7 @@ jobs:
           experimental: true
 
       - name: Setup Node.js for npm publish
-        uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e # v6
+        uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6
         with:
           node-version-file: .node-version
           registry-url: "https://registry.npmjs.org"
@@ -509,7 +509,7 @@ jobs:
     if: needs.check-release.outputs.should_release == 'true'
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
 
       - name: Update Homebrew formula
         env:
