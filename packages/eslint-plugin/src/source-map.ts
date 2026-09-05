@@ -59,6 +59,9 @@ export class EmbeddedSourceMap {
     const [start, end] = fix.range;
     if (start < 0 || end > this.text.length || end < start) return undefined;
     if (/[`\\]|\$\{/.test(fix.text)) return undefined;
+    const boundary =
+      this.text.slice(Math.max(0, start - 1), start) + fix.text + this.text.slice(end, end + 1);
+    if (/\$\{/.test(boundary)) return undefined;
     if (start === end) {
       if (start > 0 && start < this.text.length && this.ends[start - 1] !== this.starts[start]) {
         return undefined;
