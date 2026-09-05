@@ -127,12 +127,38 @@ impl Suppressions {
     /// Returns `true` if `rule_name` at `line` (1-based) is suppressed.
     #[must_use]
     pub fn is_suppressed(&self, rule_name: &str, line: u32) -> bool {
+        let rule_name = normalize_rule_name(rule_name);
         self.ranges.iter().any(|r| {
             line >= r.start_line
                 && line <= r.end_line
-                && (r.rule.is_none() || r.rule.as_deref() == Some(rule_name))
+                && (r.rule.is_none() || r.rule.as_deref() == Some(rule_name.as_str()))
         })
     }
+}
+
+fn normalize_rule_name(name: &str) -> String {
+    let name = name
+        .strip_prefix("@graphql-analyzer/")
+        .or_else(|| name.strip_prefix("@graphql-eslint/"))
+        .unwrap_or(name);
+    if name.contains('/') {
+        return name.to_string();
+    }
+    let mut normalized = String::with_capacity(name.len());
+    let mut uppercase_next = false;
+    for character in name.chars() {
+        if character == '-' {
+            uppercase_next = true;
+        } else {
+            normalized.push(if uppercase_next {
+                character.to_ascii_uppercase()
+            } else {
+                character
+            });
+            uppercase_next = false;
+        }
+    }
+    normalized
 }
 
 #[derive(Debug)]
@@ -172,7 +198,7 @@ fn parse_eslint_directive(trimmed: &str) -> Option<ParsedDirective> {
     } else {
         rules_str
             .split(',')
-            .map(|s| s.trim().to_string())
+            .map(|s| normalize_rule_name(s.trim()))
             .filter(|s| !s.is_empty())
             .collect()
     };
