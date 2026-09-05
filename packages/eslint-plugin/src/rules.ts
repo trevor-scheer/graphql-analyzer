@@ -1,29 +1,21 @@
-import { createHash } from "crypto";
-import type { Rule } from "eslint";
+import type { Rule, SourceCode } from "eslint";
 import * as binding from "./binding";
+import { embeddedDiagnostics } from "./embedded";
+import { lineStarts as computeLineStarts } from "./source-map";
 
 function toKebabCase(name: string): string {
   return name.replace(/([a-z])([A-Z])/g, "$1-$2").toLowerCase();
 }
 
-// Per-file diagnostic cache keyed by filename + content hash. ESLint's rule
-// machinery calls every rule's Program visitor for each file, so without this
-// the Rust `lint_file` runs once per (rule × file) instead of once per file.
-// The hash rules out stale-content collisions that a length-based key would
-// miss (e.g., successive `lintText` calls with same-length inputs).
-const fileCache = new Map<string, binding.JsDiagnostic[]>();
+// Share native analysis across rules without retaining stale project diagnostics across lint passes.
+const fileCache = new WeakMap<SourceCode, binding.JsDiagnostic[]>();
 
-function cacheKey(filePath: string, source: string): string {
-  const digest = createHash("sha1").update(source).digest("hex");
-  return `${filePath}\0${digest}`;
-}
-
-function diagnosticsFor(filePath: string, source: string): binding.JsDiagnostic[] {
-  const key = cacheKey(filePath, source);
-  const cached = fileCache.get(key);
+function diagnosticsFor(filePath: string, source: SourceCode): binding.JsDiagnostic[] {
+  const cached = fileCache.get(source);
   if (cached) return cached;
-  const fresh = binding.lintFile(filePath, source);
-  fileCache.set(key, fresh);
+  const fresh =
+    embeddedDiagnostics(filePath, binding.lintFile) ?? binding.lintFile(filePath, source.text);
+  fileCache.set(source, fresh);
   return fresh;
 }
 
@@ -102,7 +94,7 @@ function makeRule(analyzerRuleName: string, description: string): Rule.RuleModul
     create(context) {
       return {
         Program() {
-          const diagnostics = diagnosticsFor(context.filename, context.sourceCode.text);
+          const diagnostics = diagnosticsFor(context.filename, context.sourceCode);
           for (const d of diagnostics) {
             if (d.rule !== analyzerRuleName) continue;
             const loc = startOnly
@@ -114,8 +106,6 @@ function makeRule(analyzerRuleName: string, description: string): Rule.RuleModul
             const fix =
               d.fix && ESLINT_FIXABLE_RULES.has(analyzerRuleName)
                 ? (fixer: Rule.RuleFixer) => {
-                    // Our autofixes carry source positions; ESLint's fixer wants
-                    // absolute byte ranges. Compute those from the source text.
                     const text = context.sourceCode.text;
                     const lineStarts = computeLineStarts(text);
                     const edits = d.fix!.edits.map((e) => ({
@@ -128,7 +118,6 @@ function makeRule(analyzerRuleName: string, description: string): Rule.RuleModul
                     if (edits.length === 1) {
                       return fixer.replaceTextRange(edits[0].range, edits[0].text);
                     }
-                    // Multi-edit: chain via the array form.
                     return edits.map((e) => fixer.replaceTextRange(e.range, e.text));
                   }
                 : undefined;
@@ -141,7 +130,11 @@ function makeRule(analyzerRuleName: string, description: string): Rule.RuleModul
                 ...(fix ? { fix } : {}),
               });
             } else {
-              context.report({ message: d.message, loc, ...(fix ? { fix } : {}) });
+              context.report({
+                message: d.message,
+                loc,
+                ...(fix ? { fix } : {}),
+              });
             }
           }
         },
@@ -149,17 +142,6 @@ function makeRule(analyzerRuleName: string, description: string): Rule.RuleModul
     },
   };
   return rule;
-}
-
-// Cache line-start byte offsets so fix edits can map (line, column) → byte
-// range. Computed lazily per `Program()` visit since context.sourceCode.text
-// is stable within a single lint pass.
-function computeLineStarts(text: string): number[] {
-  const starts = [0];
-  for (let i = 0; i < text.length; i++) {
-    if (text[i] === "\n") starts.push(i + 1);
-  }
-  return starts;
 }
 
 export function buildRules(): Record<string, Rule.RuleModule> {

@@ -98,15 +98,11 @@ test("plugin exposes expected shape", () => {
   );
 });
 
-test("processor is an identity passthrough for JS/TS-family files", () => {
+test("fast processor is an identity passthrough for JS/TS-family files", () => {
   const tsx = `import { gql } from "@apollo/client";\nconst Q = gql\`query { __typename }\`;\n`;
-  const preprocessed = plugin.processor.preprocess(tsx, "component.tsx");
-  assert.deepEqual(
-    preprocessed,
-    [tsx],
-    "preprocess should return original source unchanged until embedded-position remap is wired",
-  );
+  const preprocessed = plugin.fastProcessor.preprocess(tsx, "component.tsx");
+  assert.deepEqual(preprocessed, [tsx], "fast preprocessing should preserve original source");
 
-  const merged = plugin.processor.postprocess([[{ ruleId: "x", line: 1 }]], "component.tsx");
+  const merged = plugin.fastProcessor.postprocess([[{ ruleId: "x", line: 1 }]], "component.tsx");
   assert.equal(merged.length, 1);
 });
