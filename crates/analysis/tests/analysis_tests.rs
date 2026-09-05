@@ -4,8 +4,8 @@
 
 use graphql_analysis::{
     analyze_field_usage, file_diagnostics, file_validation_diagnostics, find_unused_fields,
-    lint_integration, merged_schema::merged_schema_with_diagnostics, validate_document_file,
-    validate_file, FieldCoverageReport, TypeCoverage,
+    find_unused_fragments, lint_integration, merged_schema::merged_schema_with_diagnostics,
+    validate_document_file, validate_file, FieldCoverageReport, TypeCoverage,
 };
 use graphql_base_db::{DocumentKind, FileContent, FileId, FileMetadata, FileUri, Language};
 use graphql_test_utils::{create_project_files, TestDatabase, TestDatabaseWithProject};
@@ -2781,6 +2781,249 @@ fn test_unused_ignore_partial_multi_rule() {
         "Unused rule diagnostic should end at the rule name, got: {:?}",
         unused[0].range
     );
+}
+
+// ============================================================================
+// diagnostic source tests
+//
+// Diagnostics carry a `source` field that surfaces in editors as the origin of
+// each problem. The values are part of the public LSP contract, so changes
+// here are visible to users and downstream tooling. Tests below pin them.
+// ============================================================================
+
+#[test]
+fn test_syntax_error_source_is_syntax() {
+    let db = TestDatabase::default();
+    let file_id = FileId::new(0);
+
+    let content = FileContent::new(&db, Arc::from("type User { invalid syntax here"));
+    let metadata = FileMetadata::new(
+        &db,
+        file_id,
+        FileUri::new("schema.graphql"),
+        Language::GraphQL,
+        DocumentKind::Schema,
+    );
+
+    let diagnostics = file_validation_diagnostics(&db, content, metadata, None);
+
+    assert!(!diagnostics.is_empty(), "Expected syntax errors");
+    for diag in diagnostics.iter() {
+        assert_eq!(
+            diag.source.as_ref(),
+            "syntax",
+            "Syntax error should have source 'syntax', got: {:?}",
+            diag.source
+        );
+    }
+}
+
+#[test]
+fn test_validation_error_source_is_validation() {
+    let mut db = TestDatabase::default();
+
+    let schema_id = FileId::new(0);
+    let schema_content = FileContent::new(&db, Arc::from("type Query { hello: String }"));
+    let schema_metadata = FileMetadata::new(
+        &db,
+        schema_id,
+        FileUri::new("schema.graphql"),
+        Language::GraphQL,
+        DocumentKind::Schema,
+    );
+
+    let doc_id = FileId::new(1);
+    let doc_content = FileContent::new(&db, Arc::from("query { unknownField }"));
+    let doc_metadata = FileMetadata::new(
+        &db,
+        doc_id,
+        FileUri::new("query.graphql"),
+        Language::GraphQL,
+        DocumentKind::Executable,
+    );
+
+    let project_files = create_project_files(
+        &mut db,
+        &[(schema_id, schema_content, schema_metadata)],
+        &[(doc_id, doc_content, doc_metadata)],
+    );
+
+    let diagnostics = validate_file(&db, doc_content, doc_metadata, project_files);
+    assert!(!diagnostics.is_empty(), "Expected validation error");
+    for diag in diagnostics.iter() {
+        assert_eq!(
+            diag.source.as_ref(),
+            "validation",
+            "Validation error should have source 'validation', got: {:?}",
+            diag.source
+        );
+    }
+}
+
+#[test]
+fn test_schema_validation_error_source_is_validation() {
+    let mut db = TestDatabase::default();
+    let file_id = FileId::new(0);
+
+    // Two type definitions with the same name → schema validation error.
+    let schema_content = r"
+        type Query { hello: String }
+        type User { id: ID! }
+        type User { name: String! }
+    ";
+    let content = FileContent::new(&db, Arc::from(schema_content));
+    let metadata = FileMetadata::new(
+        &db,
+        file_id,
+        FileUri::new("schema.graphql"),
+        Language::GraphQL,
+        DocumentKind::Schema,
+    );
+
+    let project_files = create_project_files(&mut db, &[(file_id, content, metadata)], &[]);
+    let result = merged_schema_with_diagnostics(&db, project_files);
+
+    let file_diags = result
+        .diagnostics_by_file
+        .get("schema.graphql")
+        .expect("Expected schema validation diagnostics for the duplicate User type");
+    assert!(!file_diags.is_empty(), "Expected schema validation errors");
+    for diag in file_diags {
+        assert_eq!(
+            diag.source.as_ref(),
+            "validation",
+            "Schema validation error should have source 'validation', got: {:?}",
+            diag.source
+        );
+    }
+}
+
+#[test]
+fn test_document_validation_error_source_is_validation() {
+    let mut db = TestDatabaseWithProject::default();
+    let file_id = FileId::new(0);
+
+    let doc_content = "query GetUser($input: UserInput!) { user }";
+    let content = FileContent::new(&db, Arc::from(doc_content));
+    let metadata = FileMetadata::new(
+        &db,
+        file_id,
+        FileUri::new("query.graphql"),
+        Language::GraphQL,
+        DocumentKind::Executable,
+    );
+
+    let project_files = create_project_files(&mut db, &[], &[(file_id, content, metadata)]);
+    db.set_project_files(Some(project_files));
+
+    let diagnostics = validate_document_file(&db, content, metadata, project_files);
+    assert!(
+        !diagnostics.is_empty(),
+        "Expected document validation diagnostics"
+    );
+    for diag in diagnostics.iter() {
+        assert_eq!(
+            diag.source.as_ref(),
+            "validation",
+            "Document validation error should have source 'validation', got: {:?}",
+            diag.source
+        );
+    }
+}
+
+#[test]
+fn test_unused_fragment_source_is_graphql_linter() {
+    let mut db = TestDatabaseWithProject::default();
+
+    let schema_id = FileId::new(0);
+    let schema_content = FileContent::new(
+        &db,
+        Arc::from("type Query { user: User } type User { id: ID! name: String! }"),
+    );
+    let schema_metadata = FileMetadata::new(
+        &db,
+        schema_id,
+        FileUri::new("schema.graphql"),
+        Language::GraphQL,
+        DocumentKind::Schema,
+    );
+
+    let doc_id = FileId::new(1);
+    let doc_content = FileContent::new(
+        &db,
+        Arc::from("fragment Orphan on User { id } query { user { id } }"),
+    );
+    let doc_metadata = FileMetadata::new(
+        &db,
+        doc_id,
+        FileUri::new("query.graphql"),
+        Language::GraphQL,
+        DocumentKind::Executable,
+    );
+
+    let project_files = create_project_files(
+        &mut db,
+        &[(schema_id, schema_content, schema_metadata)],
+        &[(doc_id, doc_content, doc_metadata)],
+    );
+    db.set_project_files(Some(project_files));
+
+    let unused = find_unused_fragments(&db, project_files);
+    assert!(!unused.is_empty(), "Expected unused fragment diagnostic");
+    for diag in unused.iter() {
+        assert_eq!(
+            diag.source.as_ref(),
+            "graphql-linter",
+            "Unused-fragment warning should have source 'graphql-linter', got: {:?}",
+            diag.source
+        );
+    }
+}
+
+#[test]
+fn test_unused_field_source_is_graphql_linter() {
+    let mut db = TestDatabaseWithProject::default();
+
+    let schema_id = FileId::new(0);
+    let schema_content = FileContent::new(
+        &db,
+        Arc::from("type Query { user: User } type User { id: ID! unused: String }"),
+    );
+    let schema_metadata = FileMetadata::new(
+        &db,
+        schema_id,
+        FileUri::new("schema.graphql"),
+        Language::GraphQL,
+        DocumentKind::Schema,
+    );
+
+    let doc_id = FileId::new(1);
+    let doc_content = FileContent::new(&db, Arc::from("query { user { id } }"));
+    let doc_metadata = FileMetadata::new(
+        &db,
+        doc_id,
+        FileUri::new("query.graphql"),
+        Language::GraphQL,
+        DocumentKind::Executable,
+    );
+
+    let project_files = create_project_files(
+        &mut db,
+        &[(schema_id, schema_content, schema_metadata)],
+        &[(doc_id, doc_content, doc_metadata)],
+    );
+    db.set_project_files(Some(project_files));
+
+    let unused = find_unused_fields(&db, project_files);
+    assert!(!unused.is_empty(), "Expected unused field diagnostic");
+    for diag in unused.iter() {
+        assert_eq!(
+            diag.source.as_ref(),
+            "graphql-linter",
+            "Unused-field warning should have source 'graphql-linter', got: {:?}",
+            diag.source
+        );
+    }
 }
 
 #[test]

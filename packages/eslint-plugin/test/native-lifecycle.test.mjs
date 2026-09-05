@@ -49,6 +49,79 @@ function project(t, options = {}) {
 
 const hasRule = (diagnostics, rule) => diagnostics.some((diagnostic) => diagnostic.rule === rule);
 
+function multiProject(t) {
+  const p = project(t, { config: false });
+  const projects = {};
+  for (const name of ["a", "b"]) {
+    projects[name] = {
+      ...p.config,
+      schema: `${name}/schema.graphql`,
+      documents: `${name}/src/**/*`,
+    };
+    p.write(`${name}/schema.graphql`, `type Query { ${name}: String }`);
+    p.write(`${name}/src/op.graphql`, `query Named { ${name} }`);
+  }
+  p.write(".graphqlrc.json", JSON.stringify({ projects }));
+  return p;
+}
+
+test("native multi-project routing preserves independent schema overlays across A-B-A calls", (t) => {
+  const p = multiProject(t);
+  p.lint("a/schema.graphql", "type Query { addedA: String }");
+  p.lint("b/schema.graphql", "type Query { addedB: String }");
+  for (const name of ["a", "b", "a"]) {
+    const field = `added${name.toUpperCase()}`;
+    assert.equal(
+      p
+        .lint(`${name}/src/op.graphql`, `query Named { ${field} }`)
+        .some((d) => d.message.includes(field)),
+      false,
+    );
+    const other = name === "a" ? "addedB" : "addedA";
+    assert.ok(
+      p
+        .lint(`${name}/src/op.graphql`, `query Named { ${other} }`)
+        .some((d) => d.message.includes(other)),
+      "each project must validate against its own schema",
+    );
+  }
+  p.write("a/schema.graphql", "type Query { changedA: String }");
+  assert.ok(
+    p.lint("a/src/op.graphql", "query Named { addedA }").some((d) => d.message.includes("addedA")),
+  );
+  assert.equal(
+    p.lint("b/src/op.graphql", "query Named { addedB }").some((d) => d.message.includes("addedB")),
+    false,
+    "another project's disk change must preserve the schema overlay",
+  );
+});
+
+test("native per-call options restore each project's persistent rule configuration", (t) => {
+  const p = multiProject(t);
+  const source = "query Named { a { value } }";
+  p.write("a/schema.graphql", "type Query { a: Item } type Item { value: String }");
+  const file = p.write("a/src/op.graphql", source);
+  assert.ok(
+    hasRule(
+      lintFile(file, source, {
+        selectionSetDepth: ["error", { maxDepth: 0 }],
+      }),
+      "selectionSetDepth",
+    ),
+  );
+  assert.equal(
+    hasRule(
+      lintFile(file, source, {
+        selectionSetDepth: ["error", { maxDepth: 1 }],
+      }),
+      "selectionSetDepth",
+    ),
+    false,
+  );
+  assert.equal(hasRule(p.lint("b/src/op.graphql"), "selectionSetDepth"), false);
+  assert.equal(hasRule(p.lint("a/src/op.graphql"), "selectionSetDepth"), false);
+});
+
 test("native diagnostics use the latest text of preloaded operations", (t) => {
   const p = project(t);
   assert.ok(hasRule(p.lint(), "noAnonymousOperations"));

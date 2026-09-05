@@ -4,11 +4,12 @@ use graphql_base_db::{FileId, ProjectFiles};
 use graphql_hir::TypeDefKind;
 use std::collections::HashMap;
 
-/// Lint rule that requires all fields in `@oneOf` input types to be nullable.
+/// Lint rule that requires all fields in `@oneOf` types to be nullable.
 ///
 /// The `@oneOf` directive indicates that exactly one field must be provided,
 /// meaning all fields must be optional (nullable). Non-null fields would
-/// prevent valid `@oneOf` usage.
+/// prevent valid `@oneOf` usage. This applies to both input object types and
+/// output object types.
 pub struct RequireNullableFieldsWithOneofRuleImpl;
 
 impl LintRule for RequireNullableFieldsWithOneofRuleImpl {
@@ -17,7 +18,7 @@ impl LintRule for RequireNullableFieldsWithOneofRuleImpl {
     }
 
     fn description(&self) -> &'static str {
-        "Requires all fields in @oneOf input types to be nullable"
+        "Requires all fields in @oneOf types to be nullable"
     }
 
     fn default_severity(&self) -> LintSeverity {
@@ -36,7 +37,13 @@ impl StandaloneSchemaLintRule for RequireNullableFieldsWithOneofRuleImpl {
         let schema_types = graphql_hir::schema_types(db, project_files);
 
         for type_def in schema_types.values() {
-            if type_def.kind != TypeDefKind::InputObject {
+            // The rule fires on input objects and output object types. Interface,
+            // union, scalar, and enum types cannot carry `@oneOf` meaningfully.
+            let applicable = matches!(
+                type_def.kind,
+                TypeDefKind::InputObject | TypeDefKind::Object
+            );
+            if !applicable {
                 continue;
             }
 
@@ -48,6 +55,18 @@ impl StandaloneSchemaLintRule for RequireNullableFieldsWithOneofRuleImpl {
             if !has_oneof {
                 continue;
             }
+
+            let type_kind_label = match type_def.kind {
+                TypeDefKind::InputObject => "input",
+                _ => "type",
+            };
+            // Upstream's `displayNodeName` calls input-object fields "input
+            // value" (kind `INPUT_VALUE_DEFINITION`) and object-type fields
+            // "field" (kind `FIELD_DEFINITION`). Mirror that here.
+            let field_kind_label = match type_def.kind {
+                TypeDefKind::InputObject => "input value",
+                _ => "field",
+            };
 
             for field in &type_def.fields {
                 if field.type_ref.is_non_null {
@@ -69,8 +88,8 @@ impl StandaloneSchemaLintRule for RequireNullableFieldsWithOneofRuleImpl {
                                 span,
                                 LintSeverity::Error,
                                 format!(
-                                    "input value \"{}\" in input \"{}\" must be nullable when \"@oneOf\" is in use",
-                                    field.name, type_def.name
+                                    "{} \"{}\" in {} \"{}\" must be nullable when \"@oneOf\" is in use",
+                                    field_kind_label, field.name, type_kind_label, type_def.name
                                 ),
                                 "requireNullableFieldsWithOneof",
                             )
@@ -182,7 +201,8 @@ input UserInput {
     }
 
     #[test]
-    fn test_non_input_types_ignored() {
+    fn test_output_type_without_oneof_ignored() {
+        // Output object types without @oneOf are not checked.
         let db = RootDatabase::default();
         let rule = RequireNullableFieldsWithOneofRuleImpl;
         let schema = r"
@@ -195,6 +215,24 @@ type User {
         let diagnostics = rule.check(&db, project_files, None);
         let all: Vec<_> = diagnostics.values().flatten().collect();
         assert!(all.is_empty());
+    }
+
+    #[test]
+    fn test_output_type_with_oneof_fires_on_non_null_field() {
+        // Output object types with @oneOf must also have all nullable fields.
+        let db = RootDatabase::default();
+        let rule = RequireNullableFieldsWithOneofRuleImpl;
+        let schema = r"
+type Type @oneOf {
+    foo: String!
+    bar: Int
+}
+";
+        let project_files = create_schema_project(&db, schema);
+        let diagnostics = rule.check(&db, project_files, None);
+        let all: Vec<_> = diagnostics.values().flatten().collect();
+        assert_eq!(all.len(), 1);
+        assert!(all[0].message.contains("must be nullable"));
     }
 
     #[test]

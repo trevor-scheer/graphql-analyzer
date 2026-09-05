@@ -10,11 +10,11 @@ use crate::rules::{
     OperationNameSuffixRuleImpl, RedundantFieldsRuleImpl, RelayArgumentsRuleImpl,
     RelayConnectionTypesRuleImpl, RelayEdgeTypesRuleImpl, RelayPageInfoRuleImpl,
     RequireDeprecationDateRuleImpl, RequireDeprecationReasonRuleImpl, RequireDescriptionRuleImpl,
-    RequireFieldOfTypeQueryInMutationResultRuleImpl, RequireIdFieldRuleImpl,
-    RequireImportFragmentRuleImpl, RequireNullableFieldsWithOneofRuleImpl,
-    RequireNullableResultInRootRuleImpl, RequireSelectionsRuleImpl,
-    RequireTypePatternWithOneofRuleImpl, SelectionSetDepthRuleImpl, StrictIdInTypesRuleImpl,
-    UniqueEnumValueNamesRuleImpl, UniqueNamesRuleImpl,
+    RequireFieldOfTypeQueryInMutationResultRuleImpl, RequireImportFragmentRuleImpl,
+    RequireNullableFieldsWithOneofRuleImpl, RequireNullableResultInRootRuleImpl,
+    RequireSelectionsRuleImpl, RequireTypePatternWithOneofRuleImpl, RestyFieldNamesRuleImpl,
+    SelectionSetDepthRuleImpl, StrictIdInTypesRuleImpl, UniqueEnumValueNamesRuleImpl,
+    UniqueNamesRuleImpl,
 };
 use crate::traits::{
     DocumentSchemaLintRule, LintRule, ProjectLintRule, StandaloneDocumentLintRule,
@@ -49,7 +49,6 @@ static DOCUMENT_SCHEMA_RULES: LazyLock<Vec<Arc<dyn DocumentSchemaLintRule>>> =
     LazyLock::new(|| {
         vec![
             Arc::new(NoDeprecatedRuleImpl),
-            Arc::new(RequireIdFieldRuleImpl),
             Arc::new(RequireSelectionsRuleImpl),
         ]
     });
@@ -70,8 +69,10 @@ static PROJECT_RULES: LazyLock<Vec<Arc<dyn ProjectLintRule>>> = LazyLock::new(||
 static STANDALONE_SCHEMA_RULES: LazyLock<Vec<Arc<dyn StandaloneSchemaLintRule>>> =
     LazyLock::new(|| {
         vec![
+            Arc::new(AlphabetizeRuleImpl),
             Arc::new(DescriptionStyleRuleImpl),
             Arc::new(InputNameRuleImpl),
+            Arc::new(NamingConventionRuleImpl),
             Arc::new(NoHashtagDescriptionRuleImpl),
             Arc::new(NoRootTypeRuleImpl),
             Arc::new(NoScalarResultTypeOnMutationRuleImpl),
@@ -88,6 +89,7 @@ static STANDALONE_SCHEMA_RULES: LazyLock<Vec<Arc<dyn StandaloneSchemaLintRule>>>
             Arc::new(RequireNullableFieldsWithOneofRuleImpl),
             Arc::new(RequireNullableResultInRootRuleImpl),
             Arc::new(RequireTypePatternWithOneofRuleImpl),
+            Arc::new(RestyFieldNamesRuleImpl),
             Arc::new(StrictIdInTypesRuleImpl),
             Arc::new(UniqueEnumValueNamesRuleImpl),
         ]

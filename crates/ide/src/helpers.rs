@@ -91,6 +91,14 @@ pub fn convert_diagnostic(diag: &graphql_analysis::Diagnostic) -> crate::types::
         message_id: diag.message_id.as_ref().map(ToString::to_string),
         source: diag.source.to_string(),
         fix: diag.fix.as_ref().map(convert_code_fix),
+        suggestions: diag
+            .suggestions
+            .iter()
+            .map(|s| crate::types::CodeSuggestion {
+                desc: s.desc.clone(),
+                fix: convert_code_fix(&s.fix),
+            })
+            .collect(),
         help: diag.help.as_ref().map(ToString::to_string),
         url: diag.url.as_ref().map(ToString::to_string),
         tags: diag

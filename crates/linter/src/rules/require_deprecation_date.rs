@@ -1,7 +1,7 @@
-use crate::diagnostics::{LintDiagnostic, LintSeverity};
+use crate::diagnostics::{CodeSuggestion, LintDiagnostic, LintSeverity};
 use crate::traits::{LintRule, StandaloneSchemaLintRule};
 use graphql_base_db::{FileId, ProjectFiles};
-use graphql_hir::{DirectiveUsage, TextRange};
+use graphql_hir::{DirectiveUsage, TextRange, TypeDefKind};
 use serde::Deserialize;
 use std::collections::HashMap;
 
@@ -145,9 +145,25 @@ fn unquote_string(s: &str) -> Option<&str> {
 /// Format the `nodeName` portion of graphql-eslint's diagnostic messages,
 /// matching `displayNodeName` + `getNodeName`.
 enum NodeKind<'a> {
-    Field { field: &'a str, parent: &'a str },
-    InputValue { arg: &'a str, field: &'a str },
-    EnumValue { value: &'a str, parent: &'a str },
+    Field {
+        field: &'a str,
+        parent: &'a str,
+    },
+    InputValue {
+        arg: &'a str,
+        field: &'a str,
+    },
+    EnumValue {
+        value: &'a str,
+        parent: &'a str,
+    },
+    /// Type-level `@deprecated` (e.g. `scalar Old @deprecated`).
+    /// `kind_str` mirrors upstream's `DisplayNodeNameMap` (e.g. "scalar",
+    /// "type", "input", "enum", "interface", "union").
+    TypeLevel {
+        kind_str: &'a str,
+        name: &'a str,
+    },
 }
 
 impl NodeKind<'_> {
@@ -162,6 +178,20 @@ impl NodeKind<'_> {
             NodeKind::EnumValue { value, parent } => {
                 format!("enum value \"{value}\" in enum \"{parent}\"")
             }
+            NodeKind::TypeLevel { kind_str, name } => {
+                format!("{kind_str} \"{name}\"")
+            }
+        }
+    }
+
+    /// The bare name used in upstream's "Remove `${nodeName}`" suggestion
+    /// description (just the field/argument/enum value identifier).
+    fn bare_name(&self) -> &str {
+        match self {
+            NodeKind::Field { field, .. } => field,
+            NodeKind::InputValue { arg, .. } => arg,
+            NodeKind::EnumValue { value, .. } => value,
+            NodeKind::TypeLevel { name, .. } => name,
         }
     }
 }
@@ -185,6 +215,7 @@ fn diagnose(
     deprecated: &DirectiveUsage,
     argument_name: &str,
     node: &NodeKind<'_>,
+    parent_def_range: TextRange,
 ) -> Option<LintDiagnostic> {
     let node_name = node.render();
     let directive_span = span_from_range(deprecated.name_range);
@@ -240,15 +271,31 @@ fn diagnose(
 
     // 4) Date is in the past — MESSAGE_CAN_BE_REMOVED.
     if now_ms() > deletion_ms {
-        return Some(
-            LintDiagnostic::new(
-                directive_span,
-                LintSeverity::Warning,
-                format!("{node_name} \u{0441}an be removed"),
-                "requireDeprecationDate",
-            )
-            .with_message_id("MESSAGE_CAN_BE_REMOVED"),
-        );
+        // Mirror upstream's `fixer.remove(parent)`: remove the entire
+        // field/argument/enum value definition.
+        let bare = node.bare_name();
+        let def_start: usize = parent_def_range.start().into();
+        let def_end: usize = parent_def_range.end().into();
+        let suggestion = if def_start < def_end {
+            Some(CodeSuggestion::delete(
+                format!("Remove `{bare}`"),
+                def_start,
+                def_end,
+            ))
+        } else {
+            None
+        };
+        let mut diag = LintDiagnostic::new(
+            directive_span,
+            LintSeverity::Warning,
+            format!("{node_name} \u{0441}an be removed"),
+            "requireDeprecationDate",
+        )
+        .with_message_id("MESSAGE_CAN_BE_REMOVED");
+        if let Some(s) = suggestion {
+            diag = diag.with_suggestion(s);
+        }
+        return Some(diag);
     }
 
     None
@@ -257,8 +304,7 @@ fn diagnose(
 fn now_ms() -> i64 {
     std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)
-        .map(|d| d.as_millis() as i64)
-        .unwrap_or(0)
+        .map_or(0, |d| d.as_millis() as i64)
 }
 
 impl StandaloneSchemaLintRule for RequireDeprecationDateRuleImpl {
@@ -282,6 +328,7 @@ impl StandaloneSchemaLintRule for RequireDeprecationDateRuleImpl {
                             field: &field.name,
                             parent: &type_def.name,
                         },
+                        field.definition_range,
                     ) {
                         diagnostics_by_file
                             .entry(type_def.file_id)
@@ -299,6 +346,7 @@ impl StandaloneSchemaLintRule for RequireDeprecationDateRuleImpl {
                                 arg: &arg.name,
                                 field: &field.name,
                             },
+                            arg.definition_range,
                         ) {
                             diagnostics_by_file
                                 .entry(type_def.file_id)
@@ -318,12 +366,42 @@ impl StandaloneSchemaLintRule for RequireDeprecationDateRuleImpl {
                             value: &ev.name,
                             parent: &type_def.name,
                         },
+                        ev.definition_range,
                     ) {
                         diagnostics_by_file
                             .entry(type_def.file_id)
                             .or_default()
                             .push(diag);
                     }
+                }
+            }
+
+            // Type-level `@deprecated` (e.g. `scalar Old @deprecated`). Upstream
+            // visits every `Directive[name.value=deprecated]` node, which includes
+            // directives attached to the type definition itself.
+            if let Some(d) = find_deprecated(&type_def.directives) {
+                let kind_str = match type_def.kind {
+                    TypeDefKind::Scalar => "scalar",
+                    TypeDefKind::InputObject => "input",
+                    TypeDefKind::Enum => "enum",
+                    TypeDefKind::Interface => "interface",
+                    TypeDefKind::Union => "union",
+                    // Object and any future kinds map to "type"
+                    _ => "type",
+                };
+                if let Some(diag) = diagnose(
+                    d,
+                    &opts.argument_name,
+                    &NodeKind::TypeLevel {
+                        kind_str,
+                        name: &type_def.name,
+                    },
+                    type_def.definition_range,
+                ) {
+                    diagnostics_by_file
+                        .entry(type_def.file_id)
+                        .or_default()
+                        .push(diag);
                 }
             }
         }

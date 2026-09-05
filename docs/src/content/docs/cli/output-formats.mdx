@@ -27,12 +27,15 @@ Colorized, human-readable output with source context:
 Machine-readable JSON for CI/CD pipelines and custom tooling:
 
 ```sh
-graphql validate --format json
+graphql check --format json
 ```
+
+The `check` command emits an object with per-file `errors` and `warnings` arrays and a unified `stats` block:
 
 ```json
 {
   "success": false,
+  "schema_loaded": true,
   "files": [
     {
       "file": "src/queries.graphql",
@@ -40,17 +43,23 @@ graphql validate --format json
         {
           "message": "Cannot query field \"invalidField\" on type \"User\"",
           "severity": "error",
+          "source": "validation",
+          "rule": null,
           "location": {
             "start": { "line": 5, "column": 3 },
             "end": { "line": 5, "column": 15 }
           }
         }
-      ]
+      ],
+      "warnings": []
     }
   ],
   "stats": {
     "total_files": 1,
-    "total_errors": 1
+    "total_errors": 1,
+    "total_warnings": 0,
+    "validation_errors": 1,
+    "lint_errors": 0
   }
 }
 ```
@@ -64,7 +73,7 @@ graphql validate --format github
 ```
 
 ```
-::error file=src/queries.graphql,line=5,col=3::Cannot query field "invalidField" on type "User"
+::error file=src/queries.graphql,line=5,col=3,endLine=5,endColumn=15::Cannot query field "invalidField" on type "User"
 ```
 
 See [CI/CD Integration](/graphql-analyzer/cli/ci-cd/) for a full GitHub Actions workflow.

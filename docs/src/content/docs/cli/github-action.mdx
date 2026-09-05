@@ -1,0 +1,140 @@
+---
+title: GitHub Action
+description: Run the GraphQL Analyzer CLI in CI with inline PR annotations, SARIF, and an optional summary comment.
+---
+
+[`trevor-scheer/graphql-analyzer-action`](https://github.com/trevor-scheer/graphql-analyzer-action) wraps the CLI for GitHub Actions: inline PR annotations, optional SARIF for the Security tab, and an optional PR summary comment.
+
+## Quickstart
+
+```yaml
+name: GraphQL
+on: [pull_request]
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: trevor-scheer/graphql-analyzer-action@v1
+```
+
+That's it — the action installs the latest released CLI, runs `graphql check`, and emits inline annotations on the PR diff for every diagnostic.
+
+## With SARIF (Security tab)
+
+```yaml
+permissions:
+  contents: read
+  security-events: write
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: trevor-scheer/graphql-analyzer-action@v1
+        id: graphql
+        with:
+          sarif: true
+      - uses: github/codeql-action/upload-sarif@v3
+        if: always() && steps.graphql.outputs.sarif-file != ''
+        with:
+          sarif_file: ${{ steps.graphql.outputs.sarif-file }}
+```
+
+The action produces the SARIF file; `upload-sarif` posts it to GitHub code scanning so findings appear in **Security → Code scanning alerts**.
+
+## With a PR summary comment
+
+```yaml
+permissions:
+  contents: read
+  pull-requests: write
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: trevor-scheer/graphql-analyzer-action@v1
+        with:
+          comment: true
+```
+
+The comment is keyed by an HTML marker and **updated** on subsequent runs rather than duplicated.
+
+## Multi-project
+
+```yaml
+- uses: trevor-scheer/graphql-analyzer-action@v1
+  with:
+    project: web
+```
+
+Use a matrix to fan out across projects:
+
+```yaml
+strategy:
+  matrix:
+    project: [web, api, mobile]
+steps:
+  - uses: actions/checkout@v4
+  - uses: trevor-scheer/graphql-analyzer-action@v1
+    with:
+      project: ${{ matrix.project }}
+```
+
+## Inputs
+
+| Name                | Default                 | Description                                                     |
+| ------------------- | ----------------------- | --------------------------------------------------------------- |
+| `command`           | `check`                 | One of `check`, `validate`, `lint`.                             |
+| `config`            | (auto-discover)         | Path to `.graphqlrc.yaml`.                                      |
+| `project`           | (none)                  | Multi-project name.                                             |
+| `version`           | `latest`                | CLI version: `latest` or `X.Y.Z`.                               |
+| `max-warnings`      | (none)                  | Threshold for `--max-warnings`. Set `0` to fail on any warning. |
+| `annotate`          | `true`                  | Emit inline PR annotations.                                     |
+| `sarif`             | `false`                 | Produce a SARIF file at `sarif-file`.                           |
+| `sarif-file`        | `graphql-results.sarif` | SARIF output path.                                              |
+| `comment`           | `false`                 | Post (or update) a PR summary comment.                          |
+| `working-directory` | `.`                     | Directory to run the CLI in.                                    |
+
+## Outputs
+
+| Name         | Description                                |
+| ------------ | ------------------------------------------ |
+| `errors`     | Number of error-severity diagnostics.      |
+| `warnings`   | Number of warning-severity diagnostics.    |
+| `sarif-file` | Path to the SARIF file when `sarif: true`. |
+
+## Pinning the CLI version
+
+The action installs the **latest** released CLI by default. Pin a specific version with:
+
+```yaml
+- uses: trevor-scheer/graphql-analyzer-action@v1
+  with:
+    version: 0.3.0
+```
+
+Pinning the action major (`@v1`) does **not** pin the CLI version — `version:` is the lever for that.
+
+## Failing on warnings
+
+The CLI exits non-zero on errors by default. To fail when warnings are present, set `max-warnings: 0`:
+
+```yaml
+- uses: trevor-scheer/graphql-analyzer-action@v1
+  with:
+    max-warnings: 0
+```
+
+## Dogfooded in `analyzer-testbed`
+
+The action is the example CI integration used by [`trevor-scheer/analyzer-testbed`](https://github.com/trevor-scheer/analyzer-testbed/blob/main/.github/workflows/ci.yml) — see the `Lint & Format` job for a complete worked example with SARIF upload.
+
+## See also
+
+- [CI/CD Integration](./ci-cd) — running the CLI directly in CI without the action.
+- [Output Formats](./output-formats) — `--format=github`, `--format=sarif`, `--format=json` reference.
+- [Action repository](https://github.com/trevor-scheer/graphql-analyzer-action) — source, releases, and issue tracker.

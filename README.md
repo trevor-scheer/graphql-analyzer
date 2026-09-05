@@ -56,6 +56,17 @@ Use `--format json` or `--format github` for CI integration.
 
 For full CLI documentation, see the **[CLI README](crates/cli/README.md)**.
 
+### GitHub Action
+
+For GitHub-native CI with inline PR annotations, SARIF, and an optional summary comment:
+
+```yaml
+- uses: actions/checkout@v4
+- uses: trevor-scheer/graphql-analyzer-action@v1
+```
+
+See the **[GitHub Action docs](https://graphql-analyzer.dev/cli/github-action)** and the **[action repo](https://github.com/trevor-scheer/graphql-analyzer-action)**.
+
 ## Configuration
 
 ```yaml

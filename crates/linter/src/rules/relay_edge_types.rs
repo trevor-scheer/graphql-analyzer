@@ -116,32 +116,8 @@ impl StandaloneSchemaLintRule for RelayEdgeTypesRuleImpl {
             let edge_type_name = &edges_field.type_ref.name;
             edge_type_names.push(Arc::clone(edge_type_name));
 
-            // listTypeCanWrapOnlyEdgeType: check all list fields on the
-            // connection type only wrap edge types
-            if opts.list_type_can_wrap_only_edge_type {
-                for field in &type_def.fields {
-                    if field.type_ref.is_list && field.name.as_ref() != "edges" {
-                        let wrapped_type = &field.type_ref.name;
-                        // The wrapped type should be the edge type
-                        if let Some(edge_def) = schema_types.get(wrapped_type.as_ref()) {
-                            if edge_def.kind == TypeDefKind::Object
-                                && !edge_def.name.ends_with("Edge")
-                            {
-                                let start: usize = field.name_range.start().into();
-                                let end: usize = field.name_range.end().into();
-                                diagnostics_by_file.entry(field.file_id).or_default().push(
-                                    make_diagnostic(
-                                        start,
-                                        end,
-                                        "A list type should only wrap an edge type.".to_string(),
-                                    )
-                                    .with_message_id("MESSAGE_LIST_TYPE_ONLY_EDGE_TYPE"),
-                                );
-                            }
-                        }
-                    }
-                }
-            }
+            // listTypeCanWrapOnlyEdgeType is handled in a second pass below
+            // so it can cover all types in the schema, not just connection types.
         }
 
         // Now validate each edge type
@@ -151,6 +127,21 @@ impl StandaloneSchemaLintRule for RelayEdgeTypesRuleImpl {
             };
 
             if edge_def.kind != TypeDefKind::Object {
+                // Upstream reports this when the type referenced by `edges` is
+                // not an Object (e.g. scalar, union, enum, interface).
+                let start: usize = edge_def.name_range.start().into();
+                let end: usize = edge_def.name_range.end().into();
+                diagnostics_by_file
+                    .entry(edge_def.file_id)
+                    .or_default()
+                    .push(
+                        make_diagnostic(
+                            start,
+                            end,
+                            "Edge type must be an Object type.".to_string(),
+                        )
+                        .with_message_id("MESSAGE_MUST_BE_OBJECT_TYPE"),
+                    );
                 continue;
             }
 
@@ -289,6 +280,41 @@ impl StandaloneSchemaLintRule for RelayEdgeTypesRuleImpl {
                                 ),
                             );
                         }
+                    }
+                }
+            }
+        }
+
+        // listTypeCanWrapOnlyEdgeType: scan every Object/Interface type in the
+        // schema and flag any list field whose wrapped type is not an edge type.
+        // Upstream checks all types, not just connection types, because the rule
+        // is about enforcing consistent Relay pagination patterns project-wide.
+        if opts.list_type_can_wrap_only_edge_type {
+            let edge_name_set: std::collections::HashSet<&str> = edge_type_names
+                .iter()
+                .map(std::convert::AsRef::as_ref)
+                .collect();
+            for type_def in schema_types.values() {
+                if !matches!(type_def.kind, TypeDefKind::Object | TypeDefKind::Interface) {
+                    continue;
+                }
+                for field in &type_def.fields {
+                    if !field.type_ref.is_list {
+                        continue;
+                    }
+                    let wrapped = field.type_ref.name.as_ref();
+                    // Only flag when the wrapped type is NOT a known edge type.
+                    if !edge_name_set.contains(wrapped) {
+                        let start: usize = field.name_range.start().into();
+                        let end: usize = field.name_range.end().into();
+                        diagnostics_by_file.entry(field.file_id).or_default().push(
+                            make_diagnostic(
+                                start,
+                                end,
+                                "A list type should only wrap an edge type.".to_string(),
+                            )
+                            .with_message_id("MESSAGE_LIST_TYPE_ONLY_EDGE_TYPE"),
+                        );
                     }
                 }
             }
@@ -456,7 +482,12 @@ mod tests {
                 edges: [UserEdge]
             }
         ";
-        let diagnostics = check(schema);
+        // `node: [User]` triggers two diagnostics: the field-level "node must
+        // not be a list" check AND the listTypeCanWrapOnlyEdgeType check (User
+        // is not an edge type). Use listTypeCanWrapOnlyEdgeType: false to
+        // isolate the field-level check.
+        let opts = serde_json::json!({ "listTypeCanWrapOnlyEdgeType": false });
+        let diagnostics = check_with_options(schema, Some(&opts));
         assert_eq!(diagnostics.len(), 1);
         assert!(diagnostics[0]
             .message
@@ -623,13 +654,18 @@ mod tests {
 
     #[test]
     fn connection_without_edges_field_ignored() {
+        // `UserConnection` has no `edges` field so the edge-type checks are
+        // skipped, but `nodes: [User]` still fires listTypeCanWrapOnlyEdgeType
+        // because `User` is not an edge type. Disable the option to verify
+        // that when it's off, no diagnostics are produced.
         let schema = r"
             type UserConnection {
                 nodes: [User]
             }
             type User { id: ID! }
         ";
-        let diagnostics = check(schema);
+        let opts = serde_json::json!({ "listTypeCanWrapOnlyEdgeType": false });
+        let diagnostics = check_with_options(schema, Some(&opts));
         assert!(diagnostics.is_empty());
     }
 

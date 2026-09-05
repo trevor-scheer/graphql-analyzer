@@ -20,11 +20,21 @@ pub struct TextEdit {
 
 /// An autofix attached to a diagnostic — the line/column-based equivalent of
 /// `graphql_linter::CodeFix`. Carrying it on `Diagnostic` lets downstream
-/// consumers (LSP code actions, `ESLint` shim) surface fixes uniformly.
+/// consumers (LSP code actions, ``ESLint`` shim) surface fixes uniformly.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct CodeFix {
     pub label: String,
     pub edits: Vec<TextEdit>,
+}
+
+/// A manual quick-fix suggestion — the line/column-based equivalent of
+/// `graphql_linter::CodeSuggestion`. Distinct from `CodeFix` (autofix)
+/// because the user must opt in per-suggestion via their IDE's quick-fix
+/// menu; `ESLint`'s `--fix` flag does NOT apply suggestions automatically.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct CodeSuggestion {
+    pub desc: String,
+    pub fix: CodeFix,
 }
 
 /// A diagnostic message (error, warning, or info)
@@ -36,16 +46,20 @@ pub struct Diagnostic {
     pub message: Arc<str>,
     /// Location in the file (line, column range)
     pub range: DiagnosticRange,
-    /// Source of the diagnostic (e.g., "graphql-parser", "graphql-linter")
+    /// Source of the diagnostic (e.g., "syntax", "validation", "graphql-linter")
     pub source: Arc<str>,
     /// Optional diagnostic code
     pub code: Option<Arc<str>>,
-    /// Optional ESLint-compatible messageId. Forwarded to `LintMessage.messageId`
-    /// by the `ESLint` shim so drop-in users get the same per-diagnostic-site id
+    /// Optional `ESLint`-compatible messageId. Forwarded to `LintMessage.messageId`
+    /// by the ``ESLint`` shim so drop-in users get the same per-diagnostic-site id
     /// graphql-eslint emits.
     pub message_id: Option<Arc<str>>,
     /// Optional autofix carried alongside the diagnostic.
     pub fix: Option<CodeFix>,
+    /// Manual quick-fix suggestions surfaced through `ESLint`'s `suggest`
+    /// array. Distinct from `fix`: `--fix` doesn't apply them, the user
+    /// opts in per-suggestion. Empty for diagnostics without suggestions.
+    pub suggestions: Vec<CodeSuggestion>,
     /// Optional help text explaining how to resolve the issue
     pub help: Option<Arc<str>>,
     /// Optional documentation URL for the rule
@@ -62,10 +76,11 @@ impl Diagnostic {
             severity: Severity::Error,
             message: message.into(),
             range,
-            source: "graphql-analysis".into(),
+            source: "validation".into(),
             code: None,
             message_id: None,
             fix: None,
+            suggestions: Vec::new(),
             help: None,
             url: None,
             tags: Vec::new(),
@@ -79,10 +94,11 @@ impl Diagnostic {
             severity: Severity::Warning,
             message: message.into(),
             range,
-            source: "graphql-analysis".into(),
+            source: "validation".into(),
             code: None,
             message_id: None,
             fix: None,
+            suggestions: Vec::new(),
             help: None,
             url: None,
             tags: Vec::new(),
@@ -96,10 +112,11 @@ impl Diagnostic {
             severity: Severity::Info,
             message: message.into(),
             range,
-            source: "graphql-analysis".into(),
+            source: "validation".into(),
             code: None,
             message_id: None,
             fix: None,
+            suggestions: Vec::new(),
             help: None,
             url: None,
             tags: Vec::new(),
@@ -123,6 +140,7 @@ impl Diagnostic {
             code: Some(code.into()),
             message_id: None,
             fix: None,
+            suggestions: Vec::new(),
             help: None,
             url: None,
             tags: Vec::new(),
@@ -190,7 +208,7 @@ mod tests {
         let diag = Diagnostic::error("Test error", DiagnosticRange::default());
         assert_eq!(diag.severity, Severity::Error);
         assert_eq!(diag.message.as_ref(), "Test error");
-        assert_eq!(diag.source.as_ref(), "graphql-analysis");
+        assert_eq!(diag.source.as_ref(), "validation");
         assert!(diag.code.is_none());
     }
 

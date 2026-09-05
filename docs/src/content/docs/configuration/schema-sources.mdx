@@ -33,9 +33,31 @@ schema:
 schema: https://api.example.com/graphql
 ```
 
-The tool fetches the schema via introspection query. The schema is cached automatically.
+The tool fetches the schema via introspection query. Introspection runs each time the schema is loaded; results are held in memory by the running LSP/CLI process.
 
-See [Remote Schema Introspection](/graphql-analyzer/advanced/remote-schemas/) for authentication and advanced options.
+## Remote schema with options
+
+For authenticated endpoints or custom timeouts, use the structured form:
+
+```yaml
+schema:
+  url: https://api.example.com/graphql
+  headers:
+    Authorization: Bearer ${API_TOKEN}
+  timeout: 60
+  retry: 3
+```
+
+| Field     | Required | Description                                                 |
+| --------- | -------- | ----------------------------------------------------------- |
+| `url`     | Yes      | The GraphQL endpoint URL to introspect                      |
+| `headers` | No       | Map of header name → value; supports `${VAR}` interpolation |
+| `timeout` | No       | Request timeout in seconds (default: 30)                    |
+| `retry`   | No       | Number of retry attempts on failure (default: 0)            |
+
+See [Environment variable interpolation](#environment-variable-interpolation) for how to keep secrets out of your config file.
+
+See [Remote Schema Introspection](/graphql-analyzer/advanced/remote-schemas/) for additional details.
 
 ## Per-project schemas
 

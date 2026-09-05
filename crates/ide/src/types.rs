@@ -60,6 +60,16 @@ pub struct CodeFix {
     pub edits: Vec<TextEdit>,
 }
 
+/// A manual quick-fix suggestion. Surfaced through `ESLint`'s `suggest`
+/// array; users opt in per-suggestion via their IDE menu rather than
+/// having `--fix` apply them. Mirrors graphql-eslint's `suggest` shape
+/// so the napi shim can pass them through unchanged.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct CodeSuggestion {
+    pub desc: String,
+    pub fix: CodeFix,
+}
+
 impl CodeFix {
     /// Create a new code fix
     #[must_use]
@@ -280,6 +290,8 @@ pub struct Diagnostic {
     pub source: String,
     /// Optional auto-fix for this diagnostic
     pub fix: Option<CodeFix>,
+    /// Manual quick-fix suggestions. Surface as `ESLint` `suggest` arrays.
+    pub suggestions: Vec<CodeSuggestion>,
     /// Optional help text explaining how to resolve the issue
     pub help: Option<String>,
     /// Optional documentation URL for the rule
@@ -303,6 +315,7 @@ impl Diagnostic {
             message_id: None,
             source: source.into(),
             fix: None,
+            suggestions: Vec::new(),
             help: None,
             url: None,
             tags: Vec::new(),

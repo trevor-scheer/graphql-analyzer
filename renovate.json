@@ -2,10 +2,10 @@
   "$schema": "https://docs.renovatebot.com/renovate-schema.json",
   "extends": [
     "config:recommended",
-    "schedule:weekly"
+    "schedule:monthly"
   ],
   "schedule": [
-    "before 9am on Sunday"
+    "before 9am on the first day of the month"
   ],
   "ignorePaths": [
     "test-workspace/**"

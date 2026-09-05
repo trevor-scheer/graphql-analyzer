@@ -53,16 +53,19 @@ mod require_deprecation_date;
 mod require_deprecation_reason;
 mod require_description;
 mod require_field_of_type_query_in_mutation_result;
-mod require_id_field;
 mod require_import_fragment;
 mod require_nullable_fields_with_oneof;
 mod require_nullable_result_in_root;
 mod require_selections;
 mod require_type_pattern_with_oneof;
+mod resty_field_names;
 mod selection_set_depth;
 mod strict_id_in_types;
 mod unique_enum_value_names;
 mod unique_names;
+
+#[cfg(test)]
+mod upstream;
 
 pub use alphabetize::AlphabetizeRuleImpl;
 pub use description_style::DescriptionStyleRuleImpl;
@@ -92,12 +95,12 @@ pub use require_deprecation_date::RequireDeprecationDateRuleImpl;
 pub use require_deprecation_reason::RequireDeprecationReasonRuleImpl;
 pub use require_description::RequireDescriptionRuleImpl;
 pub use require_field_of_type_query_in_mutation_result::RequireFieldOfTypeQueryInMutationResultRuleImpl;
-pub use require_id_field::RequireIdFieldRuleImpl;
 pub use require_import_fragment::RequireImportFragmentRuleImpl;
 pub use require_nullable_fields_with_oneof::RequireNullableFieldsWithOneofRuleImpl;
 pub use require_nullable_result_in_root::RequireNullableResultInRootRuleImpl;
 pub use require_selections::RequireSelectionsRuleImpl;
 pub use require_type_pattern_with_oneof::RequireTypePatternWithOneofRuleImpl;
+pub use resty_field_names::RestyFieldNamesRuleImpl;
 pub use selection_set_depth::SelectionSetDepthRuleImpl;
 pub use strict_id_in_types::StrictIdInTypesRuleImpl;
 pub use unique_enum_value_names::UniqueEnumValueNamesRuleImpl;

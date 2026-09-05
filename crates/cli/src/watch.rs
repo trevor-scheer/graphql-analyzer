@@ -173,7 +173,7 @@ impl FileWatcher {
             let timeout = if last_change_time.is_some() {
                 Duration::from_millis(DEBOUNCE_MS)
             } else {
-                Duration::from_secs(60)
+                Duration::from_mins(1)
             };
 
             match self.rx.recv_timeout(timeout) {

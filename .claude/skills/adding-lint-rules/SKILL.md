@@ -131,5 +131,5 @@ Before considering the rule complete:
 See existing rules in `crates/graphql-linter/src/rules/` for patterns:
 
 - `no_deprecated.rs` - Simple field checking
-- `require_id_field.rs` - Selection set analysis
+- `require_selections.rs` - Selection set analysis
 - `redundant_fields.rs` - Cross-reference checking

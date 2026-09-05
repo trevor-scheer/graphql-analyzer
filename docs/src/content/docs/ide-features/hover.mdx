@@ -10,7 +10,9 @@ Hover over any GraphQL element to see type information, descriptions, and deprec
 - **Type information** for fields and variables
 - **Schema descriptions** from doc strings
 - **Deprecation warnings** with reasons
-- **Argument types** and default values
+- **Directives** — locations, repeatable flag, arguments, and description
+- **Fragment spreads** — type condition and description
+- **Type names** — kind (object, interface, enum, etc.) and description
 
 ## Example
 
@@ -27,7 +29,7 @@ For deprecated fields, the hover shows the deprecation reason:
 ```graphql
 query {
   user {
-    name # Hover → ⚠️ Deprecated: Use fullName instead
+    name # Hover → **Deprecated:** Use fullName instead
   }
 }
 ```

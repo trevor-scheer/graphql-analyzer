@@ -1,0 +1,24 @@
+packages:
+  - "editors/vscode"
+  - "packages/*"
+  # napi-rs platform stubs — versioned in lockstep with @graphql-analyzer/core.
+  # Including them as workspace members lets pnpm resolve `core`'s
+  # optionalDependencies locally during release-prep version bumps; otherwise
+  # pnpm silently drops un-resolvable optional deps from the lockfile and
+  # `--frozen-lockfile` rejects the inconsistency.
+  - "packages/core/npm/*"
+  - "test-workspace/apollo-app"
+  - "test-workspace/countries"
+  - "test-workspace/eslint-migration"
+  - "test-workspace/github"
+  - "test-workspace/misconfigured-documents"
+  - "test-workspace/misconfigured-schema"
+  - "test-workspace/pokemon"
+  - "test-workspace/relay-app"
+  - "test-workspace/starwars"
+
+# Intentionally excluded: test-workspace/astro-app, test-workspace/svelte-app,
+# test-workspace/vue-app. These are consumer-demo projects that show how end
+# users install @graphql-analyzer/* into different frontend frameworks — same
+# reasoning as the docs/ site, they stay on npm to mirror what real consumers
+# do. Mirrors the pre-existing package.json#workspaces array.

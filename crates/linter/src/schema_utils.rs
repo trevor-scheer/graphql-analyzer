@@ -3,9 +3,35 @@
 //! This module provides helper functions for extracting schema metadata
 //! like root operation type names from GraphQL schema definitions.
 
-use graphql_base_db::ProjectFiles;
+use graphql_base_db::{FileId, ProjectFiles};
+use graphql_hir::TypeDef;
 use std::collections::HashMap;
 use std::sync::Arc;
+
+/// Collect every raw (unmerged) `TypeDef` from all schema files, including extension
+/// declarations (`is_extension: true`).
+///
+/// The merged `schema_types` view collapses `extend type Foo` into the base `Foo` entry,
+/// losing per-declaration provenance. Rules that need to fire once per declaration site
+/// (mirroring upstream's per-AST-node behavior) should iterate this list instead.
+pub fn raw_schema_type_defs(
+    db: &dyn graphql_hir::GraphQLHirDatabase,
+    project_files: ProjectFiles,
+) -> Vec<(FileId, TypeDef)> {
+    let schema_ids = project_files.schema_file_ids(db).ids(db);
+    let mut out = Vec::new();
+    for &file_id in schema_ids.iter() {
+        let Some((content, metadata)) = graphql_base_db::file_lookup(db, project_files, file_id)
+        else {
+            continue;
+        };
+        let defs = graphql_hir::file_type_defs(db, file_id, content, metadata);
+        for type_def in defs.iter() {
+            out.push((file_id, type_def.clone()));
+        }
+    }
+    out
+}
 
 /// Root operation type names extracted from schema definition
 #[derive(Debug, Default, Clone)]

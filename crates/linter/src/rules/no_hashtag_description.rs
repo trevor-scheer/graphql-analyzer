@@ -126,6 +126,36 @@ impl StandaloneSchemaLintRule for NoHashtagDescriptionRuleImpl {
                             - last_comment_line.trim_start().len();
                         let comment_end = line_start + last_comment_line.trim_end().len();
 
+                        // Build replacement text from the trimmed contents of
+                        // each `#` line in the block (mirroring upstream's
+                        // `value.trim()` per comment, joined with newlines for
+                        // multi-line). Suggestion replaces the FULL block
+                        // range so consumers can apply it without leftover
+                        // partial comments.
+                        let block_start_line: usize = lines[..i].iter().map(|l| l.len() + 1).sum();
+                        let block_first_line = lines[i];
+                        let block_first_start = block_start_line + block_first_line.len()
+                            - block_first_line.trim_start().len();
+                        let trimmed_values: Vec<String> = (i..=block_end)
+                            .map(|idx| {
+                                let l = lines[idx].trim_start();
+                                l.strip_prefix('#').unwrap_or(l).trim().to_string()
+                            })
+                            .collect();
+                        let combined = trimmed_values.join("\n");
+                        let block_suggestion = crate::diagnostics::CodeSuggestion::replace(
+                            "Replace with `\"\"\"` description syntax".to_string(),
+                            block_first_start,
+                            comment_end,
+                            format!("\"\"\"{combined}\"\"\""),
+                        );
+                        let inline_suggestion = crate::diagnostics::CodeSuggestion::replace(
+                            "Replace with `\"` description syntax".to_string(),
+                            block_first_start,
+                            comment_end,
+                            format!("\"{combined}\""),
+                        );
+
                         diagnostics_by_file.entry(*file_id).or_default().push(
                             LintDiagnostic::new(
                                 doc.span(comment_start, comment_end),
@@ -138,7 +168,8 @@ impl StandaloneSchemaLintRule for NoHashtagDescriptionRuleImpl {
                             .with_message_id("HASHTAG_COMMENT")
                             .with_help(
                                 "Replace the hashtag comment with a string or block string description above the definition",
-                            ),
+                            )
+                            .with_suggestions(vec![block_suggestion, inline_suggestion]),
                         );
                     }
 

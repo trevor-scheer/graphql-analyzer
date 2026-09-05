@@ -7,17 +7,9 @@ The VS Code extension bundles the LSP server — no separate installation needed
 
 ## Installation
 
-**One-line installer (macOS/Linux):**
+Install **[GraphQL Analyzer](https://marketplace.visualstudio.com/items?itemName=graphql-analyzer.graphql-analyzer)** from the VS Code Marketplace, or search "GraphQL Analyzer" in the Extensions view (`Ctrl/Cmd+Shift+X`).
 
-```sh
-curl -fsSL https://raw.githubusercontent.com/trevor-scheer/graphql-analyzer/main/scripts/install-vscode.sh | sh
-```
-
-**One-line installer (Windows PowerShell):**
-
-```powershell
-irm https://raw.githubusercontent.com/trevor-scheer/graphql-analyzer/main/scripts/install-vscode.ps1 | iex
-```
+For VS Codium, Cursor, Windsurf, and other VS Code-compatible editors, install from the [Open VSX Registry](https://open-vsx.org/extension/graphql-analyzer/graphql-analyzer).
 
 **Manual:** Download the `.vsix` for your platform from the [releases page](https://github.com/trevor-scheer/graphql-analyzer/releases) and install with `code --install-extension <file>.vsix`.
 
@@ -30,7 +22,7 @@ schema: "schema.graphql"
 documents: "src/**/*.{graphql,ts,tsx,vue,svelte,astro}"
 ```
 
-Open any GraphQL file to activate the extension.
+The extension activates automatically when a `.graphqlrc.*` or `graphql.config.*` file is detected in your workspace root.
 
 ## Extension settings
 
@@ -62,12 +54,15 @@ Open any GraphQL file to activate the extension.
 
 ## Commands
 
-| Command                          | Description         |
-| -------------------------------- | ------------------- |
-| `graphql-analyzer.restartServer` | Restart LSP server  |
-| `graphql-analyzer.jumpToLogs`    | Show server logs    |
-| `graphql-analyzer.checkStatus`   | Check server status |
-| `graphql-analyzer.reportIssue`   | Report an issue     |
+| Command                               | Description                   |
+| ------------------------------------- | ----------------------------- |
+| `graphql-analyzer.restartServer`      | Restart LSP server            |
+| `graphql-analyzer.jumpToLogs`         | Show server logs              |
+| `graphql-analyzer.checkStatus`        | Check server status           |
+| `graphql-analyzer.reportIssue`        | Report an issue               |
+| `graphql-analyzer.testOtelConnection` | Test OpenTelemetry Connection |
+| `graphql-analyzer.startTrace`         | Start performance trace       |
+| `graphql-analyzer.stopTrace`          | Stop performance trace        |
 
 Access via Command Palette (`Ctrl/Cmd+Shift+P`).
 
@@ -84,7 +79,7 @@ The extension includes a pre-compiled LSP server binary for:
 **Extension not working?**
 
 1. Open the Output panel (View → Output)
-2. Select "GraphQL Language Server" from the dropdown
+2. Select "graphql-analyzer Debug" from the dropdown (or "graphql-analyzer LSP" for raw LSP traffic)
 3. Look for errors
 
 **Common fixes:**

@@ -1,3 +1,4 @@
+use crate::ConfigError;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::path::Path;
@@ -462,6 +463,47 @@ impl ProjectConfig {
             .get_or_init(|| CompiledPatterns::compile(self))
     }
 
+    /// Check whether `file_path` belongs to this project, given the workspace
+    /// root (typically the directory containing the `.graphqlrc` file).
+    ///
+    /// Mirrors graphql-config's per-file project resolution: a file matches if
+    /// it isn't in `exclude`, IS in `include` (or `include` is unset), and
+    /// matches at least one of the project's schema or document patterns.
+    /// Used by callers (e.g. the `ESLint` plugin's napi binding) that route
+    /// each file to the project that owns it in multi-project configs.
+    #[must_use]
+    pub fn matches_file(&self, file_path: &Path, workspace_root: &Path) -> bool {
+        let Ok(rel_path) = file_path.strip_prefix(workspace_root) else {
+            return false;
+        };
+        let rel_path_str = rel_path.to_string_lossy();
+        let compiled = self.compiled_patterns();
+
+        if compiled.exclude.iter().any(|p| p.matches(&rel_path_str)) {
+            return false;
+        }
+        let in_include_scope =
+            self.include.is_none() || compiled.include.iter().any(|p| p.matches(&rel_path_str));
+        if !in_include_scope {
+            return false;
+        }
+        compiled.schema.iter().any(|p| p.matches(&rel_path_str))
+            || compiled.documents.iter().any(|p| p.matches(&rel_path_str))
+    }
+
+    /// Whether this project has any include/exclude/schema/document
+    /// constraints. A project with none acts as the default catch-all in
+    /// multi-project routing — used as a fallback when no other project
+    /// claims the file.
+    #[must_use]
+    pub fn has_file_constraints(&self) -> bool {
+        let compiled = self.compiled_patterns();
+        !compiled.exclude.is_empty()
+            || !compiled.include.is_empty()
+            || !compiled.schema.is_empty()
+            || !compiled.documents.is_empty()
+    }
+
     /// Get the parsed `graphql-analyzer` extensions block, if present.
     fn analyzer_extensions(&self) -> Option<AnalyzerExtensions> {
         let ext = self.extensions.as_ref()?;
@@ -495,10 +537,21 @@ impl ProjectConfig {
         self.analyzer_extensions()?.resolved_schema
     }
 
-    /// Get the extract configuration from `extensions.graphql-analyzer.extractConfig`.
-    #[must_use]
-    pub fn extract_config(&self) -> Option<serde_json::Value> {
-        self.analyzer_extensions()?.extract_config
+    /// Get the extract configuration from `extensions.graphql-analyzer.extractConfig`,
+    /// or its `pluckConfig` alias (provided for users migrating from
+    /// `@graphql-tools/graphql-tag-pluck`).
+    ///
+    /// Returns an error if both keys are set in the same project — picking one
+    /// silently risks confusing the user about which took effect.
+    pub fn extract_config(&self) -> std::result::Result<Option<serde_json::Value>, ConfigError> {
+        let Some(ext) = self.analyzer_extensions() else {
+            return Ok(None);
+        };
+        match (ext.extract_config, ext.pluck_config) {
+            (Some(_), Some(_)) => Err(ConfigError::ConflictingExtractConfig),
+            (Some(v), None) | (None, Some(v)) => Ok(Some(v)),
+            (None, None) => Ok(None),
+        }
     }
 }
 
@@ -518,6 +571,12 @@ pub struct AnalyzerExtensions {
     /// Extract configuration for TS/JS files.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub extract_config: Option<serde_json::Value>,
+    /// Alias for `extract_config`. Provided so that users migrating from
+    /// `@graphql-tools/graphql-tag-pluck` (or `@graphql-eslint`) can paste
+    /// their pluck config block directly. Setting both `extractConfig` and
+    /// `pluckConfig` on the same project is a configuration error.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub pluck_config: Option<serde_json::Value>,
 }
 
 /// GraphQL client library configuration.
@@ -1482,7 +1541,7 @@ extensions:
     client: apollo
     lint:
       rules:
-        requireIdField: [warn, { fields: ["id", "nodeId"] }]
+        requireSelections: [warn, { fieldName: ["id", "nodeId"], requireAllFields: true }]
 "#,
             "lint ESLint array style",
         );
@@ -1498,10 +1557,11 @@ extensions:
     client: apollo
     lint:
       rules:
-        requireIdField:
+        requireSelections:
           severity: error
           options:
-            fields: ["id"]
+            fieldName: ["id"]
+            requireAllFields: true
 "#,
             "lint object style with options",
         );
@@ -1516,11 +1576,57 @@ extensions:
   graphql-analyzer:
     client: apollo
     extractConfig:
-      tagIdentifiers: ["gql", "graphql"]
-      modules: ["@apollo/client"]
-      allowGlobalIdentifiers: true
+      gqlMagicComment: graphql
+      modules:
+        - graphql-tag
+        - { name: "@apollo/client", identifier: gql }
+      globalGqlIdentifierName: ["gql", "graphql"]
 "#,
-            "extract config",
+            "extract config (pluck shape)",
+        );
+    }
+
+    #[test]
+    fn sync_extract_config_global_identifier_string_form() {
+        assert_sync(
+            r"
+schema: schema.graphql
+extensions:
+  graphql-analyzer:
+    extractConfig:
+      globalGqlIdentifierName: gql
+",
+            "extract config: globalGqlIdentifierName as a single string",
+        );
+    }
+
+    #[test]
+    fn sync_extract_config_global_identifier_disabled() {
+        assert_sync(
+            r"
+schema: schema.graphql
+extensions:
+  graphql-analyzer:
+    extractConfig:
+      globalGqlIdentifierName: false
+",
+            "extract config: globalGqlIdentifierName: false disables bare extraction",
+        );
+    }
+
+    #[test]
+    fn sync_pluck_config_alias() {
+        assert_sync(
+            r#"
+schema: schema.graphql
+extensions:
+  graphql-analyzer:
+    pluckConfig:
+      modules:
+        - { name: "@apollo/client", identifier: gql }
+      globalGqlIdentifierName: ["gql"]
+"#,
+            "pluckConfig alias",
         );
     }
 

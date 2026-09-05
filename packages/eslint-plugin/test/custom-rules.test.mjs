@@ -1,11 +1,13 @@
 import assert from "node:assert/strict";
-import { mkdtempSync, writeFileSync, mkdirSync, rmSync } from "node:fs";
+import { copyFileSync, mkdtempSync, writeFileSync, mkdirSync, rmSync, symlinkSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { createRequire } from "node:module";
 import { execFileSync } from "node:child_process";
 import { test } from "node:test";
+import { fileURLToPath } from "node:url";
 import { Linter, RuleTester } from "eslint";
+import { Linter as UpstreamLinter } from "eslint-v9";
 import { buildSchema, introspectionFromSchema, print, validate } from "graphql";
 import upstream from "@graphql-eslint/eslint-plugin";
 const require = createRequire(import.meta.url);
@@ -13,7 +15,8 @@ const plugin = require("../dist");
 const schemaSdl = "type Query { user: User } type User { name: String id: ID! }";
 
 function lint(parser, code, rule, parserOptions = { schemaSdl }, filePath = "/tmp/custom.graphql") {
-  return new Linter({ cwd: "/tmp" }).verify(
+  const CompatibleLinter = parser === upstream.parser ? UpstreamLinter : Linter;
+  return new CompatibleLinter({ cwd: "/tmp" }).verify(
     code,
     [
       {
@@ -307,21 +310,32 @@ test("root import and fast entry points do not load compatibility dependencies",
   execFileSync(process.execPath, ["-e", script]);
 });
 
-test("public custom-rule types compile in a consumer with ordinary RuleTester", () => {
+test("public custom-rule types compile in a consumer with ordinary RuleTester", (t) => {
+  const directory = mkdtempSync(new URL("./consumer-", import.meta.url));
+  t.after(() => rmSync(directory, { recursive: true, force: true }));
+  mkdirSync(join(directory, "node_modules/@graphql-analyzer"), { recursive: true });
+  symlinkSync(
+    fileURLToPath(new URL("..", import.meta.url)),
+    join(directory, "node_modules/@graphql-analyzer/eslint-plugin"),
+    "junction",
+  );
+  const filePath = join(directory, "custom-rule.ts");
+  copyFileSync(new URL("./fixtures/custom-rule.ts", import.meta.url), filePath);
   execFileSync(
     process.execPath,
     [
-      require.resolve("typescript/bin/tsc"),
+      resolve(require.resolve("typescript-compiler/package.json"), "../bin/tsc"),
+      "--ignoreConfig",
       "--noEmit",
       "--strict",
       "--skipLibCheck",
       "--target",
       "ES2022",
       "--module",
-      "commonjs",
+      "nodenext",
       "--moduleResolution",
-      "node",
-      new URL("./fixtures/custom-rule.ts", import.meta.url).pathname,
+      "nodenext",
+      filePath,
     ],
     { stdio: "pipe" },
   );

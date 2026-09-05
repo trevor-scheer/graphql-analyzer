@@ -86,13 +86,16 @@ pub fn find_unused_fields(
                 field_name: field.name.clone(),
             };
             if !used_coordinates.contains(&coord) {
-                unused.push(Diagnostic::warning(
-                    format!(
-                        "Field '{type_name}.{}' is never used in any operation",
-                        field.name
-                    ),
-                    DiagnosticRange::default(),
-                ));
+                unused.push(Diagnostic {
+                    source: "graphql-linter".into(),
+                    ..Diagnostic::warning(
+                        format!(
+                            "Field '{type_name}.{}' is never used in any operation",
+                            field.name
+                        ),
+                        DiagnosticRange::default(),
+                    )
+                });
             }
         }
     }
@@ -139,10 +142,13 @@ pub fn find_unused_fragments(
     let mut unused = Vec::new();
     for fragment_name in all_fragments.keys() {
         if !transitively_used.contains(fragment_name) {
-            unused.push(Diagnostic::warning(
-                format!("Fragment '{fragment_name}' is never used"),
-                DiagnosticRange::default(),
-            ));
+            unused.push(Diagnostic {
+                source: "graphql-linter".into(),
+                ..Diagnostic::warning(
+                    format!("Fragment '{fragment_name}' is never used"),
+                    DiagnosticRange::default(),
+                )
+            });
         }
     }
 

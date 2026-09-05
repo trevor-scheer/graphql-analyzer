@@ -96,13 +96,13 @@ fn cmd_web(dev: bool) -> Result<()> {
     let pkg_dir = workspace.join("packages/web-ide/src/wasm");
 
     if !workspace.join("node_modules").exists() {
-        let status = Command::new("npm")
+        let status = Command::new("pnpm")
             .arg("install")
             .current_dir(&workspace)
             .status()
-            .context("running npm install")?;
+            .context("running pnpm install")?;
         if !status.success() {
-            bail!("npm install failed");
+            bail!("pnpm install failed");
         }
     }
 
@@ -121,13 +121,13 @@ fn cmd_web(dev: bool) -> Result<()> {
     }
 
     let script = if dev { "dev" } else { "build" };
-    let status = Command::new("npm")
-        .args(["--workspace=packages/web-ide", "run", script])
+    let status = Command::new("pnpm")
+        .args(["--filter", "@graphql-analyzer/web-ide", "run", script])
         .current_dir(&workspace)
         .status()
-        .context("running npm script")?;
+        .context("running pnpm script")?;
     if !status.success() {
-        bail!("npm {script} failed");
+        bail!("pnpm {script} failed");
     }
     Ok(())
 }
@@ -473,42 +473,42 @@ fn package_vscode_extension(
         bundle_binary(&vscode_dir, binary)?;
     }
 
-    // Install npm dependencies if needed
+    // Install dependencies if needed
     let node_modules = vscode_dir.join("node_modules");
     if !node_modules.exists() {
-        println!("Installing npm dependencies...");
-        let status = Command::new("npm")
+        println!("Installing dependencies...");
+        let status = Command::new("pnpm")
             .args(["install"])
-            .current_dir(&vscode_dir)
+            .current_dir(root)
             .status()
-            .context("Failed to run npm install")?;
+            .context("Failed to run pnpm install")?;
         if !status.success() {
-            bail!("npm install failed");
+            bail!("pnpm install failed");
         }
     }
 
     // Compile TypeScript
     println!("Compiling TypeScript...");
-    let status = Command::new("npm")
+    let status = Command::new("pnpm")
         .args(["run", "compile"])
         .current_dir(&vscode_dir)
         .status()
-        .context("Failed to run npm compile")?;
+        .context("Failed to run pnpm compile")?;
 
     if !status.success() {
-        bail!("npm run compile failed");
+        bail!("pnpm run compile failed");
     }
 
     // Package extension
     println!("Packaging extension...");
-    let status = Command::new("npm")
+    let status = Command::new("pnpm")
         .args(["run", "package"])
         .current_dir(&vscode_dir)
         .status()
-        .context("Failed to run npm package")?;
+        .context("Failed to run pnpm package")?;
 
     if !status.success() {
-        bail!("npm run package failed");
+        bail!("pnpm run package failed");
     }
 
     // Find the .vsix file

@@ -14,18 +14,26 @@ Rules live in `src/rules/`. Each rule is a separate module.
 
 ## Configuration
 
-Lint config uses `extensions.lint` in `.graphqlrc.yaml` with camelCase rule names:
+Lint config lives under the `graphql-analyzer` extension namespace in
+`.graphqlrc.yaml`, and uses camelCase rule names:
 
 ```yaml
 extensions:
-  lint: recommended # Happy path - just use preset
+  graphql-analyzer:
+    lint: recommended # Happy path - just use preset
 ```
 
 Or configure individual rules:
 
 ```yaml
 extensions:
-  lint:
-    noAnonymousOperations: error
-    noDeprecated: warn
+  graphql-analyzer:
+    lint:
+      rules:
+        noAnonymousOperations: error
+        noDeprecated: warn
 ```
+
+Putting the `lint:` block at the top of `extensions:` (without the
+`graphql-analyzer:` namespace) is silently ignored by the loader — the
+config validator emits a `misnamespaced-extension` warning when this happens.

@@ -5,7 +5,7 @@
   "lspServers": {
     "tsgo": {
       "command": "npx",
-      "args": ["tsgo", "--lsp", "-stdio"],
+      "args": ["tsc", "--lsp"],
       "extensionToLanguage": {
         ".ts": "typescript",
         ".tsx": "typescriptreact",

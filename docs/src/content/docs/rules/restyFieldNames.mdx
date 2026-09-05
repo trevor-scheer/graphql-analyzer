@@ -1,0 +1,73 @@
+---
+slug: rules/restyFieldNames
+title: restyFieldNames
+description: Detect REST-style field naming patterns.
+---
+
+| Property         | Value             |
+| ---------------- | ----------------- |
+| Config name      | `restyFieldNames` |
+| Default severity | `warn`            |
+| Context          | Schema            |
+| In recommended   | No                |
+
+## What it checks
+
+Detects fields whose names follow REST-style conventions like `getUser`, `listUsers`, or `deleteItem`. In GraphQL, fields on Query are inherently "getters" and fields on Mutation are inherently actions, so prefixes like `get`, `list`, `post`, `put`, `patch`, `delete`, and `fetch` are redundant. Removing them leads to a more idiomatic GraphQL API.
+
+## Examples
+
+```graphql
+# ⚠️ Warning — REST-style prefixes
+type Query {
+  getUser(id: ID!): User
+  listUsers: [User!]!
+  fetchPosts: [Post!]!
+}
+
+type Mutation {
+  deleteUser(id: ID!): DeleteUserPayload
+  postComment(input: CommentInput!): Comment
+}
+```
+
+```graphql
+# ✅ Good — idiomatic GraphQL names
+type Query {
+  user(id: ID!): User
+  users: [User!]!
+  posts: [Post!]!
+}
+
+type Mutation {
+  removeUser(id: ID!): DeleteUserPayload
+  createComment(input: CommentInput!): Comment
+}
+```
+
+## Options
+
+| Option     | Type       | Default                                                      | Description                    |
+| ---------- | ---------- | ------------------------------------------------------------ | ------------------------------ |
+| `prefixes` | `string[]` | `["get", "list", "post", "put", "patch", "delete", "fetch"]` | Prefixes to flag as REST-style |
+
+## Configuration
+
+```yaml
+# Use default prefixes
+extensions:
+  graphql-analyzer:
+    lint:
+      rules:
+        restyFieldNames: warn
+
+# Customize the prefix list
+extensions:
+  graphql-analyzer:
+    lint:
+      rules:
+        restyFieldNames:
+          severity: warn
+          options:
+            prefixes: ["get", "list", "fetch"]
+```

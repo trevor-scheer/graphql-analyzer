@@ -48,9 +48,12 @@ Supported file names (in priority order):
 
 1. `.graphqlrc.yml` / `.graphqlrc.yaml`
 2. `.graphqlrc.json`
-3. `.graphqlrc`
-4. `graphql.config.yml` / `graphql.config.yaml`
-5. `graphql.config.json`
+3. `.graphqlrc.toml`
+4. `.graphqlrc` (YAML or JSON, auto-detected)
+5. `graphql.config.yml` / `graphql.config.yaml`
+6. `graphql.config.json`
+7. `graphql.config.toml`
+8. `package.json` with a `"graphql"` key (lowest priority fallback)
 
 **Not supported:** `graphql.config.js`, `graphql.config.ts`
 
@@ -84,8 +87,12 @@ Add custom modules:
 extensions:
   graphql-analyzer:
     extractConfig:
-      modules: ["graphql-tag", "custom-module"]
+      modules:
+        - "graphql-tag"
+        - { name: "custom-module", identifier: "gql" }
 ```
+
+Setting `identifier` constrains which export from the module is recognized as the GraphQL tag (matches `@graphql-tools/graphql-tag-pluck` semantics). Omit it to accept any default import from that module.
 
 ## Performance issues
 

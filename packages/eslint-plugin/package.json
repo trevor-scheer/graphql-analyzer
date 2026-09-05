@@ -1,6 +1,6 @@
 {
   "name": "@graphql-analyzer/eslint-plugin",
-  "version": "0.1.1-alpha.0",
+  "version": "0.1.4",
   "description": "ESLint plugin for GraphQL, powered by graphql-analyzer. Drop-in replacement for @graphql-eslint/eslint-plugin.",
   "keywords": [
     "eslint",
@@ -26,13 +26,13 @@
     "access": "public"
   },
   "scripts": {
-    "build": "tsc",
-    "dev": "tsc --watch",
+    "build": "node node_modules/typescript-compiler/bin/tsc",
+    "dev": "node node_modules/typescript-compiler/bin/tsc --watch",
     "test:unit": "NODE_ENV=test node --test test/*.test.mjs"
   },
   "dependencies": {
     "@apollo/subgraph": "2.11.6",
-    "@graphql-analyzer/core": "0.1.1-alpha.0",
+    "@graphql-analyzer/core": "0.1.3",
     "@graphql-tools/code-file-loader": "8.1.32",
     "@graphql-tools/graphql-tag-pluck": "8.3.31",
     "@graphql-tools/merge": "9.1.9",
@@ -42,16 +42,18 @@
   },
   "devDependencies": {
     "@graphql-eslint/eslint-plugin": "^4.0.0",
-    "@types/node": "^20.0.0",
+    "@types/node": "^24.0.0",
     "@vue/compiler-sfc": "3.5.42",
     "astrojs-compiler-sync": "1.1.1",
-    "eslint": "^9.0.0",
+    "eslint": "^10.0.0",
+    "eslint-v9": "npm:eslint@^9.0.0",
     "svelte": "5.57.0",
     "svelte2tsx": "0.7.61",
-    "typescript": "^5.0.0"
+    "typescript": "^6.0.3",
+    "typescript-compiler": "npm:typescript@^7.0.1-rc"
   },
   "peerDependencies": {
-    "eslint": "^8.40.0 || ^9.0.0",
+    "eslint": "^8.40.0 || ^9.0.0 || ^10.0.0",
     "graphql": "^16.5.0"
   },
   "engines": {

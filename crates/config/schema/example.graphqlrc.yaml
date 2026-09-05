@@ -33,16 +33,15 @@ extensions:
     # When set, queries validate against this file instead of source schema files.
     # resolvedSchema: "generated/schema.graphql"
 
-    # Configuration for extracting GraphQL from TypeScript/JavaScript
+    # Configuration for extracting GraphQL from TypeScript/JavaScript.
+    # Schema mirrors @graphql-tools/graphql-tag-pluck — pluck users can
+    # paste their config under `pluckConfig` (alias) and it will work as-is.
     extractConfig:
-      magicComment: "GraphQL"
-      tagIdentifiers:
-        - "gql"
-        - "graphql"
+      gqlMagicComment: "graphql"
       modules:
         - "graphql-tag"
-        - "@apollo/client"
-      allowGlobalIdentifiers: false
+        - { name: "@apollo/client", identifier: "gql" }
+      globalGqlIdentifierName: ["gql", "graphql"]
 
     # Lint configuration
     lint:

@@ -33,3 +33,75 @@ enum Priority {
   MEDIUM
   HIGH
 }
+
+# --- Negative examples (regression coverage for #1037) ---
+# Object types reached only through interface dispatch or union membership
+# must NOT be flagged as unreachable. Clients select them via inline
+# fragments (`... on PhysicalMove { makesContact }`) and the resolver's
+# `__resolveType` hook dispatches to the concrete type.
+
+"""
+A move a Pokemon can use. Reached as an interface return type.
+"""
+interface Move {
+  id: ID!
+}
+
+"""
+Reached only via interface dispatch from `Move`. Should not be flagged.
+"""
+type PhysicalMove implements Move {
+  id: ID!
+  makesContact: Boolean!
+}
+
+"""
+Reached only via interface dispatch from `Move`. Should not be flagged.
+"""
+type SpecialMove implements Move {
+  id: ID!
+  effectChance: Int
+}
+
+"""
+Reached only via interface dispatch from `Move`. Should not be flagged.
+"""
+type StatusMove implements Move {
+  id: ID!
+  inflicts: String
+}
+
+# Extend the root `Query` type so `Pokemon`, `Move`, and `Pet` are reachable
+# from a root operation. Type system extensions cannot carry descriptions;
+# the rationale lives in this comment.
+extend type Query {
+  pokemon: Pokemon
+}
+
+"""
+A Pokemon's move list returns the `Move` interface.
+"""
+type Pokemon {
+  id: ID!
+  moves: [Move!]!
+  pet: Pet
+}
+
+"""
+Reached only via union membership in `Pet`. Should not be flagged.
+"""
+type Cat {
+  meows: Boolean!
+}
+
+"""
+Reached only via union membership in `Pet`. Should not be flagged.
+"""
+type Dog {
+  barks: Boolean!
+}
+
+"""
+A union of pet kinds — clients pick a concrete variant via inline fragments.
+"""
+union Pet = Cat | Dog

@@ -50,7 +50,9 @@ pub use database::{
     create_project_files, file_content, file_metadata, RootDatabase, TestDatabase,
     TestDatabaseWithProject,
 };
-pub use project::{test_documents_only, test_project, test_schema_only, TestProjectBuilder};
+pub use project::{
+    test_documents_only, test_project, test_schema_only, TestFile, TestProject, TestProjectBuilder,
+};
 pub use tracking::{queries, TrackedDatabase};
 
 // Re-export common types needed for test setup

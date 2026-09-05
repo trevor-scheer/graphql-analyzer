@@ -127,7 +127,7 @@ pub struct Diagnostic {
     pub severity: Severity,  // Error, Warning, Info
     pub message: Arc<str>,
     pub range: DiagnosticRange,
-    pub source: Arc<str>,  // "graphql-parser", "graphql-linter", etc.
+    pub source: Arc<str>,  // "syntax", "validation", "graphql-linter", etc.
     pub code: Option<Arc<str>>,
 }
 ```

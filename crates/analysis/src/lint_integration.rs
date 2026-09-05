@@ -537,6 +537,7 @@ fn unused_ignore_diagnostics(
                     code: Some("unused_ignore".into()),
                     message_id: None,
                     fix: None,
+                    suggestions: Vec::new(),
                     help: None,
                     url: None,
                     tags: vec![crate::DiagnosticTag::Unnecessary],
@@ -568,6 +569,7 @@ fn unused_ignore_diagnostics(
                         code: Some("unused_ignore".into()),
                         message_id: None,
                         fix: None,
+                        suggestions: Vec::new(),
                         help: None,
                         url: None,
                         tags: vec![crate::DiagnosticTag::Unnecessary],
@@ -578,7 +580,8 @@ fn unused_ignore_diagnostics(
         .collect()
 }
 
-/// Filter raw `LintDiagnostic`s, removing those suppressed by ignore comments.
+/// Filter raw `LintDiagnostic`s, removing those suppressed by either
+/// `# graphql-analyzer-ignore` or `# eslint-disable*` directives.
 fn filter_suppressed_diagnostics(
     db: &dyn GraphQLAnalysisDatabase,
     content: FileContent,
@@ -587,6 +590,7 @@ fn filter_suppressed_diagnostics(
     let file_text = content.text(db);
     let file_line_index = graphql_syntax::line_index(db, content);
     let file_ignores = graphql_linter::ignore::parse_ignore_directives(&file_text);
+    let file_suppressions = graphql_linter::eslint_disable::Suppressions::from_source(&file_text);
 
     diagnostics
         .into_iter()
@@ -595,17 +599,22 @@ fn filter_suppressed_diagnostics(
                 let block_line_index = graphql_syntax::LineIndex::new(block_source);
                 let (sl, _) = block_line_index.line_col(ld.span.start);
                 let block_ignores = graphql_linter::ignore::parse_ignore_directives(block_source);
+                let block_suppressions =
+                    graphql_linter::eslint_disable::Suppressions::from_source(block_source);
                 !graphql_linter::ignore::is_suppressed(&block_ignores, sl, &ld.rule)
+                    && !block_suppressions.is_suppressed(&ld.rule, sl as u32 + 1)
             } else {
                 let (sl, _) = file_line_index.line_col(ld.span.start);
                 !graphql_linter::ignore::is_suppressed(&file_ignores, sl, &ld.rule)
+                    && !file_suppressions.is_suppressed(&ld.rule, sl as u32 + 1)
             }
         })
         .collect()
 }
 
 /// Convert `LintDiagnostic` (byte offsets) to `Diagnostic` (line/column),
-/// filtering out diagnostics suppressed by ignore comments.
+/// filtering out diagnostics suppressed by either `# graphql-analyzer-ignore`
+/// or `# eslint-disable*` directives.
 ///
 /// Embedded spans are block-relative. Adding `span.byte_offset` before using
 /// the file's `LineIndex` preserves first-line columns and UTF-16 positions.
@@ -622,6 +631,7 @@ fn convert_lint_diagnostics(
     let file_text = content.text(db);
     let file_line_index = graphql_syntax::line_index(db, content);
     let file_ignores = graphql_linter::ignore::parse_ignore_directives(&file_text);
+    let file_suppressions = graphql_linter::eslint_disable::Suppressions::from_source(&file_text);
 
     lint_diags
         .into_iter()
@@ -633,16 +643,20 @@ fn convert_lint_diagnostics(
                 let block_line_index = graphql_syntax::LineIndex::new(block_source);
                 let (block_line, _) = block_line_index.line_col(ld.span.start);
                 let block_ignores = graphql_linter::ignore::parse_ignore_directives(block_source);
+                let block_suppressions =
+                    graphql_linter::eslint_disable::Suppressions::from_source(block_source);
                 graphql_linter::ignore::is_suppressed(&block_ignores, block_line, rule_name)
+                    || block_suppressions.is_suppressed(rule_name, block_line as u32 + 1)
             } else {
                 graphql_linter::ignore::is_suppressed(&file_ignores, start_line, rule_name)
+                    || file_suppressions.is_suppressed(rule_name, start_line as u32 + 1)
             };
 
             if suppressed {
                 tracing::debug!(
                     rule = rule_name,
                     line = start_line,
-                    "Lint diagnostic suppressed by ignore comment"
+                    "Lint diagnostic suppressed by ignore or eslint-disable comment"
                 );
                 return None;
             }
@@ -657,8 +671,7 @@ fn convert_lint_diagnostics(
                 file_text.get(ld.span.byte_offset..ld.span.byte_offset + block_source.len())
                     == Some(block_source.as_ref())
             });
-            // Cooked strings need an escape-aware source map before edits are safe.
-            let fix = ld.fix.as_ref().filter(|_| source_is_contiguous).map(|f| {
+            let convert_fix = |f: &graphql_linter::CodeFix| -> crate::CodeFix {
                 let mut edits = Vec::with_capacity(f.edits.len());
                 for edit in &f.edits {
                     let (es_line, es_col) =
@@ -683,7 +696,22 @@ fn convert_lint_diagnostics(
                     label: f.label.clone(),
                     edits,
                 }
-            });
+            };
+            // Cooked strings need an escape-aware source map before edits are safe.
+            let fix = ld
+                .fix
+                .as_ref()
+                .filter(|_| source_is_contiguous)
+                .map(&convert_fix);
+            let suggestions = ld
+                .suggestions
+                .iter()
+                .filter(|_| source_is_contiguous)
+                .map(|s| crate::CodeSuggestion {
+                    desc: s.desc.clone(),
+                    fix: convert_fix(&s.fix),
+                })
+                .collect();
 
             Some(Diagnostic {
                 severity,
@@ -702,6 +730,7 @@ fn convert_lint_diagnostics(
                 code: Some(rule_name.to_string().into()),
                 message_id: ld.message_id.map(Into::into),
                 fix,
+                suggestions,
                 help: ld.help.map(Into::into),
                 url: Some(resolve_rule_url(ld.url, rule_name).into()),
                 tags: ld
@@ -750,7 +779,7 @@ mod diagnostic_conversion_tests {
     impl GraphQLAnalysisDatabase for TestDatabase {}
 
     #[test]
-    fn suppresses_fixes_for_non_contiguous_embedded_source() {
+    fn suppresses_edits_for_non_contiguous_embedded_source() {
         let db = TestDatabase::default();
         let source = r#"const query = "query Named { zebra\n apple }";"#;
         let block = "query Named { zebra\n apple }";
@@ -768,6 +797,14 @@ mod diagnostic_conversion_tests {
             "Sort fields",
             vec![graphql_linter::TextEdit::new(14, 25, "apple zebra")],
         ));
+        diagnostic
+            .suggestions
+            .push(graphql_linter::CodeSuggestion::replace(
+                "Sort fields",
+                14,
+                25,
+                "apple zebra",
+            ));
 
         let diagnostics = convert_lint_diagnostics(
             &db,
@@ -778,6 +815,7 @@ mod diagnostic_conversion_tests {
         );
         assert_eq!(diagnostics.len(), 1);
         assert!(diagnostics[0].fix.is_none());
+        assert!(diagnostics[0].suggestions.is_empty());
     }
 }
 

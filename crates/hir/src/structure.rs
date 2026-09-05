@@ -51,6 +51,11 @@ pub struct FieldSignature {
     pub directives: Vec<DirectiveUsage>,
     /// The text range of the field name
     pub name_range: TextRange,
+    /// The text range of the entire field definition (description, name,
+    /// arguments, type, directives). Used by lint rules that need to
+    /// surface a "remove this whole field" fix matching upstream's
+    /// `fixer.remove(node)` semantics.
+    pub definition_range: TextRange,
     /// The file this field was defined in
     pub file_id: FileId,
 }
@@ -79,6 +84,10 @@ pub struct ArgumentDef {
     pub directives: Vec<DirectiveUsage>,
     /// The text range of the argument name
     pub name_range: TextRange,
+    /// The text range of the entire argument definition (description, name,
+    /// type, default value, directives). Used by lint rules that need to
+    /// surface a "remove this whole argument" fix.
+    pub definition_range: TextRange,
     /// The file this argument was defined in
     pub file_id: FileId,
 }
@@ -93,6 +102,11 @@ pub struct EnumValue {
     pub directives: Vec<DirectiveUsage>,
     /// The text range of the enum value's name token
     pub name_range: TextRange,
+    /// The text range of the entire enum value definition (name plus any
+    /// trailing directives like `@deprecated(...)`). Used by lint rules
+    /// that need to surface a "remove this whole value" fix matching
+    /// upstream's `fixer.remove(node)` semantics.
+    pub definition_range: TextRange,
 }
 
 /// A directive applied to a schema element
@@ -130,6 +144,10 @@ pub struct DirectiveDef {
     pub repeatable: bool,
     pub file_id: FileId,
     pub name_range: TextRange,
+    /// The text range of the entire directive definition node (keyword through
+    /// final location). Used by lint rules that need a "remove this definition"
+    /// fix matching upstream's `fixer.remove(node.parent)` semantics.
+    pub definition_range: TextRange,
 }
 
 /// Locations where a directive can be applied
@@ -675,6 +693,7 @@ fn extract_enum_type(enum_def: &Node<ast::EnumTypeDefinition>, file_id: FileId) 
                 deprecation_reason,
                 directives: extract_directives(&v.directives),
                 name_range: name_range(&v.value),
+                definition_range: node_range(v),
             }
         })
         .collect();
@@ -768,6 +787,7 @@ fn extract_directive_def(dir: &Node<ast::DirectiveDefinition>, file_id: FileId) 
         repeatable: dir.repeatable,
         file_id,
         name_range: name_range(&dir.name),
+        definition_range: node_range(dir),
     }
 }
 
@@ -876,6 +896,7 @@ fn extract_enum_type_extension(ext: &Node<ast::EnumTypeExtension>, file_id: File
                 deprecation_reason,
                 directives: extract_directives(&v.directives),
                 name_range: name_range(&v.value),
+                definition_range: node_range(v),
             }
         })
         .collect();
@@ -943,7 +964,7 @@ fn extract_scalar_type_extension(ext: &Node<ast::ScalarTypeExtension>, file_id: 
     }
 }
 
-fn extract_field_signature(field: &ast::FieldDefinition, file_id: FileId) -> FieldSignature {
+fn extract_field_signature(field: &Node<ast::FieldDefinition>, file_id: FileId) -> FieldSignature {
     let name = Arc::from(field.name.as_str());
     let type_ref = extract_type_ref(&field.ty);
     let description = field.description.as_ref().map(|d| Arc::from(d.as_str()));
@@ -965,12 +986,13 @@ fn extract_field_signature(field: &ast::FieldDefinition, file_id: FileId) -> Fie
         deprecation_reason,
         directives: extract_directives(&field.directives),
         name_range: name_range(&field.name),
+        definition_range: node_range(field),
         file_id,
     }
 }
 
 fn extract_input_field_signature(
-    field: &ast::InputValueDefinition,
+    field: &Node<ast::InputValueDefinition>,
     file_id: FileId,
 ) -> FieldSignature {
     let name = Arc::from(field.name.as_str());
@@ -988,11 +1010,12 @@ fn extract_input_field_signature(
         deprecation_reason,
         directives: extract_directives(&field.directives),
         name_range: name_range(&field.name),
+        definition_range: node_range(field),
         file_id,
     }
 }
 
-fn extract_argument_def(arg: &ast::InputValueDefinition, file_id: FileId) -> ArgumentDef {
+fn extract_argument_def(arg: &Node<ast::InputValueDefinition>, file_id: FileId) -> ArgumentDef {
     let name = Arc::from(arg.name.as_str());
     let type_ref = extract_type_ref(&arg.ty);
     let default_value = arg
@@ -1012,6 +1035,7 @@ fn extract_argument_def(arg: &ast::InputValueDefinition, file_id: FileId) -> Arg
         deprecation_reason,
         directives: extract_directives(&arg.directives),
         name_range: name_range(&arg.name),
+        definition_range: node_range(arg),
         file_id,
     }
 }
@@ -1024,11 +1048,15 @@ fn extract_deprecation(
         if directive.name == "deprecated" {
             let reason = directive.arguments.iter().find_map(|arg| {
                 if arg.name == "reason" {
-                    if let apollo_compiler::ast::Value::String(s) = &*arg.value {
-                        Some(Arc::from(s.as_str()))
-                    } else {
-                        None
-                    }
+                    // Accept any value type as a valid reason, not just strings.
+                    // Numeric literals like `reason: 0` are unusual but valid per
+                    // graphql-eslint's `require-deprecation-reason` rule, which only
+                    // requires the argument to be present regardless of its type.
+                    let s: Arc<str> = match &*arg.value {
+                        apollo_compiler::ast::Value::String(s) => Arc::from(s.as_str()),
+                        other => Arc::from(other.to_string().as_str()),
+                    };
+                    Some(s)
                 } else {
                     None
                 }

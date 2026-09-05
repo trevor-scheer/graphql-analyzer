@@ -279,13 +279,74 @@ test("fast processor preserves original-source native processing", () => {
   assert.deepEqual(plugin.fastProcessor.preprocess(source, "component.js"), [source]);
 });
 
+test("compatible processor preserves standalone GraphQL source", () => {
+  const source = "query Named { old }";
+  for (const extension of ["graphql", "gql"]) {
+    assert.deepEqual(plugin.processor.preprocess(source, `document.${extension}`), [source]);
+  }
+});
+
+test("native suggestions map to embedded UTF-16 host ranges", async () => {
+  const source =
+    'import { gql } from "@apollo/client";\nconst emoji = "😀"; const q = gql`query Named { user(id: "1") { id id } }`;';
+  const linter = new ESLint({
+    cwd: fixtureRoot,
+    overrideConfigFile: true,
+    overrideConfig: [
+      { files: ["**/*.js"], processor: plugin.processor },
+      {
+        files: ["**/*.graphql"],
+        languageOptions: { parser: plugin.parser },
+        plugins: { native: plugin },
+        rules: { "native/no-duplicate-fields": "error" },
+      },
+    ],
+  });
+  const physical = path.join(fixtureRoot, "src/suggestion.js");
+  const [result] = await linter.lintText(source, { filePath: physical });
+  assert.equal(result.messages.length, 1, JSON.stringify(result.messages));
+  const fix = result.messages[0].suggestions[0].fix;
+  assert.equal(source.slice(...fix.range).trim(), "id");
+  const revised = source.slice(0, fix.range[0]) + fix.text + source.slice(fix.range[1]);
+  const [fixed] = await linter.lintText(revised, { filePath: physical });
+  assert.deepEqual(fixed.messages, []);
+});
+
+test("native ignore directives work in compatible and fast embedded modes", async () => {
+  for (const processor of [plugin.processor, plugin.fastProcessor]) {
+    const linter = new ESLint({
+      cwd: fixtureRoot,
+      overrideConfigFile: true,
+      overrideConfig: [
+        { files: ["**/*.js"], processor },
+        { files: ["**/*.graphql"], languageOptions: { parser: plugin.parser } },
+        {
+          files: ["**/*.{js,graphql}"],
+          plugins: { "@graphql-analyzer": plugin },
+          rules: { "@graphql-analyzer/no-anonymous-operations": "error" },
+        },
+      ],
+    });
+    for (const directive of [
+      "eslint-disable-next-line @graphql-analyzer/no-anonymous-operations",
+      "graphql-analyzer-ignore: noAnonymousOperations",
+    ]) {
+      const source = `import { gql } from "@apollo/client";\nconst q = gql\`\n# ${directive}\n{ __typename }\n\`;`;
+      const [result] = await linter.lintText(source, {
+        filePath: path.join(fixtureRoot, "src/ignored.js"),
+      });
+      assert.deepEqual(result.messages, [], `${processor.meta.name}: ${directive}`);
+    }
+  }
+});
+
 test("uses one physical native analysis across blocks and host rules", async () => {
   const binding = require("../dist/binding.js");
   const original = binding.lintFile;
   const calls = [];
-  binding.lintFile = (physical, source) => {
+  binding.lintFile = (physical, source, overrides) => {
     calls.push(physical);
-    return original(physical, source);
+    return original(physical, source, overrides);
   };
   try {
     const fixture = fixtureRoot;
@@ -311,6 +372,65 @@ test("uses one physical native analysis across blocks and host rules", async () 
       { filePath: physical },
     );
     assert.deepEqual(calls, [physical]);
+  } finally {
+    binding.lintFile = original;
+  }
+});
+
+test("embedded native cache separates virtual rule options and subsequent lint passes", async () => {
+  const binding = require("../dist/binding.js");
+  const original = binding.lintFile;
+  const calls = [];
+  binding.lintFile = (physical, source, overrides) => {
+    calls.push({ physical, overrides });
+    return [];
+  };
+  try {
+    const physical = path.join(fixtureRoot, "src/options.js");
+    const source = "const a = gql`{ __typename }`; const b = gql`{ __typename }`;";
+    const configs = [
+      { files: ["**/*.js"], processor: plugin.processor },
+      {
+        files: ["**/*.graphql"],
+        languageOptions: { parser: plugin.parser },
+        plugins: { native: plugin },
+        rules: { "native/no-anonymous-operations": "error" },
+      },
+    ];
+    const linter = new ESLint({
+      cwd: fixtureRoot,
+      overrideConfigFile: true,
+      overrideConfig: [
+        ...configs,
+        {
+          files: ["**/0_document.graphql"],
+          rules: { "native/alphabetize": ["error", { selections: [] }] },
+        },
+        {
+          files: ["**/1_document.graphql"],
+          rules: {
+            "native/alphabetize": ["error", { selections: ["OperationDefinition"] }],
+          },
+        },
+      ],
+    });
+    for (let pass = 0; pass < 2; pass++) {
+      const [result] = await linter.lintText(source, { filePath: physical });
+      assert.deepEqual(result.messages, []);
+      assert.equal(calls.length, (pass + 1) * 2);
+      assert.deepEqual(calls[pass * 2].overrides.alphabetize.options, { selections: [] });
+      assert.deepEqual(calls[pass * 2 + 1].overrides.alphabetize.options, {
+        selections: ["OperationDefinition"],
+      });
+    }
+    await new ESLint({
+      cwd: fixtureRoot,
+      overrideConfigFile: true,
+      overrideConfig: configs,
+    }).lintText(source, { filePath: physical });
+    assert.equal(calls.length, 5);
+    assert.deepEqual(calls[4].overrides, { noAnonymousOperations: { severity: "warn" } });
+    assert.ok(calls.every((call) => call.physical === physical));
   } finally {
     binding.lintFile = original;
   }

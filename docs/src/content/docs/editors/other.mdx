@@ -39,6 +39,7 @@ The server supports:
 - `textDocument/rename` — Rename symbols
 - `textDocument/codeAction` — Quick fixes
 - `workspace/didChangeWatchedFiles` — React to file changes
+- `workspace/executeCommand` — Execute server-side commands
 
 ## Running the server
 
@@ -64,6 +65,10 @@ command = "graphql-lsp"
 ```
 
 ## Zed
+
+:::note
+**Note:** Zed does not currently support arbitrary custom LSP servers via settings.json. The configuration below requires a Zed extension to register the server. Track Zed's [language server documentation](https://zed.dev/docs/configuring-zed#language-servers) for status.
+:::
 
 Zed has built-in LSP support. Add to your settings:
 

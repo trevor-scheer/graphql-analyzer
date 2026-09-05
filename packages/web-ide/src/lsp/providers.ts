@@ -75,7 +75,7 @@ export function wireProviders(client: MinimalClient): void {
       startColumn: d.range.start.character + 1,
       endLineNumber: d.range.end.line + 1,
       endColumn: d.range.end.character + 1,
-      message: d.message,
+      message: typeof d.message === "string" ? d.message : d.message.value,
       source: d.source ?? "graphql",
     }));
     monaco.editor.setModelMarkers(model, "graphql", markers);

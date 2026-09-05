@@ -1,0 +1,206 @@
+# dogfood-testbed.yml
+# Triggered after a successful release of graphql-analyzer. Clones
+# analyzer-testbed, bumps all @graphql-analyzer/* deps to the just-released
+# versions, runs the full testbed CI matrix, and on failure opens or updates
+# a single rolling issue (one comment per release, deduped by exact title).
+#
+# Trigger: workflow_run watching "Release" — fires only on success, so we
+# don't spam the testbed with every draft or failed attempt.
+
+name: Dogfood testbed
+
+on:
+  workflow_run:
+    workflows: ["Release"]
+    types: [completed]
+
+permissions:
+  contents: read
+  issues: write
+
+jobs:
+  dogfood:
+    name: Run testbed CI against fresh release
+    # Only fire when the Release workflow actually succeeded
+    if: github.event.workflow_run.conclusion == 'success'
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Resolve released versions
+        id: versions
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          # Extract the version for each package from the tags created by knope.
+          # knope tags releases as "<package-name>/v<version>", e.g.
+          # "graphql-analyzer-lsp/v1.2.3".
+          CLI_VERSION="$(gh release list \
+            --repo trevor-scheer/graphql-analyzer \
+            --limit 30 \
+            --json tagName,publishedAt \
+            --jq '[.[] | select(.tagName | startswith("graphql-analyzer-cli/v"))] | sort_by(.publishedAt) | last | .tagName | ltrimstr("graphql-analyzer-cli/v")')"
+          CORE_VERSION="$(gh release list \
+            --repo trevor-scheer/graphql-analyzer \
+            --limit 30 \
+            --json tagName,publishedAt \
+            --jq '[.[] | select(.tagName | startswith("graphql-analyzer-core/v"))] | sort_by(.publishedAt) | last | .tagName | ltrimstr("graphql-analyzer-core/v")')"
+          ESLINT_VERSION="$(gh release list \
+            --repo trevor-scheer/graphql-analyzer \
+            --limit 30 \
+            --json tagName,publishedAt \
+            --jq '[.[] | select(.tagName | startswith("graphql-analyzer-eslint-plugin/v"))] | sort_by(.publishedAt) | last | .tagName | ltrimstr("graphql-analyzer-eslint-plugin/v")')"
+          if [ -z "$CLI_VERSION" ] || [ -z "$CORE_VERSION" ] || [ -z "$ESLINT_VERSION" ]; then
+            echo "Failed to resolve one or more package versions from recent releases"
+            echo "CLI=$CLI_VERSION CORE=$CORE_VERSION ESLINT=$ESLINT_VERSION"
+            exit 1
+          fi
+          echo "cli_version=$CLI_VERSION" >> "$GITHUB_OUTPUT"
+          echo "core_version=$CORE_VERSION" >> "$GITHUB_OUTPUT"
+          echo "eslint_version=$ESLINT_VERSION" >> "$GITHUB_OUTPUT"
+          echo "Resolved: CLI=$CLI_VERSION CORE=$CORE_VERSION ESLINT=$ESLINT_VERSION"
+
+      - name: Clone analyzer-testbed
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+        with:
+          repository: trevor-scheer/analyzer-testbed
+          path: testbed
+          token: ${{ secrets.GITHUB_TOKEN }}
+
+      - uses: pnpm/action-setup@b906affcce14559ad1aafd4ab0e942779e9f58b1 # v4
+        with:
+          version: 9
+
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        with:
+          node-version: 22
+          cache: pnpm
+          cache-dependency-path: testbed/pnpm-lock.yaml
+
+      - name: Bump @graphql-analyzer/* deps to released versions
+        working-directory: testbed
+        env:
+          CLI_VERSION: ${{ steps.versions.outputs.cli_version }}
+          CORE_VERSION: ${{ steps.versions.outputs.core_version }}
+          ESLINT_VERSION: ${{ steps.versions.outputs.eslint_version }}
+        run: |
+          # Use pnpm to bump each package in the workspace root and all apps/examples.
+          # --recursive hits all workspace packages; exact version pins the lockfile.
+          pnpm add --recursive --workspace-root \
+            "@graphql-analyzer/core@$CORE_VERSION" \
+            "@graphql-analyzer/eslint-plugin@$ESLINT_VERSION" \
+            2>/dev/null || true
+          # The CLI and LSP binaries are installed in CI from release artifacts,
+          # not via npm, so there is nothing to bump in package.json for them.
+          echo "Bumped npm deps. Running install..."
+
+      - name: Install testbed dependencies
+        working-directory: testbed
+        run: pnpm install --no-frozen-lockfile
+
+      - name: Install graphql-cli binary (released version)
+        env:
+          CLI_VERSION: ${{ steps.versions.outputs.cli_version }}
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          ASSET="graphql-cli-x86_64-unknown-linux-gnu.tar.xz"
+          gh release download "graphql-analyzer-cli/v${CLI_VERSION}" \
+            --repo trevor-scheer/graphql-analyzer \
+            --pattern "$ASSET" \
+            --dir /tmp/graphql-cli-release
+          mkdir -p ~/.local/bin
+          tar -xJf "/tmp/graphql-cli-release/$ASSET" -C ~/.local/bin/
+          chmod +x ~/.local/bin/graphql
+          echo "$HOME/.local/bin" >> "$GITHUB_PATH"
+          graphql --version
+
+      - name: Run testbed CI (lint + typecheck)
+        working-directory: testbed
+        run: |
+          # The released binary is installed on PATH as `graphql` (see prior
+          # step). It is not an npm-published `graphql-cli` package, so invoke
+          # it directly rather than through `pnpm`. The `check` subcommand
+          # has no positional path argument and `--project` is required when
+          # the discovered `.graphqlrc.yaml` defines multiple projects, which
+          # the testbed root config does. Run against the main app project,
+          # mirroring the testbed's own CI which runs `graphql validate
+          # --project web`.
+          graphql check --project web
+          pnpm lint
+          # Mirror the testbed's own CI script names rather than guessing.
+          # `apps/web` exposes Prisma codegen as `db:generate` (not `prisma`)
+          # and its tsc invocation as `tsc` (not `typecheck`). Examples expose
+          # `typecheck`. Relay needs its compiler to run first so generated
+          # artifacts exist before tsc sees them. The testbed has no root
+          # `tsconfig.json`; per-package typechecks are the source of truth.
+          pnpm --filter @analyzer-testbed/web db:generate
+          pnpm --filter @analyzer-testbed/web tsc
+          pnpm --filter @analyzer-testbed/example-relay relay
+          pnpm -r --if-present run typecheck
+
+      - name: Run expect-failure fixtures
+        working-directory: testbed
+        run: |
+          fail_if_passes() {
+            local project="$1"
+            if graphql check --project "$project"; then
+              echo "ERROR: $project exited 0 — expected errors but found none"
+              return 1
+            fi
+          }
+          fail_if_passes fixture-missing-fragment
+          fail_if_passes fixture-unknown-directive
+          fail_if_passes fixture-deprecated-field-usage
+          fail_if_passes fixture-selection-type-mismatch
+
+      - name: Open or update rolling failure issue
+        if: failure()
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          REPO: trevor-scheer/graphql-analyzer
+          TITLE: "Dogfood regression: testbed CI failed after release"
+          RELEASE_RUN_URL: ${{ github.event.workflow_run.html_url }}
+          DOGFOOD_RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+          CORE_VERSION: ${{ steps.versions.outputs.core_version }}
+          ESLINT_VERSION: ${{ steps.versions.outputs.eslint_version }}
+          CLI_VERSION: ${{ steps.versions.outputs.cli_version }}
+        run: |
+          # Single rolling issue: find an open one with this exact title and
+          # append a comment with the latest run details. Only fall through to
+          # `gh issue create` when none exists.
+          BODY="$(cat <<BODY
+          The **analyzer-testbed** CI failed after a release of graphql-analyzer.
+
+          **Triggered by release run:** ${RELEASE_RUN_URL}
+
+          **Versions under test:**
+          - \`@graphql-analyzer/core\`: ${CORE_VERSION}
+          - \`@graphql-analyzer/eslint-plugin\`: ${ESLINT_VERSION}
+          - \`graphql-cli\`: ${CLI_VERSION}
+
+          **Dogfood CI run:** ${DOGFOOD_RUN_URL}
+
+          Please investigate before the next release. The testbed CI log (linked above) has the full failure output.
+          BODY
+          )"
+
+          # `--search` matches title text; filter to exact-title open issues so
+          # near-misses (e.g. user-edited titles) don't suppress new reports.
+          EXISTING="$(gh issue list \
+            --repo "$REPO" \
+            --state open \
+            --label regression \
+            --search "in:title \"$TITLE\"" \
+            --json number,title \
+            --jq "[.[] | select(.title == \"$TITLE\")] | first | .number // empty")"
+
+          if [ -n "$EXISTING" ]; then
+            echo "Updating existing issue #$EXISTING"
+            gh issue comment "$EXISTING" --repo "$REPO" --body "$BODY"
+          else
+            echo "No existing rolling issue found; creating one"
+            gh issue create \
+              --repo "$REPO" \
+              --title "$TITLE" \
+              --label "bug,regression" \
+              --body "$BODY"
+          fi

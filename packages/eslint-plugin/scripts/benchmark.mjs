@@ -15,6 +15,8 @@ const lanes = ["fast", "compatible", "compatible-custom", "upstream", "upstream-
 const files = positiveInteger(process.env.BENCH_FILES, 50);
 const samples = positiveInteger(process.env.BENCH_SAMPLES, 3);
 const repeats = positiveInteger(process.env.BENCH_REPEATS, 3);
+const analyzerEslint = process.env.BENCH_ANALYZER_ESLINT ?? "eslint-v9";
+assert.ok(["eslint", "eslint-v9"].includes(analyzerEslint));
 
 function positiveInteger(value, fallback) {
   const parsed = value === undefined ? fallback : Number(value);
@@ -63,8 +65,8 @@ function checkMessages(results) {
 
 async function child(lane, directory) {
   const start = performance.now();
-  const { ESLint } = require("eslint");
   const upstream = lane.startsWith("upstream");
+  const { ESLint } = require(upstream ? "eslint-v9" : analyzerEslint);
   const plugin = upstream
     ? require("@graphql-eslint/eslint-plugin")
     : require("../dist/index.js").default;
@@ -273,7 +275,8 @@ async function main() {
           metadata: {
             date: new Date().toISOString(),
             node: process.version,
-            eslint: version("eslint"),
+            eslint: version(analyzerEslint),
+            upstreamEslint: version("eslint-v9"),
             upstream: version("@graphql-eslint/eslint-plugin"),
             graphql: version("graphql"),
             platform: `${os.platform()} ${os.arch()}`,

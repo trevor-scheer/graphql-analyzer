@@ -15,13 +15,17 @@ Add to your `init.lua`:
 ```lua
 require('lspconfig').graphql.setup {
   cmd = { 'graphql-lsp' },
-  filetypes = { 'graphql', 'typescriptreact', 'javascriptreact' },
+  filetypes = { 'graphql', 'typescript', 'typescriptreact', 'javascript', 'javascriptreact', 'vue', 'svelte', 'astro' },
   root_dir = require('lspconfig.util').root_pattern(
     '.graphqlrc*',
     'graphql.config.*'
   ),
 }
 ```
+
+:::note
+**Note:** Nvim 0.11+ users should prefer the new-style `vim.lsp.config` API. The built-in `graphql` server in nvim-lspconfig points to a different tool — always pass an explicit `cmd = { 'graphql-lsp' }` to use this project's LSP server.
+:::
 
 ## Custom binary path
 

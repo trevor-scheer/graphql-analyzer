@@ -1,6 +1,6 @@
 [package]
 name = "graphql-lsp"
-version = "0.2.3-alpha.0"
+version = "0.2.5"
 edition.workspace = true
 license.workspace = true
 repository.workspace = true
@@ -84,6 +84,9 @@ native = [
 wasm = [] # Placeholder for future wasm-only deps (tracing-wasm, etc.); current gating uses not(feature = "native")
 extract = ["dep:graphql-extract", "graphql-ide/extract", "graphql-syntax/extract", "graphql-linter/extract"]
 introspect = ["dep:graphql-introspect", "graphql-ide/introspect"]
+
+[dev-dependencies]
+tempfile = "3.25.0"
 
 [lints]
 workspace = true

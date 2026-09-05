@@ -201,6 +201,29 @@ graphql lint --watch
 graphql --project frontend lint
 ```
 
+### completions
+
+Generates a shell completion script for the `graphql` CLI on stdout. Redirect the output to the location your shell loads completions from.
+
+```bash
+graphql completions <SHELL>
+```
+
+**Supported shells:** `bash`, `zsh`, `fish`, `powershell`, `elvish`
+
+**Examples:**
+
+```bash
+# Bash
+graphql completions bash > ~/.local/share/bash-completion/completions/graphql
+
+# Zsh (target dir must be on $fpath)
+graphql completions zsh > ~/.zfunc/_graphql
+
+# Fish
+graphql completions fish > ~/.config/fish/completions/graphql.fish
+```
+
 ### check
 
 Runs both validation and linting in a single pass. This is the recommended command for most workflows as it's more efficient than running `validate` and `lint` separately.
@@ -392,7 +415,7 @@ jobs:
       - name: Install CLI
         run: |
           curl --proto '=https' --tlsv1.2 -LsSf \
-            https://github.com/trevor-scheer/graphql-analyzer/releases/latest/download/graphql-cli-installer.sh | sh
+            https://raw.githubusercontent.com/trevor-scheer/graphql-analyzer/main/scripts/install.sh | sh
       - name: Validate GraphQL
         run: graphql validate --format github
       - name: Lint GraphQL

@@ -17,6 +17,9 @@ pub enum FilenameStyle {
     /// `snake_case` (e.g., `get_user_by_id`)
     #[serde(rename = "snake_case")]
     SnakeCase,
+    /// `UPPER_CASE` (e.g., `GET_USER_BY_ID`)
+    #[serde(rename = "UPPER_CASE")]
+    UpperCase,
     /// kebab-case (e.g., `get-user-by-id`)
     #[serde(rename = "kebab-case")]
     KebabCase,
@@ -26,15 +29,87 @@ pub enum FilenameStyle {
     MatchDocumentStyle,
 }
 
-/// Per-definition-type configuration
-#[derive(Debug, Default, Clone, Deserialize)]
-#[serde(default)]
+/// Per-definition-type configuration.
+///
+/// Upstream allows this field to be either a plain style string (shorthand) or
+/// an object with `style`, `suffix`, and `prefix` keys. We implement a custom
+/// `Deserialize` that handles both forms.
+///
+/// When `style` is `None` the rule only checks prefix/suffix, leaving the name
+/// portion unconstrained — matching upstream's behaviour when `option.style` is
+/// absent from an object. When the struct is default-constructed (no config for
+/// this definition type), `style` is `Some(MatchDocumentStyle)`.
+#[derive(Debug, Clone)]
 pub struct DefinitionTypeConfig {
-    /// The naming style to enforce
-    pub style: FilenameStyle,
-    /// Optional suffix that should appear in the filename after the name
-    #[serde(default)]
+    /// The naming style to enforce. `None` means "don't check the name style"
+    /// (occurs when config is an object without a `style` key).
+    pub style: Option<FilenameStyle>,
+    /// Optional suffix appended after the styled name (e.g. `.query`)
     pub suffix: String,
+    /// Optional prefix prepended before the styled name (e.g. `mutation.`)
+    pub prefix: String,
+}
+
+impl Default for DefinitionTypeConfig {
+    fn default() -> Self {
+        Self {
+            style: Some(FilenameStyle::MatchDocumentStyle),
+            suffix: String::new(),
+            prefix: String::new(),
+        }
+    }
+}
+
+impl<'de> serde::Deserialize<'de> for DefinitionTypeConfig {
+    fn deserialize<D: serde::Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
+        use serde::de::{self, MapAccess, Visitor};
+        use std::fmt;
+
+        struct ConfigVisitor;
+
+        impl<'de> Visitor<'de> for ConfigVisitor {
+            type Value = DefinitionTypeConfig;
+
+            fn expecting(&self, f: &mut fmt::Formatter) -> fmt::Result {
+                write!(f, "a style string or a config object")
+            }
+
+            // String shorthand: `"matchDocumentStyle"`, `"PascalCase"`, etc.
+            fn visit_str<E: de::Error>(self, v: &str) -> Result<Self::Value, E> {
+                let style =
+                    FilenameStyle::deserialize(serde::de::value::StrDeserializer::<E>::new(v))?;
+                Ok(DefinitionTypeConfig {
+                    style: Some(style),
+                    suffix: String::new(),
+                    prefix: String::new(),
+                })
+            }
+
+            // Object form: `{ style: "...", suffix: "...", prefix: "..." }`
+            fn visit_map<A: MapAccess<'de>>(self, mut map: A) -> Result<Self::Value, A::Error> {
+                let mut style: Option<FilenameStyle> = None;
+                let mut suffix = String::new();
+                let mut prefix = String::new();
+                while let Some(key) = map.next_key::<String>()? {
+                    match key.as_str() {
+                        "style" => style = Some(map.next_value()?),
+                        "suffix" => suffix = map.next_value()?,
+                        "prefix" => prefix = map.next_value()?,
+                        _ => {
+                            map.next_value::<serde_json::Value>()?;
+                        }
+                    }
+                }
+                Ok(DefinitionTypeConfig {
+                    style,
+                    suffix,
+                    prefix,
+                })
+            }
+        }
+
+        deserializer.deserialize_any(ConfigVisitor)
+    }
 }
 
 /// Options for the `matchDocumentFilename` rule
@@ -130,6 +205,27 @@ impl StandaloneDocumentLintRule for MatchDocumentFilenameRuleImpl {
         for doc in parse.documents() {
             let doc_cst = doc.tree.document();
 
+            // MATCH_EXTENSION: upstream checks the extension before looking at
+            // operation/fragment names, so it fires even for anonymous operations.
+            // Use offset 0 (start of file) as the anchor span for extension errors.
+            let extension_anchor = doc.span(0, 0);
+            if let Some(expected_ext) = opts.file_extension.as_deref() {
+                if let Some(actual) = actual_extension.as_deref() {
+                    if actual != expected_ext {
+                        diagnostics.push(
+                            LintDiagnostic::warning(
+                                extension_anchor,
+                                format!(
+                                    "File extension \"{actual}\" don't match extension \"{expected_ext}\""
+                                ),
+                                "matchDocumentFilename",
+                            )
+                            .with_message_id("MATCH_EXTENSION"),
+                        );
+                    }
+                }
+            }
+
             // graphql-eslint reports at most one filename diagnostic per document,
             // selecting `firstOperation || firstFragment` and pointing at the
             // first character of the file. We mirror that here.
@@ -183,27 +279,13 @@ impl StandaloneDocumentLintRule for MatchDocumentFilenameRuleImpl {
 
             let anchor_span = doc.span(target_start, target_start);
 
-            // MATCH_EXTENSION: emit before MATCH_STYLE so ordering matches the
-            // upstream rule (extension check runs first in `Document(documentNode)`).
-            if let Some(expected_ext) = opts.file_extension.as_deref() {
-                if let Some(actual) = actual_extension.as_deref() {
-                    if actual != expected_ext {
-                        diagnostics.push(
-                            LintDiagnostic::warning(
-                                anchor_span.clone(),
-                                format!(
-                                    "File extension \"{actual}\" don't match extension \"{expected_ext}\""
-                                ),
-                                "matchDocumentFilename",
-                            )
-                            .with_message_id("MATCH_EXTENSION"),
-                        );
-                    }
-                }
-            }
-
-            let expected_filename =
-                build_expected_filename(&name_text, config.style, &config.suffix);
+            let expected_filename = build_expected_filename(
+                &name_text,
+                config.style,
+                &config.prefix,
+                &config.suffix,
+                &filename_stem,
+            );
 
             if expected_filename != filename_stem {
                 // graphql-eslint reports the *full* filename (stem + extension)
@@ -262,17 +344,29 @@ fn extract_filename_parts(uri: &str) -> Option<(String, Option<String>)> {
     Some((filename.to_string(), None))
 }
 
-/// Build the expected filename from a definition name, applying the given style
-/// and optional suffix.
-fn build_expected_filename(name: &str, style: FilenameStyle, suffix: &str) -> String {
+/// Build the expected filename from a definition name, applying the given style,
+/// prefix, and suffix. Mirrors upstream's `convertCase` + prefix/suffix logic.
+///
+/// When `style` is `None` (no style key in the config object), the actual
+/// `filename_stem` is used in place of a converted name — matching upstream's
+/// behaviour where `option.style` is absent.
+fn build_expected_filename(
+    name: &str,
+    style: Option<FilenameStyle>,
+    prefix: &str,
+    suffix: &str,
+    filename_stem: &str,
+) -> String {
     let styled = match style {
-        FilenameStyle::MatchDocumentStyle => name.to_string(),
-        FilenameStyle::CamelCase => to_camel_case(name),
-        FilenameStyle::PascalCase => to_pascal_case(name),
-        FilenameStyle::SnakeCase => to_snake_case(name),
-        FilenameStyle::KebabCase => to_kebab_case(name),
+        None => filename_stem.to_string(),
+        Some(FilenameStyle::MatchDocumentStyle) => name.to_string(),
+        Some(FilenameStyle::CamelCase) => to_camel_case(name),
+        Some(FilenameStyle::PascalCase) => to_pascal_case(name),
+        Some(FilenameStyle::SnakeCase) => to_snake_case(name),
+        Some(FilenameStyle::UpperCase) => to_upper_case(name),
+        Some(FilenameStyle::KebabCase) => to_kebab_case(name),
     };
-    format!("{styled}{suffix}")
+    format!("{prefix}{styled}{suffix}")
 }
 
 /// Split a name into its word components. Handles `PascalCase`, `camelCase`,
@@ -341,6 +435,15 @@ fn to_snake_case(name: &str) -> String {
     words
         .iter()
         .map(|w| w.to_lowercase())
+        .collect::<Vec<_>>()
+        .join("_")
+}
+
+fn to_upper_case(name: &str) -> String {
+    let words = split_words(name);
+    words
+        .iter()
+        .map(|w| w.to_uppercase())
         .collect::<Vec<_>>()
         .join("_")
 }

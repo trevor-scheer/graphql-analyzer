@@ -99,10 +99,7 @@ extensions:
       unused_fields: warn # Detect unused schema fields
       no_deprecated: warn # Warn on deprecated field usage
   extractConfig:
-    tagIdentifiers:
-      - gql
-      - graphql
-    requireImport: false # Allow gql without import
+    globalGqlIdentifierName: ["gql", "graphql"] # Bare gql/graphql tags work without an import
 ```
 
 ## Testing the LSP

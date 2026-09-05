@@ -14,15 +14,17 @@ changes when migrating from GraphQL-ESLint.
 Install the plugin and its GraphQL peer dependency:
 
 ```sh
-npm install --save-dev @graphql-analyzer/eslint-plugin@alpha graphql@^16.5.0
+npm install --save-dev @graphql-analyzer/eslint-plugin graphql@^16.5.0
 ```
 
-Requires Node.js 18+ and ESLint 8.40+ or 9.x with flat config. npm installs the
-native addon for your platform through optional dependencies.
+Supports ESLint 8.40+, 9.x, and 10.x with flat config. Use a Node.js version
+supported by your ESLint version; the native addon supports Node.js 18+.
+npm installs the native addon for your platform through optional dependencies.
 
 ## Use native rules
 
-Enable native rules in your GraphQL project configuration:
+Set schema and documents in your GraphQL project configuration. You can also
+set native rule defaults there:
 
 ```yaml
 # .graphqlrc.yaml
@@ -51,8 +53,9 @@ export default [
 ];
 ```
 
-Native rule options belong in `.graphqlrc.yaml`; ESLint rule options are not
-forwarded to Rust. The native engine supports one project per config.
+ESLint enables native rules and forwards explicit rule options to Rust. These
+options take precedence over the corresponding `.graphqlrc.yaml` options.
+The native engine routes files to the matching project in multi-project configs.
 
 ## Add custom rules
 

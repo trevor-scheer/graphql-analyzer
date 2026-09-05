@@ -259,7 +259,7 @@ pub struct FullLintConfig {
 /// lint:
 ///   extends: [recommended, strict]
 ///   rules:
-///     requireIdField: off
+///     requireSelections: off
 /// ```
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(untagged)]
@@ -282,6 +282,31 @@ impl Default for LintConfig {
 }
 
 impl LintConfig {
+    /// Apply per-rule overrides on top of this config and return the merged
+    /// result. Each override entry fully replaces the corresponding rule's
+    /// config (severity + options) — matches `ESLint` convention where the
+    /// per-rule entry replaces rather than deep-merges.
+    ///
+    /// Used by callers that layer runtime configuration (e.g. `ESLint`'s
+    /// `rules: { rule: [severity, options] }`) on top of the persistent
+    /// `.graphqlrc.yaml` config without mutating the persistent state.
+    /// Promotes a `Preset` config to `Full` so overrides have somewhere to
+    /// live.
+    #[must_use]
+    pub fn with_overrides(self, overrides: HashMap<String, LintRuleConfig>) -> Self {
+        if overrides.is_empty() {
+            return self;
+        }
+        let (extends, mut rules) = match self {
+            Self::Preset(presets) => (Some(presets), HashMap::new()),
+            Self::Full(FullLintConfig { extends, rules }) => (extends, rules),
+        };
+        for (name, override_cfg) in overrides {
+            rules.insert(name, override_cfg);
+        }
+        Self::Full(FullLintConfig { extends, rules })
+    }
+
     /// Validate the lint configuration against available rules
     ///
     /// Returns an error if any configured rule names are invalid.
@@ -473,7 +498,7 @@ rules:
             config.get_severity("noDeprecated"),
             Some(LintSeverity::Warn)
         );
-        assert_eq!(config.get_severity("requireIdField"), None);
+        assert_eq!(config.get_severity("requireSelections"), None);
     }
 
     #[test]
@@ -484,10 +509,10 @@ rules:
   noDeprecated: off
 ";
         let config: LintConfig = serde_saphyr::from_str(yaml).unwrap();
-        // uniqueNames and requireIdField are not in recommended (opinionated rules)
+        // uniqueNames and requireSelections are not in recommended (opinionated rules)
         assert!(!config.is_enabled("uniqueNames"));
         assert!(!config.is_enabled("noDeprecated"));
-        assert!(!config.is_enabled("requireIdField"));
+        assert!(!config.is_enabled("requireSelections"));
     }
 
     #[test]
@@ -509,12 +534,12 @@ rules:
 extends: recommended
 rules:
   uniqueNames: warn
-  requireIdField: off
+  requireSelections: off
 ";
         let config: LintConfig = serde_saphyr::from_str(yaml).unwrap();
         assert_eq!(config.get_severity("uniqueNames"), Some(LintSeverity::Warn));
         assert_eq!(
-            config.get_severity("requireIdField"),
+            config.get_severity("requireSelections"),
             Some(LintSeverity::Off)
         );
         assert_eq!(
@@ -569,16 +594,16 @@ rules:
     fn test_eslint_array_style() {
         let yaml = r#"
 rules:
-  requireIdField: [warn, { fields: ["id", "nodeId"] }]
+  requireSelections: [warn, { fieldName: ["id", "nodeId"] }]
 "#;
         let config: LintConfig = serde_saphyr::from_str(yaml).unwrap();
         assert_eq!(
-            config.get_severity("requireIdField"),
+            config.get_severity("requireSelections"),
             Some(LintSeverity::Warn)
         );
 
-        let options = config.get_options("requireIdField").unwrap();
-        let fields = options.get("fields").unwrap().as_array().unwrap();
+        let options = config.get_options("requireSelections").unwrap();
+        let fields = options.get("fieldName").unwrap().as_array().unwrap();
         assert_eq!(fields.len(), 2);
         assert_eq!(fields[0].as_str().unwrap(), "id");
         assert_eq!(fields[1].as_str().unwrap(), "nodeId");
@@ -588,33 +613,33 @@ rules:
     fn test_eslint_array_style_severity_only() {
         let yaml = r"
 rules:
-  requireIdField: [error]
+  requireSelections: [error]
 ";
         let config: LintConfig = serde_saphyr::from_str(yaml).unwrap();
         assert_eq!(
-            config.get_severity("requireIdField"),
+            config.get_severity("requireSelections"),
             Some(LintSeverity::Error)
         );
-        assert!(config.get_options("requireIdField").is_none());
+        assert!(config.get_options("requireSelections").is_none());
     }
 
     #[test]
     fn test_object_style_with_options() {
         let yaml = r#"
 rules:
-  requireIdField:
+  requireSelections:
     severity: warn
     options:
-      fields: ["id", "uuid"]
+      fieldName: ["id", "uuid"]
 "#;
         let config: LintConfig = serde_saphyr::from_str(yaml).unwrap();
         assert_eq!(
-            config.get_severity("requireIdField"),
+            config.get_severity("requireSelections"),
             Some(LintSeverity::Warn)
         );
 
-        let options = config.get_options("requireIdField").unwrap();
-        let fields = options.get("fields").unwrap().as_array().unwrap();
+        let options = config.get_options("requireSelections").unwrap();
+        let fields = options.get("fieldName").unwrap().as_array().unwrap();
         assert_eq!(fields.len(), 2);
         assert_eq!(fields[0].as_str().unwrap(), "id");
         assert_eq!(fields[1].as_str().unwrap(), "uuid");
@@ -624,27 +649,27 @@ rules:
     fn test_get_options_returns_none_for_simple_severity() {
         let yaml = r"
 rules:
-  requireIdField: warn
+  requireSelections: warn
 ";
         let config: LintConfig = serde_saphyr::from_str(yaml).unwrap();
-        assert!(config.get_options("requireIdField").is_none());
+        assert!(config.get_options("requireSelections").is_none());
     }
 
     #[test]
     fn test_get_options_returns_none_for_preset() {
         let config = LintConfig::recommended();
-        assert!(config.get_options("requireIdField").is_none());
+        assert!(config.get_options("requireSelections").is_none());
     }
 
     #[test]
     fn test_mixed_rule_configs() {
-        let yaml = r#"
+        let yaml = r"
 rules:
   noDeprecated: warn
-  requireIdField: [error, { fields: ["id"] }]
+  requireSelections: [error, { requireAllFields: true }]
   uniqueNames:
     severity: error
-"#;
+";
         let config: LintConfig = serde_saphyr::from_str(yaml).unwrap();
 
         // Simple severity
@@ -656,10 +681,10 @@ rules:
 
         // ESLint array style
         assert_eq!(
-            config.get_severity("requireIdField"),
+            config.get_severity("requireSelections"),
             Some(LintSeverity::Error)
         );
-        assert!(config.get_options("requireIdField").is_some());
+        assert!(config.get_options("requireSelections").is_some());
 
         // Object style without options
         assert_eq!(

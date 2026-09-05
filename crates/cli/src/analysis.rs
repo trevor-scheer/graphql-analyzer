@@ -6,9 +6,21 @@
 
 use anyhow::{Context, Result};
 use graphql_config::ProjectConfig;
-use graphql_ide::{AnalysisHost, Diagnostic, DocumentKind, FilePath, Language};
+use graphql_ide::{path_to_file_uri, AnalysisHost, Diagnostic, DocumentKind, FilePath, Language};
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
+
+/// Build a [`FilePath`] for a schema file matching how
+/// `AnalysisHost::load_schemas_from_config` registers them.
+///
+/// On Windows, schemas are registered via `path_to_file_uri` (which converts
+/// backslashes to forward slashes in the URI), while documents go through
+/// `FilePath::from_path` (which preserves backslashes). Looking up a schema
+/// by `FilePath::from_path` therefore misses on Windows and returns no
+/// diagnostics. This helper picks the schema-side path representation.
+fn schema_file_path(path: &Path) -> FilePath {
+    FilePath::new(path_to_file_uri(path))
+}
 
 /// CLI adapter for `AnalysisHost`
 ///
@@ -67,29 +79,13 @@ impl CliAnalysisHost {
             tracing::debug!("No lint configuration found in project config, using defaults");
         }
 
-        if let Some(ref extensions) = project_config.extensions {
-            if let Some(extract_config_value) = extensions.get("extractConfig") {
-                tracing::debug!("Raw extract configuration: {extract_config_value:?}");
-                match serde_json::from_value::<graphql_extract::ExtractConfig>(
-                    extract_config_value.clone(),
-                ) {
-                    Ok(extract_config) => {
-                        tracing::info!("Loaded extract configuration from project config");
-                        tracing::debug!(
-                            allow_global_identifiers = extract_config.allow_global_identifiers,
-                            tag_identifiers = ?extract_config.tag_identifiers,
-                            "Parsed extract config"
-                        );
-                        host.set_extract_config(extract_config);
-                    }
-                    Err(e) => {
-                        tracing::warn!(
-                            "Failed to parse extract configuration: {e}, using defaults"
-                        );
-                    }
-                }
-            }
-        }
+        let extract_config = Self::resolve_extract_config(project_config)?;
+        tracing::debug!(
+            global_gql_identifier_name = ?extract_config.global_gql_identifier_name,
+            module_count = extract_config.modules.len(),
+            "Resolved extract config"
+        );
+        host.set_extract_config(extract_config.clone());
 
         let schema_result = host.load_schemas_from_config(project_config, base_dir)?;
 
@@ -131,9 +127,11 @@ impl CliAnalysisHost {
                     _ => (Language::GraphQL, DocumentKind::Executable),
                 };
 
-                // For TS/JS files, extract GraphQL first
+                // For TS/JS files, extract GraphQL first using the same effective
+                // extract config we hand to the analysis host. Using the default
+                // here would silently drop bare `gql`...` tags (no import) and
+                // mis-classify the file as having no GraphQL at all (issue #1035).
                 let graphql_content = if language.requires_extraction() {
-                    let extract_config = graphql_extract::ExtractConfig::default();
                     graphql_extract::extract_from_source(
                         content,
                         language,
@@ -267,6 +265,24 @@ impl CliAnalysisHost {
         Ok(files)
     }
 
+    /// Resolve the effective `ExtractConfig` for the CLI.
+    ///
+    /// Thin wrapper around `graphql_extract::resolve_for_documents` that pulls
+    /// the user override out of the project's `extensions.graphql-analyzer.extractConfig`
+    /// (or its `pluckConfig` alias). CLI users explicitly enumerate document
+    /// files via `documents:` globs, so the helper's permissive default is the
+    /// right choice here (issue #1035).
+    ///
+    /// Returns an error if both `extractConfig` and `pluckConfig` are set.
+    fn resolve_extract_config(
+        project_config: &ProjectConfig,
+    ) -> anyhow::Result<graphql_extract::ExtractConfig> {
+        let extract_value = project_config.extract_config()?;
+        Ok(graphql_extract::resolve_for_documents(
+            extract_value.as_ref(),
+        ))
+    }
+
     /// Expand brace patterns like "src/**/*.{ts,tsx}" into separate patterns
     fn expand_braces(pattern: &str) -> Vec<String> {
         // Simple brace expansion - handles single brace group
@@ -299,7 +315,7 @@ impl CliAnalysisHost {
         let mut results = HashMap::new();
 
         for path in &self.schema_files {
-            let file_path = FilePath::from_path(path);
+            let file_path = schema_file_path(path);
             let diagnostics = snapshot.validation_diagnostics(&file_path);
 
             if !diagnostics.is_empty() {
@@ -334,14 +350,25 @@ impl CliAnalysisHost {
         let snapshot = self.host.snapshot();
         let mut results = HashMap::new();
 
-        // Lint document files (schema files don't have lint rules)
-        for (idx, path) in self.document_files.iter().enumerate() {
+        // Walk both schema and document files so schema-only rules
+        // (e.g. `noUnreachableTypes`) fire from `graphql lint` / `graphql
+        // check`. The per-file `lint_diagnostics` query dispatches to the
+        // appropriate rule set based on each file's `DocumentKind`.
+        let all_files = self
+            .schema_files
+            .iter()
+            .map(|p| (p, schema_file_path(p)))
+            .chain(
+                self.document_files
+                    .iter()
+                    .map(|p| (p, FilePath::from_path(p))),
+            );
+        for (idx, (path, file_path)) in all_files.enumerate() {
             tracing::debug!(
                 file = %path.display(),
-                progress = format!("{}/{}", idx + 1, self.document_files.len()),
+                progress = format!("{}/{}", idx + 1, total_files),
                 "Checking file for lint issues"
             );
-            let file_path = FilePath::from_path(path);
             let diagnostics = snapshot.lint_diagnostics(&file_path);
 
             if !diagnostics.is_empty() {
@@ -493,9 +520,18 @@ impl CliAnalysisHost {
         let snapshot = self.host.snapshot();
         let mut results = HashMap::new();
 
-        // Get file-level lint diagnostics with fixes
-        for path in &self.document_files {
-            let file_path = FilePath::from_path(path);
+        // Walk both schema and document files so schema-only rules contribute
+        // their fixes to `graphql fix` (mirrors `all_lint_diagnostics`).
+        let all_files = self
+            .schema_files
+            .iter()
+            .map(|p| (p, schema_file_path(p)))
+            .chain(
+                self.document_files
+                    .iter()
+                    .map(|p| (p, FilePath::from_path(p))),
+            );
+        for (path, file_path) in all_files {
             let diagnostics = snapshot.lint_diagnostics_with_fixes(&file_path);
 
             if !diagnostics.is_empty() {
@@ -780,6 +816,61 @@ mod tests {
     }
 
     #[test]
+    fn test_all_lint_diagnostics_runs_schema_only_rules() {
+        // Regression for #1061: `all_lint_diagnostics` only walked
+        // `document_files`, so schema-only rules (e.g. `noUnreachableTypes`)
+        // never fired from `graphql lint` / `graphql check`.
+        use graphql_config::{ProjectConfig, SchemaConfig};
+        use std::io::Write;
+        use tempfile::TempDir;
+
+        let temp_dir = TempDir::new().unwrap();
+        let workspace_path = temp_dir.path();
+
+        let schema_dir = workspace_path.join("schema");
+        std::fs::create_dir(&schema_dir).unwrap();
+        let mut schema_file = std::fs::File::create(schema_dir.join("schema.graphql")).unwrap();
+        writeln!(schema_file, "type Query {{ hello: String }}").unwrap();
+        // Type that no root operation can reach. `noUnreachableTypes` should
+        // flag it, but only if the rule actually runs over schema files.
+        writeln!(schema_file, "type Orphan {{ id: ID! }}").unwrap();
+
+        let analyzer_ext = serde_json::json!({
+            "lint": { "rules": { "noUnreachableTypes": "warn" } },
+        });
+        let extensions = HashMap::from([("graphql-analyzer".to_string(), analyzer_ext)]);
+
+        let project_config = ProjectConfig::new(
+            SchemaConfig::Path("schema/*.graphql".to_string()),
+            None,
+            None,
+            None,
+            Some(extensions),
+        );
+
+        let host = CliAnalysisHost::from_project_config(&project_config, workspace_path).unwrap();
+        let diagnostics = host.all_lint_diagnostics();
+
+        // Look up by filename rather than full path: on Windows, `tempfile`
+        // and `glob` can disagree on short-name (`RUNNER~1`) vs. long-name
+        // representations of the temp dir, so PathBuf equality is unreliable.
+        let schema_diags = diagnostics
+            .iter()
+            .find_map(|(p, d)| {
+                (p.file_name() == Some(std::ffi::OsStr::new("schema.graphql"))).then_some(d)
+            })
+            .unwrap_or_else(|| {
+                panic!("expected lint diagnostics for schema.graphql, got: {diagnostics:?}")
+            });
+        assert!(
+            schema_diags
+                .iter()
+                .any(|d| d.message.contains("Orphan") || d.message.contains("noUnreachableTypes")),
+            "expected `noUnreachableTypes` violation for `Orphan`, got: {schema_diags:?}",
+        );
+    }
+
+    #[test]
     fn test_schema_loaded_false_when_no_schema_files_match() {
         use graphql_config::{ProjectConfig, SchemaConfig};
         use tempfile::TempDir;
@@ -798,5 +889,239 @@ mod tests {
 
         let host = CliAnalysisHost::from_project_config(&project_config, workspace_path).unwrap();
         assert!(!host.schema_loaded());
+    }
+
+    #[test]
+    fn test_resolve_extract_config_defaults_to_permissive() {
+        use graphql_config::{ProjectConfig, SchemaConfig};
+
+        let project_config = ProjectConfig::new(
+            SchemaConfig::Path("schema.graphql".to_string()),
+            None,
+            None,
+            None,
+            None,
+        );
+
+        let cfg = CliAnalysisHost::resolve_extract_config(&project_config).unwrap();
+        assert_eq!(
+            cfg.global_gql_identifier_name,
+            vec!["gql".to_string(), "graphql".to_string()],
+            "CLI default should keep pluck's permissive globalGqlIdentifierName (issue #1035)"
+        );
+    }
+
+    #[test]
+    fn test_resolve_extract_config_honors_user_strict_mode() {
+        use graphql_config::{ProjectConfig, SchemaConfig};
+        use std::collections::HashMap;
+
+        let mut analyzer = serde_json::Map::new();
+        analyzer.insert(
+            "extractConfig".to_string(),
+            serde_json::json!({ "globalGqlIdentifierName": false }),
+        );
+        let mut extensions = HashMap::new();
+        extensions.insert(
+            "graphql-analyzer".to_string(),
+            serde_json::Value::Object(analyzer),
+        );
+
+        let project_config = ProjectConfig::new(
+            SchemaConfig::Path("schema.graphql".to_string()),
+            None,
+            None,
+            None,
+            Some(extensions),
+        );
+
+        let cfg = CliAnalysisHost::resolve_extract_config(&project_config).unwrap();
+        assert!(
+            cfg.global_gql_identifier_name.is_empty(),
+            "explicit globalGqlIdentifierName: false should disable bare extraction"
+        );
+    }
+
+    #[test]
+    fn test_resolve_extract_config_merges_partial_user_config() {
+        use graphql_config::{ProjectConfig, SchemaConfig};
+        use std::collections::HashMap;
+
+        // User overrides only modules; other fields keep defaults.
+        let mut analyzer = serde_json::Map::new();
+        analyzer.insert(
+            "extractConfig".to_string(),
+            serde_json::json!({ "modules": ["my-tag-lib"] }),
+        );
+        let mut extensions = HashMap::new();
+        extensions.insert(
+            "graphql-analyzer".to_string(),
+            serde_json::Value::Object(analyzer),
+        );
+
+        let project_config = ProjectConfig::new(
+            SchemaConfig::Path("schema.graphql".to_string()),
+            None,
+            None,
+            None,
+            Some(extensions),
+        );
+
+        let cfg = CliAnalysisHost::resolve_extract_config(&project_config).unwrap();
+        assert_eq!(cfg.modules.len(), 1);
+        assert_eq!(cfg.modules[0].name, "my-tag-lib");
+        assert_eq!(
+            cfg.global_gql_identifier_name,
+            vec!["gql".to_string(), "graphql".to_string()],
+            "unset fields should keep defaults"
+        );
+    }
+
+    #[test]
+    fn test_resolve_extract_config_accepts_pluck_config_alias() {
+        use graphql_config::{ProjectConfig, SchemaConfig};
+        use std::collections::HashMap;
+
+        // Users migrating from @graphql-tools/graphql-tag-pluck can paste
+        // their pluck config under the `pluckConfig` key — same shape, same
+        // defaults.
+        let mut analyzer = serde_json::Map::new();
+        analyzer.insert(
+            "pluckConfig".to_string(),
+            serde_json::json!({
+                "modules": [{ "name": "@apollo/client", "identifier": "gql" }],
+                "globalGqlIdentifierName": ["gql"],
+            }),
+        );
+        let mut extensions = HashMap::new();
+        extensions.insert(
+            "graphql-analyzer".to_string(),
+            serde_json::Value::Object(analyzer),
+        );
+
+        let project_config = ProjectConfig::new(
+            SchemaConfig::Path("schema.graphql".to_string()),
+            None,
+            None,
+            None,
+            Some(extensions),
+        );
+
+        let cfg = CliAnalysisHost::resolve_extract_config(&project_config).unwrap();
+        assert_eq!(cfg.modules.len(), 1);
+        assert_eq!(cfg.modules[0].name, "@apollo/client");
+        assert_eq!(cfg.modules[0].identifier.as_deref(), Some("gql"));
+        assert_eq!(cfg.global_gql_identifier_name, vec!["gql".to_string()]);
+    }
+
+    #[test]
+    fn test_resolve_extract_config_errors_when_both_keys_set() {
+        use graphql_config::{ProjectConfig, SchemaConfig};
+        use std::collections::HashMap;
+
+        let mut analyzer = serde_json::Map::new();
+        analyzer.insert(
+            "extractConfig".to_string(),
+            serde_json::json!({ "globalGqlIdentifierName": ["gql"] }),
+        );
+        analyzer.insert(
+            "pluckConfig".to_string(),
+            serde_json::json!({ "globalGqlIdentifierName": ["graphql"] }),
+        );
+        let mut extensions = HashMap::new();
+        extensions.insert(
+            "graphql-analyzer".to_string(),
+            serde_json::Value::Object(analyzer),
+        );
+
+        let project_config = ProjectConfig::new(
+            SchemaConfig::Path("schema.graphql".to_string()),
+            None,
+            None,
+            None,
+            Some(extensions),
+        );
+
+        let err = CliAnalysisHost::resolve_extract_config(&project_config).unwrap_err();
+        let msg = format!("{err}");
+        assert!(
+            msg.contains("extractConfig") && msg.contains("pluckConfig"),
+            "error should mention both keys, got: {msg}"
+        );
+    }
+
+    /// Regression test for issue #1035.
+    ///
+    /// A fragment defined in a `.ts` file via a bare `gql` tag (no import,
+    /// no explicit `extractConfig`) should be visible to `.graphql` operation
+    /// files in the same project. Previously the CLI's default `ExtractConfig`
+    /// kept `allow_global_identifiers: false`, so the bare `gql` tag was
+    /// skipped entirely — the fragment never reached the project index, and
+    /// the operation reported `cannot find fragment X`.
+    #[test]
+    fn test_ts_fragment_resolves_into_graphql_operation_without_import() {
+        use graphql_config::{DocumentsConfig, ProjectConfig, SchemaConfig};
+        use std::io::Write;
+        use tempfile::TempDir;
+
+        let temp_dir = TempDir::new().unwrap();
+        let workspace_path = temp_dir.path();
+
+        let schema_dir = workspace_path.join("graphql");
+        std::fs::create_dir(&schema_dir).unwrap();
+        let mut schema_file = std::fs::File::create(schema_dir.join("schema.graphql")).unwrap();
+        writeln!(schema_file, "type Query {{ pokemon(id: ID!): Pokemon }}").unwrap();
+        writeln!(
+            schema_file,
+            "type Pokemon {{ id: ID!, name: String!, flavorText: String }}"
+        )
+        .unwrap();
+
+        let fragments_dir = workspace_path.join("graphql/fragments");
+        std::fs::create_dir(&fragments_dir).unwrap();
+        let mut fragment_file =
+            std::fs::File::create(fragments_dir.join("PokemonDetail.fragment.ts")).unwrap();
+        // Bare `gql` tag - no import, no `extractConfig` in project config.
+        writeln!(fragment_file, "export const POKEMON_DETAIL_FRAGMENT = gql`").unwrap();
+        writeln!(
+            fragment_file,
+            "  fragment PokemonDetail on Pokemon {{ id name flavorText }}"
+        )
+        .unwrap();
+        writeln!(fragment_file, "`;").unwrap();
+
+        let operations_dir = workspace_path.join("graphql/operations");
+        std::fs::create_dir(&operations_dir).unwrap();
+        let mut op_file =
+            std::fs::File::create(operations_dir.join("PokemonDetail.graphql")).unwrap();
+        writeln!(op_file, "query PokemonDetail($id: ID!) {{").unwrap();
+        writeln!(op_file, "  pokemon(id: $id) {{ ...PokemonDetail }}").unwrap();
+        writeln!(op_file, "}}").unwrap();
+
+        let project_config = ProjectConfig::new(
+            SchemaConfig::Path("graphql/*.graphql".to_string()),
+            Some(DocumentsConfig::Patterns(vec![
+                "graphql/fragments/*.ts".to_string(),
+                "graphql/operations/*.graphql".to_string(),
+            ])),
+            None,
+            None,
+            None,
+        );
+
+        let host = CliAnalysisHost::from_project_config(&project_config, workspace_path)
+            .expect("project should load");
+
+        let diagnostics = host.all_validation_diagnostics();
+        let messages: Vec<String> = diagnostics
+            .values()
+            .flat_map(|diags| diags.iter())
+            .filter(|d| d.severity == graphql_ide::DiagnosticSeverity::Error)
+            .map(|d| d.message.clone())
+            .collect();
+        assert!(
+            messages.is_empty(),
+            "expected no validation errors but got: {messages:#?}",
+        );
     }
 }

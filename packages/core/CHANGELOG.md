@@ -2,6 +2,62 @@
 
 All notable changes to `@graphql-analyzer/core` (the Rust analyzer callable
 from Node.js) will be documented in this file.
+## 0.1.3 (2026-05-04)
+
+### Features
+
+#### Restructure `extensions.graphql-analyzer.extractConfig` to mirror [`@graphql-tools/graphql-tag-pluck`](https://the-guild.dev/graphql/tools/docs/graphql-tag-pluck), so users coming from `@graphql-eslint` (or any pluck-based pipeline) can paste their pluck config directly. Also accepts a `pluckConfig` alias for the same block.
+
+**Field migration (breaking):**
+
+| Old key                  | New key                          | Notes                                                                                     |
+| ------------------------ | -------------------------------- | ----------------------------------------------------------------------------------------- |
+| `magicComment`           | `gqlMagicComment`                | Default changed: `"GraphQL"` → `"graphql"` (pluck convention).                            |
+| `tagIdentifiers`         | _(removed)_                      | Pluck has no equivalent — bare-tag names live in `globalGqlIdentifierName`; module-bound names are derived from imports. |
+| `allowGlobalIdentifiers` | _(removed)_                      | Replaced by `globalGqlIdentifierName`. `false` and `[]` both disable bare extraction.    |
+| `modules: string[]`      | `modules: Array<string \| { name, identifier? }>` | Per-module `identifier` constrains which export from the module is recognized as the GraphQL tag. Strings remain accepted as shorthand for `{ name }`. |
+
+**Behavioral changes (breaking):**
+
+- The default `gqlMagicComment` is now `"graphql"` (lowercase) instead of `"GraphQL"`. Comments like `/* GraphQL */ \`...\`` no longer trigger extraction unless `gqlMagicComment` is explicitly set back.
+- The default modules list now matches pluck's, **excluding the legacy unscoped `apollo-*` packages** (`apollo-server*`, `apollo-boost`, `apollo-angular`). Modern Apollo lives at `@apollo/client(/core)`; users on a legacy stack should add the relevant module to `modules` explicitly.
+- Named imports from a module without an `identifier` constraint (e.g. `graphql-tag`) are no longer tracked — they fall through to `globalGqlIdentifierName` (matches pluck). The default global list (`["gql", "graphql"]`) covers the common case; a renamed import like `import { gql as customGql } from "graphql-tag"` only works if `customGql` is added to `globalGqlIdentifierName`.
+- Setting both `extractConfig` and `pluckConfig` on the same project is now a configuration error.
+
+**New options:**
+
+- `gqlVueBlock` — Vue SFC block name for raw GraphQL in custom `<graphql>` blocks.
+- `skipIndent` — strip common leading whitespace from extracted GraphQL.
+
+**Pluck migration example:**
+
+```yaml
+## Paste your pluck config under `pluckConfig` (or `extractConfig` — same shape)
+extensions:
+  graphql-analyzer:
+    pluckConfig:
+      modules:
+        - graphql-tag
+        - { name: "@apollo/client", identifier: gql }
+      globalGqlIdentifierName: ["gql", "graphql"]
+```
+
+## 0.1.2 (2026-05-01)
+
+### Fixes
+
+- Fix `validate`, the LSP server, and the napi-based ESLint integration failing to resolve fragments defined in `.ts`/`.js` document files when the `gql` tag has no matching `import { gql } from ...` declaration. All three loading paths now default `extractConfig.allowGlobalIdentifiers` to `true` for files that the user has explicitly listed via `documents:`. Set `extensions.graphql-analyzer.extractConfig.allowGlobalIdentifiers: false` to opt back into the strict behavior. The napi loader additionally now reads `extractConfig` from the modern `extensions.graphql-analyzer.extractConfig` namespace (it was previously looking at the legacy `extensions.extractConfig`). ([#1035](https://github.com/trevor-scheer/graphql-analyzer/issues/1035))
+
+## 0.1.1 (2026-04-27)
+
+### Features
+
+- `@graphql-analyzer/eslint-plugin` is now a true drop-in replacement for `@graphql-eslint/eslint-plugin`. ESLint `rules: { rule: [severity, options] }` payloads now reach the analyzer; embedded GraphQL in JS/TS hosts is extracted by the processor with positions remapped back to the host file; multi-project `.graphqlrc.yaml` configs route per-file via `getProjectForFile`; all five upstream flat presets ship with byte-for-byte content; the 30 GraphQL spec validation rule names are exposed as no-op stubs so existing configs load cleanly. `naming-convention` and `alphabetize` gain schema-side enforcement and the bulk of upstream's options. ([#1025](https://github.com/trevor-scheer/graphql-analyzer/pull/1025))
+
+### Fixes
+
+- Graduate all packages from the `-alpha` prerelease line to stable. The previous `0.X.Y-alpha.0` GitHub releases captured the actual feature/fix content (browser playground, ESLint plugin parity, etc.); this release just drops the prerelease suffix so the next published versions are normal SemVer ([#1027](https://github.com/trevor-scheer/graphql-analyzer/pull/1027)).
+
 ## 0.1.1-alpha.0 (2026-04-26)
 
 ### Features

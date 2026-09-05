@@ -14,11 +14,13 @@ before replacing an existing GraphQL-ESLint setup.
 
 ## Install
 
-The plugin requires Node.js 18+, ESLint 8.40+ or 9.x with flat config, and
-`graphql` version `^16.5.0`. Install the alpha and its GraphQL peer dependency:
+The plugin supports ESLint 8.40+, 9.x, and 10.x with flat config, and requires
+`graphql` version `^16.5.0`. Use a Node.js version supported by your ESLint
+version; the native addon supports Node.js 18+. Install the plugin and its
+GraphQL peer dependency:
 
 ```sh
-npm install --save-dev @graphql-analyzer/eslint-plugin@alpha graphql@^16.5.0
+npm install --save-dev @graphql-analyzer/eslint-plugin graphql@^16.5.0
 ```
 
 npm installs the native addon for macOS ARM64/x64, Linux ARM64/x64 with glibc,
@@ -26,7 +28,8 @@ or Windows x64 through platform-specific optional dependencies.
 
 ## Configure native rules
 
-Enable native rules in the GraphQL project configuration:
+Configure schema and documents in the GraphQL project configuration. You can
+also set native rule defaults there:
 
 ```yaml
 # .graphqlrc.yaml
@@ -57,19 +60,25 @@ export default [
     rules: {
       "@graphql-analyzer/no-anonymous-operations": "error",
       "@graphql-analyzer/no-duplicate-fields": "error",
-      "@graphql-analyzer/alphabetize": "warn",
+      "@graphql-analyzer/alphabetize": ["warn", { selections: ["OperationDefinition"] }],
     },
   },
 ];
 ```
 
-The native engine discovers the nearest supported GraphQL config file. Native
-rule options must be configured under `extensions.graphql-analyzer.lint`;
-options in ESLint's `rules` entries are not forwarded to Rust.
+The native engine discovers the nearest supported GraphQL config file and
+selects the matching project in multi-project configurations. ESLint rule
+entries enable native rules and forward their options to Rust. Explicit
+ESLint options take precedence over the corresponding GraphQL config options.
 
-The `flat/schema-recommended` and `flat/operations-recommended` presets expose
-ESLint rule maps. Use a preset's `.rules` field in place of the rule map above,
-and configure the corresponding native rules in your GraphQL config.
+The presets expose ESLint rule maps. Use a preset's `.rules` field in place
+of the rule map above. Available presets are:
+
+- `flat/schema-recommended`
+- `flat/operations-recommended`
+- `flat/schema-all`
+- `flat/schema-relay`
+- `flat/operations-all`
 
 ## Write custom rules
 
@@ -169,8 +178,22 @@ export default [
 
 The processor preserves the host source for its parser and rules. It extracts
 GraphQL into named virtual `.graphql` files and maps reports, suggestions, and
-safe fixes to the original file. Configure your usual TypeScript or framework
-parser when applying the processor to those languages.
+safe fixes to the original file. The named form, `processor: "@graphql-analyzer/graphql"`,
+is also available when the plugin is registered under `@graphql-analyzer`.
+Configure your usual TypeScript or framework parser when applying the processor
+to those languages:
+
+| Host extension        | Host parser                        |
+| --------------------- | ---------------------------------- |
+| `.js`, `.mjs`, `.cjs` | ESLint's default JavaScript parser |
+| `.ts`, `.tsx`         | `@typescript-eslint/parser`        |
+| `.vue`                | `vue-eslint-parser`                |
+| `.svelte`             | `svelte-eslint-parser`             |
+| `.astro`              | `astro-eslint-parser`              |
+
+Keep each host parser in a config block matching that extension. When needed,
+configure its TypeScript parser through `languageOptions.parserOptions.parser`.
+Host parsers are not bundled with this plugin.
 
 Compatibility tests cover recognized imports and aliases, global tags,
 GraphQL magic comments, multiple blocks, interpolation gaps, CRLF, Unicode,
@@ -228,8 +251,8 @@ known files for each physical file linted. On non-Unix systems, an external
 same-length edit that preserves the modification timestamp can evade the
 native dependency fingerprint.
 
-Other native limitations include one project per config, partial autofix
-coverage (`alphabetize` is exposed), and spec-validation rules that are not
-exported as ESLint rules. These differ from the compatible custom-rule
-services. See the [migration guide](/graphql-analyzer/linting/migrating-from-graphql-eslint/)
+Native rules expose autofixes for `alphabetize` and suggestions where the
+analyzer provides them. Spec-validation names are exported as no-op rules;
+registering them does not emit the native validation diagnostic stream through
+ESLint. See the [migration guide](/graphql-analyzer/linting/migrating-from-graphql-eslint/)
 and [rules catalog](/graphql-analyzer/rules/catalog/) when choosing rules.

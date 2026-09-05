@@ -14,7 +14,7 @@ plugin.
 Install the plugin and its GraphQL peer dependency:
 
 ```sh
-npm install --save-dev @graphql-analyzer/eslint-plugin@alpha graphql@^16.5.0
+npm install --save-dev @graphql-analyzer/eslint-plugin graphql@^16.5.0
 ```
 
 Change the parser import and any native rule prefixes you want to migrate:
@@ -40,12 +40,13 @@ Change the parser import and any native rule prefixes you want to migrate:
 ESLint plugin keys are configurable. You can keep an existing key when
 registering the analyzer plugin, but its preset rule maps use
 `@graphql-analyzer`. The available preset names are
-`flat/schema-recommended` and `flat/operations-recommended`.
+`flat/schema-recommended`, `flat/operations-recommended`, `flat/schema-all`,
+`flat/schema-relay`, and `flat/operations-all`.
 
 ## Configure native rule options
 
-Enable native rules and their options under
-`extensions.graphql-analyzer.lint` in your GraphQL config:
+ESLint enables native rules and forwards explicit options to Rust. You can
+also set defaults under `extensions.graphql-analyzer.lint` in GraphQL config:
 
 ```yaml
 # .graphqlrc.yaml
@@ -62,9 +63,9 @@ extensions:
 ```
 
 Keep the corresponding ESLint rule entries to select which diagnostics ESLint
-reports. Native rule options in ESLint's `rules` object are not forwarded to
-Rust. The native engine supports one project per config; inline
-`parserOptions.graphQLConfig` configures custom-rule services only.
+reports. Explicit ESLint options take precedence over GraphQL config options
+for that rule. The native engine routes files to their matching config project.
+Inline `parserOptions.graphQLConfig` configures custom-rule services only.
 
 ## Keep custom rules
 
@@ -88,9 +89,9 @@ parser and rules on the original files. See the
 
 GraphQL-ESLint exports spec-validation rules such as `known-type-names`,
 `fields-on-correct-type`, and `no-undefined-variables`. The analyzer plugin
-does not export those ESLint rules. Native analysis performs validation
-internally, but its rule shims do not expose that complete diagnostic stream
-as configurable ESLint rules.
+exports those names as no-op rules so existing configurations can load.
+Native analysis performs validation internally, but these stubs do not emit
+that diagnostic stream through ESLint.
 
 Do not delete a required validation rule solely because native analysis runs
 similar checks. You can retain upstream validation rules alongside native
@@ -118,7 +119,8 @@ export default [
 
 This configuration keeps the upstream package installed for the rules you
 still use. Configure its custom-rule schema services through the compatible
-parser as needed.
+parser as needed. Use an ESLint version supported by the upstream package;
+the upstream 4.4.0 comparison in this repository uses ESLint 9.
 
 ## Choose a mode and check remaining differences
 
@@ -130,8 +132,9 @@ imports, and provide no GraphQL visitors or parser services to custom rules.
 Other differences to check include:
 
 - Flat config is required; `.eslintrc` is unsupported.
-- Native autofix exposure is limited to `alphabetize`. Custom-rule fixes and
-  suggestions work through ESLint, with unsafe embedded edits suppressed.
+- Native autofix exposure is limited to `alphabetize`. Native suggestions are
+  exposed where the analyzer provides them. Custom-rule fixes and suggestions
+  work through ESLint, with unsafe embedded edits suppressed.
 - Compatible embedded extraction supports more forms than native extraction.
   Native interpolated templates and GraphQL magic comments are unsupported.
 - Native dependency refresh covers known files. New schema files matching
@@ -141,8 +144,7 @@ Other differences to check include:
 - CLI, LSP, and ESLint have different execution costs. Compatibility adds
   JavaScript parsing, AST allocation, and ESLint traversal.
 
-The plugin also provides `operation-name-suffix`, `redundant-fields`,
-`require-id-field`, and `unique-names`, which are not shared upstream rules.
+The plugin also provides `operation-name-suffix`, `redundant-fields`, and `unique-names`, which are not shared upstream rules.
 See the [rules catalog](/graphql-analyzer/rules/catalog/) before enabling them.
 
 ## Earlier alpha rule names
@@ -164,6 +166,8 @@ The corresponding GraphQL config keys are `noUnusedFields`,
 The plugin's parity fixtures compare shared-rule counts, messages, message
 identifiers, source positions, and fixes against GraphQL-ESLint. Custom-rule
 tests separately exercise the parser contract and embedded source mapping.
+Shared native rules also have upstream-derived Rust fixtures in
+`crates/linter/src/rules/upstream/`, with links to their original test cases.
 Those fixtures do not cover every combination of options and project setup.
 
 Run your existing lint checks and custom-rule tests with the new configuration.

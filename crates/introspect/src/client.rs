@@ -410,8 +410,8 @@ mod tests {
 
     #[test]
     fn test_client_with_timeout() {
-        let client = IntrospectionClient::new().with_timeout(Duration::from_secs(60));
-        assert_eq!(client.timeout, Duration::from_secs(60));
+        let client = IntrospectionClient::new().with_timeout(Duration::from_mins(1));
+        assert_eq!(client.timeout, Duration::from_mins(1));
     }
 
     #[test]

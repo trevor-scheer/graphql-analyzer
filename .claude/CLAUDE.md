@@ -148,7 +148,6 @@ gh issue view 123 --repo trevor-scheer/graphql-analyzer
 - Don't mention CI status in PR descriptions
 - Don't add features not requested
 - Don't create markdown files unless asked
-- Don't manually edit `.github/workflows/release.yml` (enforced by deny rule + hook)
 
 ### LSP Tool
 

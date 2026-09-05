@@ -116,6 +116,53 @@ fn check_operation_has_name(
             "Anonymous GraphQL operations are forbidden. Make sure to name your {operation_type}!"
         );
 
+        // Mirror upstream's suggest: use the first selection's alias/name (if
+        // it's a Field) as the suggested name; otherwise fall back to the
+        // operation kind (`query`/`mutation`/`subscription`).
+        let suggested_name = operation
+            .selection_set()
+            .and_then(|ss| ss.selections().next())
+            .and_then(|sel| match sel {
+                cst::Selection::Field(field) => field
+                    .alias()
+                    .and_then(|a| a.name())
+                    .or_else(|| field.name())
+                    .map(|n| n.text().to_string()),
+                _ => None,
+            })
+            .unwrap_or_else(|| operation_type.to_string());
+
+        // Mirror upstream's fix:
+        //   has-keyword:   insertTextAfter(opTypeKeyword, ` ${suggestedName}`)
+        //   shorthand `{`: insertTextBefore(`{`, `query ${suggestedName} `)
+        // Both translate to a zero-width replacement at the right offset.
+        let suggestion = if let Some(op_type) = operation.operation_type() {
+            // hasQueryKeyword branch
+            let op_type_end: usize = op_type.syntax().text_range().end().into();
+            crate::diagnostics::CodeSuggestion::replace(
+                format!("Rename to `{suggested_name}`"),
+                op_type_end,
+                op_type_end,
+                format!(" {suggested_name}"),
+            )
+        } else if let Some(ss) = operation.selection_set() {
+            // shorthand `{`: insert before opening brace
+            let brace_start: usize = ss.syntax().text_range().start().into();
+            crate::diagnostics::CodeSuggestion::replace(
+                format!("Rename to `{suggested_name}`"),
+                brace_start,
+                brace_start,
+                format!("query {suggested_name} "),
+            )
+        } else {
+            crate::diagnostics::CodeSuggestion::replace(
+                format!("Rename to `{suggested_name}`"),
+                start_offset,
+                start_offset,
+                format!("query {suggested_name} "),
+            )
+        };
+
         diagnostics.push(
             LintDiagnostic::new(
                 doc.span(start_offset, end_offset),
@@ -124,7 +171,8 @@ fn check_operation_has_name(
                 "noAnonymousOperations",
             )
             .with_message_id("no-anonymous-operations")
-            .with_help("Add a name to your operation, e.g. 'query MyQuery { ... }'"),
+            .with_help("Add a name to your operation, e.g. 'query MyQuery { ... }'")
+            .with_suggestion(suggestion),
         );
     }
 }

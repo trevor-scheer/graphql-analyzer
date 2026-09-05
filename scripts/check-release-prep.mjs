@@ -9,8 +9,8 @@
 //   1. Bump every npm workspace package's `version` to a synthetic value
 //      (mimics what knope writes to its `versioned_files`).
 //   2. Run `sync-workspace-deps.mjs` to re-pin intra-workspace dep refs.
-//   3. Regenerate `package-lock.json` via `npm install --package-lock-only`.
-//   4. Run `npm ci` against the regenerated lockfile to confirm it resolves.
+//   3. Regenerate `pnpm-lock.yaml` via `pnpm install --lockfile-only`.
+//   4. Run `pnpm install --frozen-lockfile` against it to confirm it resolves.
 //
 // CI runs this in a throwaway checkout, so we don't bother restoring state.
 // For local runs, use a clean working tree (the script will refuse otherwise).
@@ -19,6 +19,8 @@ import { readFileSync, writeFileSync, readdirSync, statSync } from "node:fs";
 import { join, dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { execFileSync } from "node:child_process";
+
+import { readPnpmWorkspaces } from "./lib/pnpm-workspaces.mjs";
 
 const REPO_ROOT = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 const SYNTHETIC_VERSION = "999.0.0-ci-release-prep";
@@ -44,8 +46,7 @@ function expandWorkspaceGlob(pattern) {
 // Mirrors the discovery logic in sync-workspace-deps.mjs so we bump exactly
 // the same set of files the sync script considers.
 function collectWorkspacePackages() {
-  const root = readJson(join(REPO_ROOT, "package.json"));
-  const dirs = (root.workspaces ?? []).flatMap(expandWorkspaceGlob);
+  const dirs = readPnpmWorkspaces().flatMap(expandWorkspaceGlob);
   const queue = [...dirs];
   const seen = new Set();
   const packages = [];
@@ -103,7 +104,7 @@ function ensureCleanTree() {
   const out = execFileSync("git", ["status", "--porcelain"], { cwd: REPO_ROOT, encoding: "utf8" });
   if (out.trim().length > 0) {
     console.error("Refusing to run: working tree has uncommitted changes.");
-    console.error("This script mutates package.json and package-lock.json. Stash or commit first.");
+    console.error("This script mutates package.json and pnpm-lock.yaml. Stash or commit first.");
     process.exit(2);
   }
 }
@@ -128,11 +129,11 @@ for (const p of bumped) {
 }
 
 run("node", ["scripts/sync-workspace-deps.mjs"]);
-run("npm", ["install", "--package-lock-only"]);
-run("npm", ["ci"]);
+run("pnpm", ["install", "--lockfile-only"]);
+run("pnpm", ["install", "--frozen-lockfile"]);
 // Catch any formatting drift introduced by the bump+sync round-trip — knope's
 // JSON writer omits the trailing newline that oxfmt requires, and the sync
 // script is responsible for normalizing that.
-run("npx", ["oxfmt", "--check", "packages/", "editors/"]);
+run("pnpm", ["exec", "oxfmt", "--check", "packages/", "editors/"]);
 
 console.log("\nRelease-prep simulation passed.");

@@ -11,7 +11,6 @@ on:
       - "rustfmt.toml"
       - "editors/vscode/**/*.ts"
       - "editors/vscode/package.json"
-      - "editors/vscode/package-lock.json"
       - "editors/vscode/tsconfig.json"
       - "packages/**"
       - "test-workspace/**/*.ts"
@@ -20,7 +19,10 @@ on:
       - "test-workspace/**/*.mjs"
       - "**/*.graphql"
       - "package.json"
-      - "package-lock.json"
+      - "pnpm-lock.yaml"
+      - "pnpm-workspace.yaml"
+      - "mise.toml"
+      - ".npmrc"
       - "CHANGELOG.md"
       - ".github/workflows/**"
   pull_request:
@@ -42,7 +44,7 @@ jobs:
       matrix:
         os: [ubuntu-latest, macos-latest, windows-latest]
     steps:
-      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
+      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6
 
       - name: Install Rust
         run: rustup show
@@ -53,7 +55,7 @@ jobs:
           shared-key: "ci-test"
 
       - name: Install cargo-nextest
-        uses: taiki-e/install-action@e537394e10461340f56469a03c3e73f1705074a9 # nextest
+        uses: taiki-e/install-action@96c7780c1d8a2b8723e12031def873a434d39d8d # nextest
         with:
           tool: nextest
 
@@ -67,7 +69,7 @@ jobs:
     name: Lint
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
+      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6
 
       - name: Install Rust
         run: rustup show
@@ -90,7 +92,7 @@ jobs:
       matrix:
         os: [ubuntu-latest, macos-latest, windows-latest]
     steps:
-      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
+      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6
 
       - name: Install Rust
         run: rustup show
@@ -107,7 +109,7 @@ jobs:
     name: Check
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
+      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6
 
       - name: Install Rust
         run: rustup show
@@ -120,12 +122,49 @@ jobs:
       - name: Check workspace
         run: cargo check --workspace --all-features --verbose
 
+  coverage:
+    name: Coverage
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6
+
+      - name: Install Rust
+        run: rustup show
+
+      - name: Install llvm-tools-preview
+        run: rustup component add llvm-tools-preview
+
+      - name: Rust cache
+        uses: Swatinem/rust-cache@e18b497796c12c097a38f9edb9d0641fb99eee32 # v2
+        with:
+          shared-key: "ci-coverage"
+
+      - name: Install cargo-nextest
+        uses: taiki-e/install-action@96c7780c1d8a2b8723e12031def873a434d39d8d # nextest
+        with:
+          tool: nextest
+
+      - name: Install cargo-llvm-cov
+        uses: taiki-e/install-action@bffeee26d4db9be238a4ea78d8826604ebcb594d # v2
+        with:
+          tool: cargo-llvm-cov
+
+      - name: Generate coverage
+        run: cargo llvm-cov nextest --workspace --all-features --lcov --output-path lcov.info
+
+      - name: Upload to Codecov
+        uses: codecov/codecov-action@0fb7174895f61a3b6b78fc075e0cd60383518dac # v5
+        with:
+          files: lcov.info
+          token: ${{ secrets.CODECOV_TOKEN }}
+          fail_ci_if_error: false
+
   dogfood:
     name: Dogfood GraphQL Check
     needs: [build]
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
+      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6
 
       - name: Install Rust
         run: rustup show
@@ -143,32 +182,29 @@ jobs:
     name: VSCode Extension
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
+      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6
 
-      - name: Setup Node.js
-        uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e # v6
+      - name: Setup mise + pnpm
+        uses: jdx/mise-action@5228313ee0372e111a38da051671ca30fc5a96db # v3
         with:
-          node-version: "24"
-          cache: "npm"
-          cache-dependency-path: editors/vscode/package-lock.json
+          experimental: true
 
       - name: Install dependencies
-        working-directory: editors/vscode
-        run: npm ci
+        run: pnpm install --frozen-lockfile
 
       - name: Unit tests
         working-directory: editors/vscode
-        run: npm run test:unit
+        run: pnpm run test:unit
 
       - name: Build extension
         working-directory: editors/vscode
-        run: npm run compile
+        run: pnpm run compile
 
   eslint-plugin:
     name: ESLint Plugin
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
+      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6
 
       - name: Install Rust
         run: rustup show
@@ -178,68 +214,65 @@ jobs:
         with:
           shared-key: "ci-eslint-plugin"
 
-      - name: Setup Node.js
-        uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e # v6
+      - name: Setup mise + pnpm
+        uses: jdx/mise-action@5228313ee0372e111a38da051671ca30fc5a96db # v3
         with:
-          node-version: "24"
-          cache: "npm"
+          experimental: true
 
       - name: Install workspace deps
-        run: npm ci
+        run: pnpm install --frozen-lockfile
 
       - name: Build @graphql-analyzer/core native addon
-        run: npm run build:debug --workspace=@graphql-analyzer/core
+        run: pnpm --filter @graphql-analyzer/core run build:debug
 
       - name: Build @graphql-analyzer/eslint-plugin
-        run: npm run build --workspace=@graphql-analyzer/eslint-plugin
+        run: pnpm --filter @graphql-analyzer/eslint-plugin run build
 
       - name: Run plugin tests
-        run: npm run test:unit --workspace=@graphql-analyzer/eslint-plugin
+        run: pnpm --filter @graphql-analyzer/eslint-plugin run test:unit
 
   format:
     name: Format
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
+      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6
 
-      - name: Setup Node.js
-        uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e # v6
+      - name: Setup mise + pnpm
+        uses: jdx/mise-action@5228313ee0372e111a38da051671ca30fc5a96db # v3
         with:
-          node-version: "24"
-          cache: "npm"
+          experimental: true
 
       - name: Install dependencies
-        run: npm ci
+        run: pnpm install --frozen-lockfile
 
       - name: Debug info
         run: |
           echo "Node version: $(node --version)"
-          echo "npm version: $(npm --version)"
-          echo "oxfmt version: $(npx oxfmt --version)"
+          echo "pnpm version: $(pnpm --version)"
+          echo "oxfmt version: $(pnpm exec oxfmt --version)"
           echo "Git SHA: $(git rev-parse HEAD)"
           echo "CLAUDE.md hash: $(git hash-object .claude/CLAUDE.md)"
           echo "hir README hash: $(git hash-object crates/hir/README.md)"
 
       - name: Check formatting
-        run: npm run fmt:check
+        run: pnpm run fmt:check
 
       - name: Lint
-        run: npm run lint
+        run: pnpm run lint
 
       - name: TypeScript type check
-        run: npm run typecheck
+        run: pnpm run typecheck
 
   release-prep:
     name: Release Prep Simulation
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
+      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6
 
-      - name: Setup Node.js
-        uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e # v6
+      - name: Setup mise + pnpm
+        uses: jdx/mise-action@5228313ee0372e111a38da051671ca30fc5a96db # v3
         with:
-          node-version: "24"
-          cache: "npm"
+          experimental: true
 
       - name: Simulate knope's release-prep
         run: node scripts/check-release-prep.mjs
@@ -248,7 +281,7 @@ jobs:
     name: Web Playground
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
+      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6
 
       - name: Install Rust
         run: |
@@ -261,7 +294,7 @@ jobs:
           shared-key: "ci-web"
 
       - name: Install wasm-pack
-        uses: taiki-e/install-action@1222bc9d54bca5582f30a2aac6829eeb5fccf68b # v2
+        uses: taiki-e/install-action@bffeee26d4db9be238a4ea78d8826604ebcb594d # v2
         with:
           tool: wasm-pack
 
@@ -271,31 +304,30 @@ jobs:
       - name: Check graphql-lsp-wasm for wasm32-unknown-unknown
         run: cargo check -p graphql-lsp-wasm --target wasm32-unknown-unknown
 
-      - name: Setup Node.js
-        uses: actions/setup-node@53b83947a5a98c8d113130e565377fae1a50d02f # v6
+      - name: Setup mise + pnpm
+        uses: jdx/mise-action@5228313ee0372e111a38da051671ca30fc5a96db # v3
         with:
-          node-version: "24"
-          cache: "npm"
+          experimental: true
 
       - name: Install workspace deps
-        run: npm ci
+        run: pnpm install --frozen-lockfile
 
       - name: Build wasm bundle (release)
         run: wasm-pack build crates/lsp-wasm --target web --out-dir $GITHUB_WORKSPACE/packages/web-ide/src/wasm --release
 
       - name: TypeScript check
         working-directory: packages/web-ide
-        run: npx tsc --noEmit
+        run: pnpm exec tsc --noEmit
 
       - name: Build playground (Vite)
-        run: npm --workspace=packages/web-ide run build
+        run: pnpm --filter @graphql-analyzer/web-ide run build
 
       - name: Install Playwright browsers
         working-directory: packages/web-ide
-        run: npx playwright install --with-deps chromium
+        run: pnpm exec playwright install --with-deps chromium
 
       - name: Run e2e tests
-        run: npm --workspace=packages/web-ide run test:e2e
+        run: pnpm --filter @graphql-analyzer/web-ide run test:e2e
 
   ci-success:
     name: CI Success

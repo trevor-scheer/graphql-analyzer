@@ -33,7 +33,7 @@ type User {
 /// Includes User -> Post -> Comment chain, useful for testing:
 /// - Nested selection set validation
 /// - Fragment spread on nested types
-/// - require_id_field lint on nested selections
+/// - require_selections lint on nested selections
 pub const NESTED_SCHEMA: &str = r#"
 type Query {
     user(id: ID!): User
@@ -166,7 +166,7 @@ type User {
 
 /// Schema without ID fields on some types.
 ///
-/// Useful for testing the require_id_field lint rule.
+/// Useful for testing the require_selections lint rule.
 pub const SCHEMA_WITHOUT_IDS: &str = r#"
 type Query {
     user(id: ID!): User

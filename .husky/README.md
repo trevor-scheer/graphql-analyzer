@@ -27,8 +27,8 @@ Runs on staged files before each commit:
 
 - **Rust formatting**: `cargo fmt --check` (for `.rs` files)
 - **Rust linting**: `cargo clippy` (for `.rs`/`.toml` files)
-- **TS/JS linting**: `npm run lint` (for `.ts`/`.tsx`/`.js`/`.jsx` files)
-- **Multi-format checking**: `npm run fmt:check` (for `.graphql`/`.ts`/`.js`/`.md`/`.yaml`/`.json` files)
+- **TS/JS linting**: `pnpm run lint` (for `.ts`/`.tsx`/`.js`/`.jsx` files)
+- **Multi-format checking**: `pnpm run fmt:check` (for `.graphql`/`.ts`/`.js`/`.md`/`.yaml`/`.json` files)
 
 ### pre-push
 

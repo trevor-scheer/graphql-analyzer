@@ -43,6 +43,13 @@ query Shallow {
 }
 ```
 
+## Options
+
+| Option     | Type       | Default | Description                                                                                                                                                               |
+| ---------- | ---------- | ------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `maxDepth` | `number`   | —       | Maximum allowed nesting depth. Required when the rule is enabled.                                                                                                         |
+| `ignore`   | `string[]` | `[]`    | Field names that are skipped when counting depth. Useful for Relay connection wrappers like `edges` and `node` that add structural nesting without adding semantic depth. |
+
 ## Configuration
 
 ```yaml
@@ -51,4 +58,10 @@ extensions:
     lint:
       rules:
         selectionSetDepth: [warn, { maxDepth: 3 }]
+
+# Ignore Relay connection fields so edges/node don't count toward depth
+        selectionSetDepth:
+          - warn
+          - maxDepth: 4
+            ignore: ["edges", "node"]
 ```

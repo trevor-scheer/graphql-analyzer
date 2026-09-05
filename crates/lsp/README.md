@@ -408,14 +408,19 @@ projects:
 
 ### Custom Extract Configuration
 
+The `extractConfig` schema mirrors `@graphql-tools/graphql-tag-pluck`. The `pluckConfig` key is accepted as an alias.
+
 ```yaml
 schema: schema.graphql
 documents: "src/**/*.tsx"
 extensions:
-  extractConfig:
-    tagIdentifiers: ["gql", "graphql", "query"]
-    modules: ["graphql-tag", "@apollo/client", "custom-gql"]
-    allowGlobalIdentifiers: true
+  graphql-analyzer:
+    extractConfig:
+      modules:
+        - "graphql-tag"
+        - { name: "@apollo/client", identifier: "gql" }
+        - { name: "custom-gql", identifier: "query" }
+      globalGqlIdentifierName: ["gql", "graphql", "query"]
 ```
 
 ## Environment Variables

@@ -31,8 +31,9 @@ projects:
     extensions:
       graphql-analyzer:
         extractConfig:
-          tagIdentifiers: ["gql"]
-          modules: ["@apollo/client"]
+          modules:
+            - { name: "@apollo/client", identifier: "gql" }
+          globalGqlIdentifierName: ["gql"]
         lint:
           extends: recommended
           rules:

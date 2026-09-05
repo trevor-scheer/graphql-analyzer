@@ -67,7 +67,16 @@ impl StandaloneSchemaLintRule for RelayPageInfoRuleImpl {
         let mut diagnostics_by_file: HashMap<FileId, Vec<LintDiagnostic>> = HashMap::new();
         let schema_types = graphql_hir::schema_types(db, project_files);
 
-        let Some(page_info) = schema_types.get("PageInfo") else {
+        // Collect all raw PageInfo declarations (base + each extension).  Upstream fires
+        // once per AST node; we mirror that by iterating declarations rather than the
+        // merged type so that `union PageInfo = A` and `extend union PageInfo = B` each
+        // produce their own "must be Object type" diagnostic.
+        let raw_page_infos: Vec<_> = crate::schema_utils::raw_schema_type_defs(db, project_files)
+            .into_iter()
+            .filter(|(_, td)| td.name.as_ref() == "PageInfo")
+            .collect();
+
+        if raw_page_infos.is_empty() {
             // Mirrors graphql-eslint: when PageInfo is entirely absent, emit a single
             // diagnostic anchored at the first character of the first schema file.
             let schema_ids = project_files.schema_file_ids(db).ids(db);
@@ -91,119 +100,10 @@ impl StandaloneSchemaLintRule for RelayPageInfoRuleImpl {
                 );
             }
             return diagnostics_by_file;
-        };
-
-        if page_info.kind != TypeDefKind::Object {
-            let start: usize = page_info.name_range.start().into();
-            let end: usize = page_info.name_range.end().into();
-            let span = graphql_syntax::SourceSpan {
-                start,
-                end,
-                line_offset: 0,
-                byte_offset: 0,
-                source: None,
-            };
-            diagnostics_by_file
-                .entry(page_info.file_id)
-                .or_default()
-                .push(
-                    LintDiagnostic::new(
-                        span,
-                        LintSeverity::Warning,
-                        "`PageInfo` must be an Object type.",
-                        "relayPageInfo",
-                    )
-                    .with_message_id("MESSAGE_MUST_BE_OBJECT_TYPE")
-                    .with_url("https://relay.dev/graphql/connections.htm#sec-undefined.PageInfo"),
-                );
-            return diagnostics_by_file;
         }
 
-        for required in REQUIRED_FIELDS {
-            if let Some(field) = page_info
-                .fields
-                .iter()
-                .find(|f| f.name.as_ref() == required.name)
-            {
-                // Field exists - check its type. Boolean fields require an exact
-                // `Boolean!` match. Cursor fields (nullable `String`) match either
-                // `String` or any other scalar in the schema, mirroring graphql-eslint's
-                // `isScalarType` relaxation.
-                // GraphQL built-in scalars aren't always present in
-                // `schema_types`, which is keyed off user-declared types.
-                // Treat them as scalars so e.g. `ID` is accepted as a cursor
-                // type (matches graphql-eslint's `isScalarType` semantics).
-                const BUILTIN_SCALARS: &[&str] = &["String", "Int", "Float", "Boolean", "ID"];
-                let referent_name = field.type_ref.name.as_ref();
-                let referent_is_scalar = BUILTIN_SCALARS.contains(&referent_name)
-                    || schema_types
-                        .get(referent_name)
-                        .is_some_and(|t| t.kind == TypeDefKind::Scalar);
-
-                let type_matches = if required.is_non_null {
-                    referent_name == required.type_name
-                        && !field.type_ref.is_list
-                        && field.type_ref.is_non_null
-                } else {
-                    !field.type_ref.is_list
-                        && !field.type_ref.is_non_null
-                        && (referent_name == required.type_name || referent_is_scalar)
-                };
-
-                if !type_matches {
-                    let expected_type = if required.is_non_null {
-                        format!("{}!", required.type_name)
-                    } else {
-                        required.type_name.to_string()
-                    };
-                    let return_type = if required.is_non_null {
-                        "non-null Boolean".to_string()
-                    } else {
-                        "either String or Scalar, which can be null if there are no results"
-                            .to_string()
-                    };
-
-                    let start: usize = field.name_range.start().into();
-                    let end: usize = field.name_range.end().into();
-                    let span = graphql_syntax::SourceSpan {
-                        start,
-                        end,
-                        line_offset: 0,
-                        byte_offset: 0,
-                        source: None,
-                    };
-                    diagnostics_by_file
-                        .entry(page_info.file_id)
-                        .or_default()
-                        .push(
-                            LintDiagnostic::new(
-                                span,
-                                LintSeverity::Warning,
-                                format!("Field `{}` must return {}.", required.name, return_type),
-                                "relayPageInfo",
-                            )
-                            .with_help(format!(
-                                "Change the type of `{}` to `{}`",
-                                required.name, expected_type
-                            ))
-                            .with_url(
-                                "https://relay.dev/graphql/connections.htm#sec-undefined.PageInfo",
-                            ),
-                        );
-                }
-            } else {
-                // Field is missing entirely - report on the type name
-                let expected_type = if required.is_non_null {
-                    format!("{}!", required.type_name)
-                } else {
-                    required.type_name.to_string()
-                };
-                let return_type = if required.is_non_null {
-                    "non-null Boolean".to_string()
-                } else {
-                    "either String or Scalar, which can be null if there are no results".to_string()
-                };
-
+        for (_, page_info) in &raw_page_infos {
+            if page_info.kind != TypeDefKind::Object {
                 let start: usize = page_info.name_range.start().into();
                 let end: usize = page_info.name_range.end().into();
                 let span = graphql_syntax::SourceSpan {
@@ -220,20 +120,134 @@ impl StandaloneSchemaLintRule for RelayPageInfoRuleImpl {
                         LintDiagnostic::new(
                             span,
                             LintSeverity::Warning,
-                            format!(
-                                "`PageInfo` must contain a field `{}`, that return {}.",
-                                required.name, return_type
-                            ),
+                            "`PageInfo` must be an Object type.",
                             "relayPageInfo",
                         )
-                        .with_help(format!(
-                            "Add field `{}: {}` to the `PageInfo` type",
-                            required.name, expected_type
-                        ))
+                        .with_message_id("MESSAGE_MUST_BE_OBJECT_TYPE")
                         .with_url(
                             "https://relay.dev/graphql/connections.htm#sec-undefined.PageInfo",
                         ),
                     );
+                continue;
+            }
+
+            for required in REQUIRED_FIELDS {
+                if let Some(field) = page_info
+                    .fields
+                    .iter()
+                    .find(|f| f.name.as_ref() == required.name)
+                {
+                    // Field exists - check its type. Boolean fields require an exact
+                    // `Boolean!` match. Cursor fields (nullable `String`) match either
+                    // `String` or any other scalar in the schema, mirroring graphql-eslint's
+                    // `isScalarType` relaxation.
+                    // GraphQL built-in scalars aren't always present in
+                    // `schema_types`, which is keyed off user-declared types.
+                    // Treat them as scalars so e.g. `ID` is accepted as a cursor
+                    // type (matches graphql-eslint's `isScalarType` semantics).
+                    const BUILTIN_SCALARS: &[&str] = &["String", "Int", "Float", "Boolean", "ID"];
+                    let referent_name = field.type_ref.name.as_ref();
+                    let referent_is_scalar = BUILTIN_SCALARS.contains(&referent_name)
+                        || schema_types
+                            .get(referent_name)
+                            .is_some_and(|t| t.kind == TypeDefKind::Scalar);
+
+                    let type_matches = if required.is_non_null {
+                        referent_name == required.type_name
+                            && !field.type_ref.is_list
+                            && field.type_ref.is_non_null
+                    } else {
+                        !field.type_ref.is_list
+                            && !field.type_ref.is_non_null
+                            && (referent_name == required.type_name || referent_is_scalar)
+                    };
+
+                    if !type_matches {
+                        let expected_type = if required.is_non_null {
+                            format!("{}!", required.type_name)
+                        } else {
+                            required.type_name.to_string()
+                        };
+                        let return_type = if required.is_non_null {
+                            "non-null Boolean".to_string()
+                        } else {
+                            "either String or Scalar, which can be null if there are no results"
+                                .to_string()
+                        };
+
+                        let start: usize = field.name_range.start().into();
+                        let end: usize = field.name_range.end().into();
+                        let span = graphql_syntax::SourceSpan {
+                            start,
+                            end,
+                            line_offset: 0,
+                            byte_offset: 0,
+                            source: None,
+                        };
+                        diagnostics_by_file
+                            .entry(page_info.file_id)
+                            .or_default()
+                            .push(
+                            LintDiagnostic::new(
+                                span,
+                                LintSeverity::Warning,
+                                format!("Field `{}` must return {}.", required.name, return_type),
+                                "relayPageInfo",
+                            )
+                            .with_help(format!(
+                                "Change the type of `{}` to `{}`",
+                                required.name, expected_type
+                            ))
+                            .with_url(
+                                "https://relay.dev/graphql/connections.htm#sec-undefined.PageInfo",
+                            ),
+                        );
+                    }
+                } else {
+                    // Field is missing entirely - report on the type name
+                    let expected_type = if required.is_non_null {
+                        format!("{}!", required.type_name)
+                    } else {
+                        required.type_name.to_string()
+                    };
+                    let return_type = if required.is_non_null {
+                        "non-null Boolean".to_string()
+                    } else {
+                        "either String or Scalar, which can be null if there are no results"
+                            .to_string()
+                    };
+
+                    let start: usize = page_info.name_range.start().into();
+                    let end: usize = page_info.name_range.end().into();
+                    let span = graphql_syntax::SourceSpan {
+                        start,
+                        end,
+                        line_offset: 0,
+                        byte_offset: 0,
+                        source: None,
+                    };
+                    diagnostics_by_file
+                        .entry(page_info.file_id)
+                        .or_default()
+                        .push(
+                            LintDiagnostic::new(
+                                span,
+                                LintSeverity::Warning,
+                                format!(
+                                    "`PageInfo` must contain a field `{}`, that return {}.",
+                                    required.name, return_type
+                                ),
+                                "relayPageInfo",
+                            )
+                            .with_help(format!(
+                                "Add field `{}: {}` to the `PageInfo` type",
+                                required.name, expected_type
+                            ))
+                            .with_url(
+                                "https://relay.dev/graphql/connections.htm#sec-undefined.PageInfo",
+                            ),
+                        );
+                }
             }
         }
 

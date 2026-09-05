@@ -34,6 +34,16 @@ type User {
 }
 ```
 
+## Options
+
+| Option                | Type       | Default  | Description                                                                                                             |
+| --------------------- | ---------- | -------- | ----------------------------------------------------------------------------------------------------------------------- |
+| `acceptedIdNames`     | `string[]` | `["id"]` | Field names that satisfy the unique identifier requirement.                                                             |
+| `acceptedIdTypes`     | `string[]` | `["ID"]` | GraphQL types (non-null) that are accepted as the identifier field's type.                                              |
+| `exceptions`          | `object`   | `{}`     | Types or type-name suffixes to exclude from this rule.                                                                  |
+| `exceptions.types`    | `string[]` | `[]`     | Exact type names to skip (e.g. `["Error", "PageInfo"]`).                                                                |
+| `exceptions.suffixes` | `string[]` | `[]`     | Type-name suffixes to skip — any type whose name ends with one of these is excluded (e.g. `["Payload", "Connection"]`). |
+
 ## Configuration
 
 ```yaml
@@ -42,4 +52,13 @@ extensions:
     lint:
       rules:
         strictIdInTypes: warn
+
+# Accept _id as well as id, allow UUID type, and skip payload types
+        strictIdInTypes:
+          - warn
+          - acceptedIdNames: ["id", "_id"]
+            acceptedIdTypes: ["ID", "UUID"]
+            exceptions:
+              types: ["Error"]
+              suffixes: ["Payload", "Connection"]
 ```

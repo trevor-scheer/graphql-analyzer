@@ -55,6 +55,21 @@ impl StandaloneSchemaLintRule for NoTypenamePrefixRuleImpl {
                         source: None,
                     };
 
+                    // Suggestion: rename the field with the type-name prefix
+                    // stripped (matches upstream's
+                    // `fixer.replaceText(field.name, fieldName.replace(typeName, ""))`).
+                    // The replacement uses the exact source-text prefix so
+                    // the casing of the suggested name matches what the user
+                    // would have typed (`UserId` → `Id`, not `id`).
+                    let prefix_len = type_def.name.len();
+                    let new_name = field.name.get(prefix_len..).unwrap_or("").to_string();
+                    let suggestion = crate::diagnostics::CodeSuggestion::replace(
+                        format!("Remove `{}` prefix", &field.name[..prefix_len]),
+                        start,
+                        end,
+                        new_name,
+                    );
+
                     diagnostics_by_file
                         .entry(type_def.file_id)
                         .or_default()
@@ -68,7 +83,8 @@ impl StandaloneSchemaLintRule for NoTypenamePrefixRuleImpl {
                                 ),
                                 "noTypenamePrefix",
                             )
-                            .with_message_id("NO_TYPENAME_PREFIX"),
+                            .with_message_id("NO_TYPENAME_PREFIX")
+                            .with_suggestion(suggestion),
                         );
                 }
             }

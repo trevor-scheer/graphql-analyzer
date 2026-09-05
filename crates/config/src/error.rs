@@ -30,4 +30,10 @@ pub enum ConfigError {
 
     #[error("Environment variable interpolation error: {0}")]
     EnvInterpolation(#[from] crate::env::EnvInterpolationError),
+
+    #[error(
+        "Both `extensions.graphql-analyzer.extractConfig` and `pluckConfig` are set. \
+         Pick one — they are aliases."
+    )]
+    ConflictingExtractConfig,
 }

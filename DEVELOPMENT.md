@@ -5,7 +5,7 @@ This guide covers building, testing, and contributing to GraphQL Analyzer.
 ## Prerequisites
 
 - Rust toolchain (see `rust-toolchain.toml` for version)
-- Node.js and npm (for VS Code extension)
+- Node.js and pnpm (for VS Code extension; versions pinned via `mise` — run `mise install`)
 - Cargo (included with Rust)
 
 ## Building from Source
@@ -70,9 +70,9 @@ cargo fmt
 cargo clippy --workspace
 ```
 
-## npm workspaces
+## pnpm workspaces
 
-The repo is a single npm workspace root. All JavaScript/TypeScript packages
+The repo is a single pnpm workspace root. All JavaScript/TypeScript packages
 are workspaces referenced from the root `package.json`:
 
 | Workspace                    | Contents                                      |
@@ -83,24 +83,24 @@ are workspaces referenced from the root `package.json`:
 | `packages/eslint-plugin`     | `@graphql-analyzer/eslint-plugin`             |
 | `test-workspace/<project>`   | Fixture projects for LSP/CLI tests            |
 
-One `npm install` at the repo root wires everything together — workspace deps
+One `pnpm install` at the repo root wires everything together — workspace deps
 resolve via symlinks rather than going through the registry.
 
 ### Root scripts
 
-| Script                | Runs                                                   |
-| --------------------- | ------------------------------------------------------ |
-| `npm run build`       | `build` in every workspace that defines it             |
-| `npm run build:debug` | `build:debug` in every workspace that defines it       |
-| `npm run compile`     | `compile` in every workspace that defines it (VS Code) |
-| `npm run watch`       | `watch` in every workspace that defines it (VS Code)   |
-| `npm run typecheck`   | `tsc -b` across the TypeScript project graph           |
-| `npm run lint`        | `oxlint .`                                             |
-| `npm run package`     | Package the VS Code extension                          |
-| `npm run test:unit`   | `test:unit` in every workspace that defines it         |
-| `npm run test:e2e`    | `test:e2e` in every workspace that defines it          |
-| `npm run fmt`         | `oxfmt --write .`                                      |
-| `npm run fmt:check`   | `oxfmt --check .` (CI-friendly; no writes)             |
+| Script                 | Runs                                                   |
+| ---------------------- | ------------------------------------------------------ |
+| `pnpm run build`       | `build` in every workspace that defines it             |
+| `pnpm run build:debug` | `build:debug` in every workspace that defines it       |
+| `pnpm run compile`     | `compile` in every workspace that defines it (VS Code) |
+| `pnpm run watch`       | `watch` in every workspace that defines it (VS Code)   |
+| `pnpm run typecheck`   | `tsc -b` across the TypeScript project graph           |
+| `pnpm run lint`        | `oxlint .`                                             |
+| `pnpm run package`     | Package the VS Code extension                          |
+| `pnpm run test:unit`   | `test:unit` in every workspace that defines it         |
+| `pnpm run test:e2e`    | `test:e2e` in every workspace that defines it          |
+| `pnpm run fmt`         | `oxfmt --write .`                                      |
+| `pnpm run fmt:check`   | `oxfmt --check .` (CI-friendly; no writes)             |
 
 ## VS Code Extension Development
 
@@ -108,8 +108,8 @@ resolve via symlinks rather than going through the registry.
 
 ```bash
 cd editors/vscode
-npm install
-npm run compile
+pnpm install
+pnpm run compile
 ```
 
 ### Development Mode
@@ -121,11 +121,11 @@ npm run compile
 ### Commands
 
 ```bash
-npm run compile      # Build extension
-npm run watch        # Watch mode
-npm run format       # Format TypeScript
-npm run lint         # Lint TypeScript
-npm run package      # Create .vsix file
+pnpm run compile      # Build extension
+pnpm run watch        # Watch mode
+pnpm run format       # Format TypeScript
+pnpm run lint         # Lint TypeScript
+pnpm run package      # Create .vsix file
 ```
 
 ### Testing Extension Builds
@@ -146,10 +146,10 @@ to a native Node addon via napi-rs.
 
 ```bash
 # Build the native addon (debug — fast rebuilds; use `build` for release)
-npm run build:debug --workspace=@graphql-analyzer/core
+pnpm --filter @graphql-analyzer/core run build:debug
 
 # Build the ESLint plugin TS sources
-npm run build --workspace=@graphql-analyzer/eslint-plugin
+pnpm --filter @graphql-analyzer/eslint-plugin run build
 ```
 
 The debug build produces `packages/core/graphql-analyzer.<triple>.node`; the
@@ -164,10 +164,10 @@ against the same fixtures for comparison.
 
 ```bash
 # Run graphql-analyzer plugin
-npm run lint:after --workspace=eslint-migration
+pnpm --filter eslint-migration run lint:after
 
 # Run graphql-eslint for comparison
-npm run lint:before --workspace=eslint-migration
+pnpm --filter eslint-migration run lint:before
 ```
 
 ### Watch mode
@@ -175,10 +175,10 @@ npm run lint:before --workspace=eslint-migration
 ```bash
 # napi-rs doesn't have a watch mode; install cargo-watch (`cargo install cargo-watch`)
 # if you want auto-rebuild on Rust source changes.
-cargo watch -p graphql-analyzer-napi -s 'npm run build:debug --workspace=@graphql-analyzer/core'
+cargo watch -p graphql-analyzer-napi -s 'pnpm --filter @graphql-analyzer/core run build:debug'
 
 # Plugin TS watch
-npm run dev --workspace=@graphql-analyzer/eslint-plugin
+pnpm --filter @graphql-analyzer/eslint-plugin run dev
 ```
 
 ## Web Playground
@@ -199,7 +199,7 @@ cargo xtask web --dev    # opens http://localhost:5173 with hot reload
 cargo xtask web          # static build under packages/web-ide/dist/
 ```
 
-`xtask web` runs `wasm-pack build` for `crates/lsp-wasm` and then either `npm run dev` (when `--dev`) or `npm run build` against `packages/web-ide`. Vite serves the worker, the wasm bundle, and Monaco from a single dev server.
+`xtask web` runs `wasm-pack build` for `crates/lsp-wasm` and then either `pnpm run dev` (when `--dev`) or `pnpm run build` against `packages/web-ide`. Vite serves the worker, the wasm bundle, and Monaco from a single dev server.
 
 ### End-to-end tests
 
@@ -207,8 +207,8 @@ The playground has a small Playwright suite at `packages/web-ide/tests/web-ide.s
 
 ```bash
 cd packages/web-ide
-npx playwright install chromium
-npm run test:e2e
+pnpm exec playwright install chromium
+pnpm run test:e2e
 ```
 
 The tests run against the same Vite dev server as `xtask web --dev`.
@@ -461,6 +461,6 @@ For VS Code extension changes, also run:
 
 ```bash
 cd editors/vscode
-npm run format:check
-npm run lint
+pnpm run format:check
+pnpm run lint
 ```

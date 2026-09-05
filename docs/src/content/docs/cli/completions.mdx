@@ -1,0 +1,72 @@
+---
+title: completions
+description: Generate shell completion scripts.
+---
+
+The `completions` command prints a shell completion script for the `graphql` CLI to stdout. Redirect the output to the location your shell loads completions from.
+
+## Usage
+
+```sh
+graphql completions <SHELL>
+```
+
+## Supported shells
+
+`bash`, `zsh`, `fish`, `powershell`, `elvish`
+
+## Installation
+
+### Bash
+
+```sh
+graphql completions bash > ~/.local/share/bash-completion/completions/graphql
+```
+
+Or system-wide:
+
+```sh
+graphql completions bash | sudo tee /etc/bash_completion.d/graphql > /dev/null
+```
+
+### Zsh
+
+Make sure the target directory is on your `$fpath`, then:
+
+```sh
+graphql completions zsh > ~/.zfunc/_graphql
+```
+
+If you use Oh My Zsh:
+
+```sh
+graphql completions zsh > ~/.oh-my-zsh/completions/_graphql
+```
+
+You may need to run `compinit` (or restart your shell) for completions to load.
+
+### Fish
+
+```sh
+graphql completions fish > ~/.config/fish/completions/graphql.fish
+```
+
+### PowerShell
+
+```powershell
+graphql completions powershell | Out-String | Invoke-Expression
+```
+
+To persist, add the line above to your PowerShell profile (`$PROFILE`).
+
+### Elvish
+
+```sh
+graphql completions elvish > ~/.config/elvish/lib/graphql-completions.elv
+```
+
+Then in your `rc.elv`:
+
+```
+use graphql-completions
+```

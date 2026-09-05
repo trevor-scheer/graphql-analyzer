@@ -26,8 +26,12 @@
       "Bash(gh issue:*)",
       "Bash(gh api:*)",
       "Bash(knope:*)",
-      "Bash(npm ci:*)",
-      "Bash(npm run:*)",
+      "Bash(pnpm install:*)",
+      "Bash(pnpm run:*)",
+      "Bash(pnpm exec:*)",
+      "Bash(pnpm --filter:*)",
+      "Bash(pnpm -r:*)",
+      "Bash(mise:*)",
       "Bash(ls:*)",
       "Bash(tree:*)",
       "Bash(find:*)",
@@ -44,8 +48,7 @@
       "mcp__ide__getHoverInfo",
       "mcp__ide__getDefinition",
       "mcp__ide__getReferences"
-    ],
-    "deny": ["Edit(.github/workflows/release.yml)"]
+    ]
   },
   "hooks": {
     "SessionStart": [

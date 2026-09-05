@@ -8,7 +8,13 @@ const major = Number(localRequire("eslint/package.json").version.split(".")[0]);
 assert.throws(() => localRequire.resolve("@graphql-eslint/eslint-plugin"), /Cannot find module/);
 assert.equal(plugin.default.parser, plugin.parser);
 assert.equal(plugin.default.fastParser, plugin.fastParser);
+assert.equal(plugin.default.fastProcessor, plugin.fastProcessor);
 assert.equal(plugin.processors.graphql, plugin.processor);
+assert.equal(plugin.default.processors, plugin.processors);
+assert.equal(
+  plugin.parser.meta.version,
+  localRequire("@graphql-analyzer/eslint-plugin/package.json").version,
+);
 assert.equal(typeof localRequire("@graphql-analyzer/core").lintFile, "function");
 const schemaSdl = "type Query { user: User } type User { name: String id: ID! }";
 let visited = 0;

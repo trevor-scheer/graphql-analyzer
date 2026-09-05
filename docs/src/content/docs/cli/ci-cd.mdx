@@ -5,6 +5,25 @@ description: Using GraphQL Analyzer in continuous integration pipelines.
 
 ## GitHub Actions
 
+The shortest path is the [GitHub Action](./github-action):
+
+```yaml
+name: GraphQL
+on: [pull_request]
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: trevor-scheer/graphql-analyzer-action@v1
+```
+
+It installs the released CLI, runs `graphql check`, emits inline PR annotations, and supports SARIF + an optional summary comment. See the [GitHub Action page](./github-action) for the full reference.
+
+### Without the action
+
+If you'd rather call the CLI directly — for example, on self-hosted runners or to share install logic across many steps — the binary install pattern still works:
+
 ```yaml
 name: GraphQL Validation
 on: [pull_request]
@@ -17,36 +36,22 @@ jobs:
       - name: Install GraphQL CLI
         run: |
           curl --proto '=https' --tlsv1.2 -LsSf \
-            https://github.com/trevor-scheer/graphql-analyzer/releases/latest/download/graphql-cli-installer.sh | sh
+            https://raw.githubusercontent.com/trevor-scheer/graphql-analyzer/main/scripts/install.sh | sh
       - name: Check GraphQL
         run: graphql check --format github
 ```
 
-Using `--format github` turns errors into pull request annotations.
+`--format github` turns errors into pull request annotations.
 
 ### GitHub Code Scanning (SARIF)
 
-For richer integration with GitHub's Security tab, use SARIF output:
-
 ```yaml
-name: GraphQL Validation
-on: [pull_request]
-
-jobs:
-  graphql:
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-      - name: Install GraphQL CLI
-        run: |
-          curl --proto '=https' --tlsv1.2 -LsSf \
-            https://github.com/trevor-scheer/graphql-analyzer/releases/latest/download/graphql-cli-installer.sh | sh
-      - name: Check GraphQL
-        run: graphql check --format sarif > results.sarif
-      - name: Upload SARIF
-        uses: github/codeql-action/upload-sarif@v3
-        with:
-          sarif_file: results.sarif
+- name: Check GraphQL (SARIF)
+  run: graphql check --format sarif > results.sarif
+- name: Upload SARIF
+  uses: github/codeql-action/upload-sarif@v3
+  with:
+    sarif_file: results.sarif
 ```
 
 To run validation and linting as separate steps:
@@ -63,7 +68,7 @@ To run validation and linting as separate steps:
 ```yaml
 graphql:
   script:
-    - curl --proto '=https' --tlsv1.2 -LsSf https://github.com/trevor-scheer/graphql-analyzer/releases/latest/download/graphql-cli-installer.sh | sh
+    - curl --proto '=https' --tlsv1.2 -LsSf https://raw.githubusercontent.com/trevor-scheer/graphql-analyzer/main/scripts/install.sh | sh
     - graphql check --format json
 ```
 
@@ -71,7 +76,7 @@ graphql:
 
 ```sh
 # Install
-curl -LsSf https://github.com/trevor-scheer/graphql-analyzer/releases/latest/download/graphql-cli-installer.sh | sh
+curl -LsSf https://raw.githubusercontent.com/trevor-scheer/graphql-analyzer/main/scripts/install.sh | sh
 
 # Run checks
 graphql check --format json > results.json
@@ -99,8 +104,27 @@ fi
 
 ## Enabling expensive rules in CI
 
-Some lint rules (like `noUnusedFields`) are too expensive for real-time editor feedback but work well in CI. You can enable them via CLI flags:
+Some lint rules (like `noUnusedFields`) are too expensive for real-time editor feedback but work well in CI. Enable them via CLI-specific config overrides in `.graphqlrc.yaml`:
+
+```yaml
+extensions:
+  lint:
+    extends: recommended
+  cli:
+    lint:
+      rules:
+        noUnusedFields: error
+        noUnusedFragments: error
+```
+
+The `extensions.cli.lint.rules` block applies only when running the CLI, so the LSP and editor stays fast.
+
+## Enforcing zero warnings in CI
+
+Use `--max-warnings 0` to treat any warning as a failure:
 
 ```bash
-graphql check --rule noUnusedFields=error --rule noUnusedFragments=error
+graphql check --max-warnings 0
 ```
+
+This returns exit code 6 if any warnings are found, making CI strict about warnings without promoting them all to errors in the config.

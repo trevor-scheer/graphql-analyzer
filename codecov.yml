@@ -1,0 +1,19 @@
+coverage:
+  status:
+    project:
+      default:
+        informational: true
+    patch:
+      default:
+        informational: true
+
+comment:
+  layout: "reach, diff, flags, files"
+  require_changes: true
+
+ignore:
+  - "benches/**"
+  - "xtask/**"
+  - "crates/test-utils/**"
+  - "crates/lsp-wasm/**"
+  - "**/tests/**"

@@ -136,7 +136,7 @@ fn apply_file_fixes(file_fix: &FileFix, format: OutputFormat) -> Result<()> {
 
     // Sort edits by start position in reverse order so we can apply them from end to start
     // This ensures earlier edits don't shift the positions of later edits
-    all_edits.sort_by(|a, b| b.start.cmp(&a.start));
+    all_edits.sort_by_key(|b| std::cmp::Reverse(b.start));
 
     // Apply edits
     let mut result = content.clone();
@@ -263,7 +263,7 @@ mod tests {
 
         // Apply in reverse order (end to start)
         let mut all_edits = vec![replace_c, replace_a];
-        all_edits.sort_by(|a, b| b.start.cmp(&a.start));
+        all_edits.sort_by_key(|b| std::cmp::Reverse(b.start));
 
         let mut result = content.to_string();
         for edit in all_edits {

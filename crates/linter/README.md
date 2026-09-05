@@ -191,7 +191,6 @@ extensions:
     extends: recommended
     rules:
       noDeprecated: off
-      requireIdField: error
 
 # Multiple presets (later overrides earlier)
 extensions:
@@ -229,7 +228,7 @@ query GetUser($id: ID!) {
 }
 
 # Multiple rules
-# graphql-analyzer-ignore: no_deprecated, require_id_field
+# graphql-analyzer-ignore: no_deprecated, require_selections
 query GetPost($id: ID!) {
   post(id: $id) {
     views
@@ -253,7 +252,7 @@ The `recommended` preset includes rules that are objectively beneficial without 
 | `no_unused_fragments`     | warn     | Dead code removal                              |
 | `no_unused_fields`        | warn     | Identifies unused schema surface area          |
 
-Other rules like `unique_names` and `require_id_field` are available but not included by default since they're tied to specific tooling choices (persisted queries, normalized caching, etc.).
+Other rules like `unique_names` and `require_selections` are available but not included by default since they're tied to specific tooling choices (persisted queries, normalized caching, etc.).
 
 ### Rule Options
 
@@ -264,16 +263,17 @@ Some rules support additional configuration options. Options can be specified us
 extensions:
   lint:
     rules:
-      requireIdField: [warn, { fields: ["id", "uuid"] }]
+      requireSelections: [warn, { fieldName: ["id", "uuid"], requireAllFields: true }]
 
 # Object style
 extensions:
   lint:
     rules:
-      requireIdField:
+      requireSelections:
         severity: warn
         options:
-          fields: ["id", "uuid"]
+          fieldName: ["id", "uuid"]
+          requireAllFields: true
 ```
 
 See individual rule documentation for available options.
@@ -338,76 +338,6 @@ query GetUser {
 query FetchUser {
   user {
     id
-    name
-  }
-}
-```
-
-### require_id_field
-
-**Type**: DocumentSchemaRule
-
-Warns when selection sets on types that have an `id` field don't include it. This is useful for ensuring cache normalization works correctly with tools like Apollo Client.
-
-**Note**: This rule is not included in the `recommended` preset because it's tied to specific caching strategies. Enable it explicitly if your project uses a normalized cache.
-
-**Options:**
-
-| Option   | Type       | Default  | Description                                      |
-| -------- | ---------- | -------- | ------------------------------------------------ |
-| `fields` | `string[]` | `["id"]` | Field names to require if they exist on the type |
-
-**Configuration examples:**
-
-```yaml
-# Default: require 'id' field
-extensions:
-  lint:
-    rules:
-      requireIdField: warn
-
-# Require a different field (e.g., for Relay-style nodeId)
-extensions:
-  lint:
-    rules:
-      requireIdField: [warn, { fields: ["nodeId"] }]
-
-# Require multiple fields (if they exist on the type)
-extensions:
-  lint:
-    rules:
-      requireIdField:
-        severity: warn
-        options:
-          fields: ["id", "uuid"]
-
-# Disable the rule
-extensions:
-  lint:
-    rules:
-      requireIdField: off
-```
-
-**Example:**
-
-```graphql
-# Schema
-type User {
-  id: ID!
-  name: String!
-}
-
-# Query
-query GetUser {
-  user {
-    name # ⚠️ Warning: Selection set on type 'User' should include the 'id' field
-  }
-}
-
-# Fixed
-query GetUser {
-  user {
-    id # ✅ OK
     name
   }
 }

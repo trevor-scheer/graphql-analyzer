@@ -1,5 +1,5 @@
 import * as path from "node:path";
-import type { JsDiagnostic, JsTextEdit } from "./binding";
+import type { JsDiagnostic, JsFix, JsTextEdit } from "./binding";
 import { EmbeddedSourceMap, lineStarts, locationAt, offsetAt } from "./source-map";
 
 export interface EmbeddedBlock {
@@ -12,7 +12,7 @@ export interface EmbeddedRecord {
   source: string;
   lines: number[];
   blocks: EmbeddedBlock[];
-  diagnostics?: JsDiagnostic[];
+  diagnostics?: Map<string, JsDiagnostic[]>;
 }
 
 const records = new Map<string, EmbeddedRecord>();
@@ -47,14 +47,21 @@ export function findEmbeddedBlock(
 
 export function embeddedDiagnostics(
   filename: string,
-  lint: (filename: string, source: string) => JsDiagnostic[],
+  lint: (filename: string, source: string, overrides?: Record<string, unknown>) => JsDiagnostic[],
+  overrides: Record<string, unknown>,
 ): JsDiagnostic[] | undefined {
   const embedded = findEmbeddedBlock(filename);
   const record = embedded?.record ?? getEmbeddedRecord(filename);
   if (!record) return undefined;
-  record.diagnostics ??= lint(record.filename, record.source);
+  const key = stableJson(overrides);
+  record.diagnostics ??= new Map();
+  let diagnostics = record.diagnostics.get(key);
+  if (!diagnostics) {
+    diagnostics = lint(record.filename, record.source, overrides);
+    record.diagnostics.set(key, diagnostics);
+  }
   if (!embedded) {
-    return record.diagnostics.filter((diagnostic) => {
+    return diagnostics.filter((diagnostic) => {
       const offset = offsetAt(record.lines, diagnostic.line, diagnostic.column);
       return !record.blocks.some(({ map }) => offset >= map.sourceStart && offset <= map.sourceEnd);
     });
@@ -64,7 +71,23 @@ export function embeddedDiagnostics(
     const offset = map.generatedOffset(offsetAt(record.lines, line, column));
     return offset === undefined ? undefined : locationAt(map.generatedLines, offset);
   };
-  return record.diagnostics.flatMap((diagnostic) => {
+  const mapFix = (fix: JsFix): JsFix | undefined => {
+    const edits: JsTextEdit[] = [];
+    for (const edit of fix.edits) {
+      const start = toGenerated(edit.rangeStartLine, edit.rangeStartColumn);
+      const end = toGenerated(edit.rangeEndLine, edit.rangeEndColumn);
+      if (!start || !end) return undefined;
+      edits.push({
+        ...edit,
+        rangeStartLine: start.line,
+        rangeStartColumn: start.column,
+        rangeEndLine: end.line,
+        rangeEndColumn: end.column,
+      });
+    }
+    return { ...fix, edits };
+  };
+  return diagnostics.flatMap((diagnostic) => {
     const start = toGenerated(diagnostic.line, diagnostic.column);
     if (!start) return [];
     const end = toGenerated(diagnostic.endLine, diagnostic.endColumn) ?? start;
@@ -75,22 +98,25 @@ export function embeddedDiagnostics(
       endColumn: end.column,
     };
     if (diagnostic.fix) {
-      const edits: JsTextEdit[] = [];
-      for (const edit of diagnostic.fix.edits) {
-        const editStart = toGenerated(edit.rangeStartLine, edit.rangeStartColumn);
-        const editEnd = toGenerated(edit.rangeEndLine, edit.rangeEndColumn);
-        if (!editStart || !editEnd) break;
-        edits.push({
-          ...edit,
-          rangeStartLine: editStart.line,
-          rangeStartColumn: editStart.column,
-          rangeEndLine: editEnd.line,
-          rangeEndColumn: editEnd.column,
-        });
-      }
-      if (edits.length === diagnostic.fix.edits.length) mapped.fix = { ...diagnostic.fix, edits };
+      const fix = mapFix(diagnostic.fix);
+      if (fix) mapped.fix = fix;
       else delete mapped.fix;
+    }
+    if (diagnostic.suggestions) {
+      mapped.suggestions = diagnostic.suggestions.flatMap((suggestion) => {
+        const fix = mapFix(suggestion.fix);
+        return fix ? [{ ...suggestion, fix }] : [];
+      });
     }
     return [mapped];
   });
+}
+
+function stableJson(value: unknown): string {
+  if (value === null || typeof value !== "object") return JSON.stringify(value);
+  if (Array.isArray(value)) return `[${value.map(stableJson).join(",")}]`;
+  return `{${Object.keys(value)
+    .sort()
+    .map((key) => `${JSON.stringify(key)}:${stableJson((value as Record<string, unknown>)[key])}`)
+    .join(",")}}`;
 }

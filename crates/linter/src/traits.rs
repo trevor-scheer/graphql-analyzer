@@ -48,7 +48,7 @@ pub trait StandaloneDocumentLintRule: LintRule {
 /// - All fragments
 /// - Schema types via `graphql_hir::schema_types(db, project_files)`
 ///
-/// Examples: `deprecated_field`, `require_id_field`
+/// Examples: `deprecated_field`, `require_selections`
 pub trait DocumentSchemaLintRule: LintRule {
     /// Check a single file against schema
     ///

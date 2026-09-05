@@ -31,11 +31,34 @@ pub fn reset() {
     host::get_host().lock().reset();
 }
 
+/// Lint a file, optionally layering per-rule overrides on top of the
+/// persistent config for the duration of the call.
+///
+/// `overrides_json` is a JSON-encoded `{ ruleName: ruleConfig, ... }` map.
+/// Each entry deserializes as a `LintRuleConfig` (a bare severity string, an
+/// array `[severity, options]`, or an object `{ severity, options }`) and
+/// fully replaces the persistent config for that rule. JSON-string transport
+/// keeps the napi signature simple — callers (e.g. ESLint's rule visitor)
+/// just `JSON.stringify` their overrides.
 #[napi]
-pub fn lint_file(path: String, source: String) -> napi::Result<Vec<JsDiagnostic>> {
+pub fn lint_file(
+    path: String,
+    source: String,
+    overrides_json: Option<String>,
+) -> napi::Result<Vec<JsDiagnostic>> {
+    let overrides =
+        match overrides_json {
+            Some(s) if !s.is_empty() => Some(
+                serde_json::from_str::<
+                    std::collections::HashMap<String, graphql_linter::LintRuleConfig>,
+                >(&s)
+                .map_err(|e| napi::Error::from_reason(format!("invalid overrides: {e}")))?,
+            ),
+            _ => None,
+        };
     let mut host = host::get_host().lock();
     let diagnostics = host
-        .lint_file(&path, &source)
+        .lint_file(&path, &source, overrides)
         .map_err(|e| napi::Error::from_reason(e.to_string()))?;
     Ok(diagnostics.into_iter().map(JsDiagnostic::from).collect())
 }

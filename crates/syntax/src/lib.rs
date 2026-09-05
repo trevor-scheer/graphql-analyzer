@@ -235,8 +235,8 @@ fn extract_and_parse(db: &dyn GraphQLSyntaxDatabase, content: &str, uri: &str) -
         .map_or_else(ExtractConfig::default, |arc| (*arc).clone());
 
     tracing::debug!(
-        allow_global_identifiers = config.allow_global_identifiers,
-        tag_identifiers = ?config.tag_identifiers,
+        global_gql_identifier_name = ?config.global_gql_identifier_name,
+        modules = ?config.modules.iter().map(|m| m.name.as_str()).collect::<Vec<_>>(),
         "Using extract config"
     );
 
