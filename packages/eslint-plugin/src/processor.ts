@@ -38,54 +38,9 @@ function extOf(filePath: string): string {
   return dot === -1 ? "" : filePath.slice(dot);
 }
 
-export const processor = {
-  // ESLint v9 flat config dispatches processors via `meta.name`; without it
-  // the processor is treated as legacy and may not fire correctly.
-  meta: {
-    name: "@graphql-analyzer/processor",
-  },
-  // ESLint runs `preprocess` before parsing. We extract embedded GraphQL
-  // blocks from JS/TS-family hosts and present each block to ESLint as a
-  // virtual `.graphql` file. The host's original source comes last so other
-  // ESLint configs/parsers (TypeScript, React, etc.) still run on it.
-  // Pure-GraphQL files have no extraction work to do — return identity so
-  // the rule's `Program()` visitor handles them directly.
-  preprocess(code: string, filePath: string): Array<string | { filename: string; text: string }> {
-    const lang = LANG_BY_EXT[extOf(filePath)];
-    if (!lang) {
-      blocksMeta.delete(filePath);
-      return [code];
-    }
-    let extracted: binding.JsExtractedBlock[];
-    try {
-      extracted = binding.extractGraphql(code, lang);
-    } catch {
-      // Extraction failure (e.g. malformed JS) shouldn't block ESLint from
-      // running its other rules on the host file — drop GraphQL coverage
-      // for this file silently and let the rest of the lint pass continue.
-      blocksMeta.delete(filePath);
-      return [code];
-    }
-    if (extracted.length === 0) {
-      blocksMeta.delete(filePath);
-      return [code];
-    }
-    const meta: Array<{ lineOffset: number; byteOffset: number }> = [];
-    const blocks: Array<{ filename: string; text: string }> = [];
-    for (let i = 0; i < extracted.length; i++) {
-      const block = extracted[i];
-      meta.push({
-        lineOffset: lineOffsetForByteOffset(code, block.offset),
-        byteOffset: block.offset,
-      });
-      // Numeric prefix keeps virtual filenames unique per block. The
-      // `.graphql` suffix is what ESLint matches against the user's
-      // `files: ["**/*.graphql"]` config block — that's where our parser
-      // and rules are wired.
-      blocks.push({ filename: `${i}_document.graphql`, text: block.source });
-    }
-    blocksMeta.set(filePath, meta);
-    return [...blocks, code];
+export const fastProcessor = {
+  preprocess(code: string): Array<string> {
+    return [code];
   },
 
   // Map per-block diagnostic coordinates back to host-file coordinates.
@@ -117,5 +72,19 @@ export const processor = {
     return out.sort((a, b) => a.line - b.line || a.column - b.column);
   },
 
+  supportsAutofix: true,
+};
+
+export const processor = {
+  preprocess(code: string, filename: string): Array<string | { text: string; filename: string }> {
+    return (
+      require("./compat-processor") as typeof import("./compat-processor")
+    ).compatibilityProcessor.preprocess(code, filename);
+  },
+  postprocess(messages: Linter.LintMessage[][], filename: string): Linter.LintMessage[] {
+    return (
+      require("./compat-processor") as typeof import("./compat-processor")
+    ).compatibilityProcessor.postprocess(messages, filename);
+  },
   supportsAutofix: true,
 };
