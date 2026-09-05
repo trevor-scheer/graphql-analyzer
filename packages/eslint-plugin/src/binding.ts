@@ -79,10 +79,11 @@ export function lintFile(
   /// analyzer; entries from `.graphqlrc.yaml` still apply for any rule not
   /// in this map.
   overrides?: Record<string, unknown>,
+  skipEslintSuppressions = false,
 ): JsDiagnostic[] {
   ensureInitialized(filePath);
   const overridesJson = overrides ? JSON.stringify(overrides) : undefined;
-  return coreBinding.lintFile(filePath, source, overridesJson);
+  return coreBinding.lintFile(filePath, source, overridesJson, skipEslintSuppressions);
 }
 
 export function extractGraphql(source: string, language: string): JsExtractedBlock[] {

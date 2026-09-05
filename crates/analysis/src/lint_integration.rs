@@ -587,6 +587,7 @@ fn filter_suppressed_diagnostics(
     content: FileContent,
     diagnostics: Vec<graphql_linter::LintDiagnostic>,
 ) -> Vec<graphql_linter::LintDiagnostic> {
+    let eslint_suppressions_enabled = db.eslint_suppressions_enabled();
     let file_text = content.text(db);
     let file_line_index = graphql_syntax::line_index(db, content);
     let file_ignores = graphql_linter::ignore::parse_ignore_directives(&file_text);
@@ -602,11 +603,13 @@ fn filter_suppressed_diagnostics(
                 let block_suppressions =
                     graphql_linter::eslint_disable::Suppressions::from_source(block_source);
                 !graphql_linter::ignore::is_suppressed(&block_ignores, sl, &ld.rule)
-                    && !block_suppressions.is_suppressed(&ld.rule, sl as u32 + 1)
+                    && !(eslint_suppressions_enabled
+                        && block_suppressions.is_suppressed(&ld.rule, sl as u32 + 1))
             } else {
                 let (sl, _) = file_line_index.line_col(ld.span.start);
                 !graphql_linter::ignore::is_suppressed(&file_ignores, sl, &ld.rule)
-                    && !file_suppressions.is_suppressed(&ld.rule, sl as u32 + 1)
+                    && !(eslint_suppressions_enabled
+                        && file_suppressions.is_suppressed(&ld.rule, sl as u32 + 1))
             }
         })
         .collect()
@@ -628,6 +631,7 @@ fn convert_lint_diagnostics(
 ) -> Vec<Diagnostic> {
     use graphql_linter::DiagnosticSeverity as LintSev;
 
+    let eslint_suppressions_enabled = db.eslint_suppressions_enabled();
     let file_text = content.text(db);
     let file_line_index = graphql_syntax::line_index(db, content);
     let file_ignores = graphql_linter::ignore::parse_ignore_directives(&file_text);
@@ -646,10 +650,12 @@ fn convert_lint_diagnostics(
                 let block_suppressions =
                     graphql_linter::eslint_disable::Suppressions::from_source(block_source);
                 graphql_linter::ignore::is_suppressed(&block_ignores, block_line, rule_name)
-                    || block_suppressions.is_suppressed(rule_name, block_line as u32 + 1)
+                    || (eslint_suppressions_enabled
+                        && block_suppressions.is_suppressed(rule_name, block_line as u32 + 1))
             } else {
                 graphql_linter::ignore::is_suppressed(&file_ignores, start_line, rule_name)
-                    || file_suppressions.is_suppressed(rule_name, start_line as u32 + 1)
+                    || (eslint_suppressions_enabled
+                        && file_suppressions.is_suppressed(rule_name, start_line as u32 + 1))
             };
 
             if suppressed {

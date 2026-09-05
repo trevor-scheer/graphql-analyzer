@@ -103,6 +103,7 @@ impl NapiAnalysisHost {
         path: &str,
         source: &str,
         overrides: Option<std::collections::HashMap<String, graphql_linter::LintRuleConfig>>,
+        skip_eslint_suppressions: bool,
     ) -> anyhow::Result<Vec<graphql_ide::Diagnostic>> {
         let canonical = canonicalize_or(Path::new(path));
 
@@ -124,11 +125,17 @@ impl NapiAnalysisHost {
             None
         };
 
+        let original_suppressions = project
+            .host
+            .set_eslint_suppressions_enabled(!skip_eslint_suppressions);
         let diagnostics = {
             let snapshot = project.host.snapshot();
             snapshot.all_diagnostics_for_file(&file_path)
         };
 
+        project
+            .host
+            .set_eslint_suppressions_enabled(original_suppressions);
         if let Some(original) = restore {
             project.host.set_lint_config((*original).clone());
         }

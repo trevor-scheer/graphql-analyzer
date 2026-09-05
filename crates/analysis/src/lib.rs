@@ -25,6 +25,10 @@ pub use validation::validate_file;
 
 #[salsa::db]
 pub trait GraphQLAnalysisDatabase: graphql_hir::GraphQLHirDatabase {
+    fn eslint_suppressions_enabled(&self) -> bool {
+        true
+    }
+
     fn lint_config(&self) -> Arc<graphql_linter::LintConfig> {
         Arc::new(graphql_linter::LintConfig::default())
     }

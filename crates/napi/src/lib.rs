@@ -45,6 +45,7 @@ pub fn lint_file(
     path: String,
     source: String,
     overrides_json: Option<String>,
+    skip_eslint_suppressions: Option<bool>,
 ) -> napi::Result<Vec<JsDiagnostic>> {
     let overrides =
         match overrides_json {
@@ -58,7 +59,12 @@ pub fn lint_file(
         };
     let mut host = host::get_host().lock();
     let diagnostics = host
-        .lint_file(&path, &source, overrides)
+        .lint_file(
+            &path,
+            &source,
+            overrides,
+            skip_eslint_suppressions.unwrap_or(false),
+        )
         .map_err(|e| napi::Error::from_reason(e.to_string()))?;
     Ok(diagnostics.into_iter().map(JsDiagnostic::from).collect())
 }
