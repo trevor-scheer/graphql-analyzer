@@ -3,6 +3,7 @@ import { mkdtempSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "nod
 import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
+import { buildSchema, introspectionFromSchema } from "graphql";
 
 import { lintFile } from "../dist/binding.js";
 
@@ -30,7 +31,10 @@ function project(t, options = {}) {
       },
     },
   };
-  write("schema.graphql", options.schema ?? "type Query { hello: String zebra: String apple: String }");
+  write(
+    "schema.graphql",
+    options.schema ?? "type Query { hello: String zebra: String apple: String }",
+  );
   write("src/op.graphql", options.operation ?? "query { hello }");
   if (options.config !== false) write(".graphqlrc.json", JSON.stringify(config));
   return {
@@ -48,34 +52,150 @@ const hasRule = (diagnostics, rule) => diagnostics.some((diagnostic) => diagnost
 test("native diagnostics use the latest text of preloaded operations", (t) => {
   const p = project(t);
   assert.ok(hasRule(p.lint(), "noAnonymousOperations"));
-  assert.equal(hasRule(p.lint("src/op.graphql", "query Named { hello }"), "noAnonymousOperations"), false);
+  assert.equal(
+    hasRule(p.lint("src/op.graphql", "query Named { hello }"), "noAnonymousOperations"),
+    false,
+  );
 });
 
 test("native schema overlays retain their schema classification", (t) => {
   const p = project(t);
   p.lint();
-  assert.ok(hasRule(p.lint("schema.graphql", "# Description\ntype Query { hello: String }"), "noHashtagDescription"));
+  assert.ok(
+    hasRule(
+      p.lint("schema.graphql", "# Description\ntype Query { hello: String }"),
+      "noHashtagDescription",
+    ),
+  );
 });
 
-test("native dependencies refresh when schema files change on disk", (t) => {
-  const p = project(t, { operation: "query Named { hello }" });
-  assert.equal(p.lint().some((d) => d.message.includes("hello") && /not defined|Cannot query|does not exist|unknown/i.test(d.message)), false);
+test("native dependencies refresh after same-length schema edits on disk", (t) => {
+  const p = project(t, {
+    schema: "type Query { hello: String }",
+    operation: "query Named { hello }",
+  });
+  assert.equal(
+    p
+      .lint()
+      .some(
+        (d) =>
+          d.message.includes("hello") &&
+          /not defined|Cannot query|does not exist|unknown/i.test(d.message),
+      ),
+    false,
+  );
   p.write("schema.graphql", "type Query { other: String }");
-  assert.ok(p.lint().some((d) => d.message.includes("hello")), "changed schema must invalidate validation");
+  assert.ok(
+    p.lint().some((d) => d.message.includes("hello")),
+    "changed schema must invalidate validation",
+  );
 });
 
 test("native sibling documents refresh when fragment definitions change", (t) => {
   const p = project(t, { operation: "query Named { ...Fields }" });
   p.write("src/fragment.graphql", "fragment Fields on Query { hello }");
-  assert.equal(p.lint().some((d) => /undefined fragment|unknown fragment/i.test(d.message)), false);
+  assert.equal(
+    p.lint().some((d) => /undefined fragment|unknown fragment/i.test(d.message)),
+    false,
+  );
   p.write("src/fragment.graphql", "fragment Renamed on Query { hello }");
-  assert.ok(p.lint().some((d) => /Fields/.test(d.message)), "changed sibling must invalidate validation");
+  assert.ok(
+    p.lint().some((d) => /Fields/.test(d.message)),
+    "changed sibling must invalidate validation",
+  );
 });
 
 test("unchanged disk contents do not replace unsaved schema overlays", (t) => {
   const p = project(t, { operation: "query Named { added }" });
   p.lint("schema.graphql", "type Query { added: String }");
-  assert.equal(p.lint().some((d) => /added/.test(d.message)), false);
+  assert.equal(
+    p.lint().some((d) => /added/.test(d.message)),
+    false,
+  );
+});
+
+test("native dependency refresh preserves overlays when another file changes", (t) => {
+  const p = project(t, { operation: "query Named { added }" });
+  p.write("src/fragment.graphql", "fragment Fields on Query { hello }");
+  p.lint("schema.graphql", "type Query { hello: String added: String }");
+  p.write("src/fragment.graphql", "fragment Fields on Query { alias: hello }");
+  assert.equal(
+    p.lint().some((d) => /added/.test(d.message)),
+    false,
+  );
+});
+
+test("native sibling dependencies can be deleted and recreated", (t) => {
+  const p = project(t, { operation: "query Named { ...Fields }" });
+  const fragmentPath = p.write("src/fragment.graphql", "fragment Fields on Query { hello }");
+  p.lint();
+  rmSync(fragmentPath);
+  assert.ok(p.lint().some((d) => /Fields/.test(d.message)));
+  p.write("src/fragment.graphql", "fragment Fields on Query { hello }");
+  assert.equal(
+    p.lint().some((d) => /Fields/.test(d.message)),
+    false,
+  );
+});
+
+test("native introspection dependencies reload without discarding unchanged overlays", (t) => {
+  const p = project(t, { operation: "query Named { old }" });
+  p.config.schema = ["schema.graphql", "introspection.json"];
+  p.write(".graphqlrc.json", JSON.stringify(p.config));
+  const introspection = (field) =>
+    JSON.stringify(introspectionFromSchema(buildSchema(`type Query { ${field}: String }`)));
+  p.write("schema.graphql", "extend type Query { local: String }");
+  p.write("introspection.json", introspection("old"));
+  p.lint("schema.graphql", "extend type Query { local: String added: String }");
+  assert.equal(
+    p.lint("src/op.graphql", "query Named { added }").some((d) => /added/.test(d.message)),
+    false,
+  );
+  p.write("introspection.json", introspection("new"));
+  assert.equal(
+    p.lint("src/op.graphql", "query Named { added }").some((d) => /added/.test(d.message)),
+    false,
+  );
+  assert.ok(p.lint("src/op.graphql", "query Named { old }").some((d) => /old/.test(d.message)));
+});
+
+test("native resolved schemas retain precedence after deletion and recreation", (t) => {
+  const p = project(t, {
+    schema: "type Query { local: String }",
+    operation: "query Named { hello }",
+  });
+  p.config.extensions["graphql-analyzer"].resolvedSchema = "resolved.graphql";
+  p.write(".graphqlrc.json", JSON.stringify(p.config));
+  const resolvedPath = p.write("resolved.graphql", "type Query { hello: String }");
+  assert.equal(
+    p.lint().some((d) => /hello/.test(d.message)),
+    false,
+  );
+  rmSync(resolvedPath);
+  assert.ok(p.lint().some((d) => /hello/.test(d.message)));
+  p.write("resolved.graphql", "type Query { hello: String }");
+  assert.equal(
+    p.lint().some((d) => /hello/.test(d.message)),
+    false,
+  );
+});
+
+test("native schema reload retries after an unreadable introspection file is repaired", (t) => {
+  const p = project(t, { operation: "query Named { hello }" });
+  p.config.schema = "introspection.json";
+  p.write(".graphqlrc.json", JSON.stringify(p.config));
+  const introspection = (field) =>
+    JSON.stringify(introspectionFromSchema(buildSchema(`type Query { ${field}: String }`)));
+  p.write("introspection.json", introspection("hello"));
+  assert.equal(
+    p.lint().some((d) => /hello/.test(d.message)),
+    false,
+  );
+  p.write("introspection.json", Buffer.from([0xff]));
+  assert.throws(() => p.lint(), /Failed to read schema file/);
+  assert.throws(() => p.lint(), /Failed to read schema file/);
+  p.write("introspection.json", introspection("other"));
+  assert.ok(p.lint().some((d) => /hello/.test(d.message)));
 });
 
 test("native configuration can switch from A to B and back to A", (t) => {
@@ -94,6 +214,15 @@ test("native configuration changes invalidate the active project", (t) => {
   p.config.extensions["graphql-analyzer"].lint.rules.noAnonymousOperations = "off";
   p.write(".graphqlrc.json", JSON.stringify(p.config));
   assert.equal(hasRule(p.lint(), "noAnonymousOperations"), false);
+});
+
+test("native configuration can be deleted and recreated", (t) => {
+  const p = project(t);
+  assert.ok(hasRule(p.lint(), "noAnonymousOperations"));
+  rmSync(path.join(p.root, ".graphqlrc.json"));
+  assert.equal(hasRule(p.lint(), "noAnonymousOperations"), false);
+  p.write(".graphqlrc.json", JSON.stringify(p.config));
+  assert.ok(hasRule(p.lint(), "noAnonymousOperations"));
 });
 
 test("native configuration discovery retries after a config is created", (t) => {
@@ -128,18 +257,43 @@ test("native diagnostic and fix columns use UTF-16 after astral characters", (t)
   const diagnostic = p.lint().find((d) => d.rule === "alphabetize");
   assert.ok(diagnostic?.fix);
   assert.ok(source.slice(diagnostic.column - 1, diagnostic.endColumn - 1).includes("apple"));
-  const fixed = [...diagnostic.fix.edits].sort((a, b) => b.rangeStartColumn - a.rangeStartColumn).reduce(
-    (text, edit) => text.slice(0, edit.rangeStartColumn - 1) + edit.newText + text.slice(edit.rangeEndColumn - 1),
-    source,
-  );
+  const fixed = [...diagnostic.fix.edits]
+    .sort((a, b) => b.rangeStartColumn - a.rangeStartColumn)
+    .reduce(
+      (text, edit) =>
+        text.slice(0, edit.rangeStartColumn - 1) +
+        edit.newText +
+        text.slice(edit.rangeEndColumn - 1),
+      source,
+    );
   assert.equal(fixed, 'query Named($value: String = "🚀") { apple zebra }');
 });
 
 test("native embedded diagnostics include the first-line host column", (t) => {
   const p = project(t);
-  const source = 'import { gql } from "@apollo/client"; const rocket = "🚀"; const Q = gql`query { hello }`;';
+  const source =
+    'import { gql } from "@apollo/client"; const rocket = "🚀"; const Q = gql`query { hello }`;';
   p.write("src/component.ts", source);
   const diagnostic = p.lint("src/component.ts").find((d) => d.rule === "noAnonymousOperations");
   assert.ok(diagnostic);
   assert.equal(diagnostic.column, source.indexOf("query") + 1);
+});
+
+test("native embedded fixes preserve host text and Unicode", (t) => {
+  const p = project(t);
+  const source =
+    'import { gql } from "@apollo/client"; const rocket = "🚀"; const Q = gql`query Named { zebra apple }`;';
+  p.write("src/component.ts", source);
+  const diagnostic = p.lint("src/component.ts").find((d) => d.rule === "alphabetize");
+  assert.ok(diagnostic?.fix);
+  const fixed = [...diagnostic.fix.edits]
+    .sort((a, b) => b.rangeStartColumn - a.rangeStartColumn)
+    .reduce(
+      (text, edit) =>
+        text.slice(0, edit.rangeStartColumn - 1) +
+        edit.newText +
+        text.slice(edit.rangeEndColumn - 1),
+      source,
+    );
+  assert.equal(fixed, source.replace("zebra apple", "apple zebra"));
 });
