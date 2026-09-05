@@ -80,7 +80,8 @@ Each owner stages only owned files and uses terse commit messages without conven
 - [x] Agents implement in intelligible commits.
 - [x] Lead reviews and independently validates all work.
 - [x] Document measured performance and remaining compatibility limitations.
-- [ ] Open and verify a draft PR; inspect CI and resolve relevant failures.
+- [x] Open and verify [draft PR #1134](https://github.com/trevor-scheer/graphql-analyzer/pull/1134).
+- [ ] Inspect CI and resolve relevant failures.
 
 ## Review decisions and measured outcomes
 

@@ -3,7 +3,7 @@ graphql-analyzer-core: minor
 graphql-analyzer-eslint-plugin: minor
 ---
 
-Support GraphQL-ESLint custom rules with compatible parser services and embedded source mapping.
+Support GraphQL-ESLint custom rules with compatible parser services and embedded source mapping ([#1134](https://github.com/trevor-scheer/graphql-analyzer/pull/1134)).
 
 The default parser exposes GraphQL visitors, graphql-js nodes and type information, schema and sibling services, and public rule types and helpers. The processor preserves host-language linting and maps safe custom-rule fixes and suggestions back to embedded source. Add explicit `fastParser` and `fastProcessor` entry points for native-only linting. Install the `graphql` peer dependency at `^16.5.0`.
 
