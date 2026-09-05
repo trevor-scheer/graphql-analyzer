@@ -55,7 +55,7 @@ Add failing tests, then fix known-file source updates and config switching in se
 
 1. Commit the reviewed plan and a small reproducible compatibility baseline.
 2. Native owner: regression tests, then source/project lifecycle fixes and narrow native integration API if needed.
-3. Parser owner: real AST conversion, services, public helpers/types/test wrapper, and focused custom-rule tests. Separate AST support from schema services where practical.
+3. Parser owner: real AST conversion, services, public helpers/types, ordinary RuleTester fixtures, and focused custom-rule tests. Separate AST support from schema services where practical.
 4. Processor owner: extraction/source mapping, virtual-document lifecycle, shim integration, and embedded regression tests. Coordinate contracts with parser/native owners first.
 5. Lead: integrate, inspect all diffs, run independent compatibility probes, commission follow-up fixes, and add documentation and performance evidence.
 
@@ -77,7 +77,17 @@ Each owner stages only owned files and uses terse commit messages without conven
 - [x] Draft implementation plan.
 - [x] Sol reviewer pressure-tests the plan.
 - [x] Lead validates findings and revises decisions.
-- [ ] Agents implement in intelligible commits.
+- [x] Agents implement in intelligible commits.
 - [ ] Lead reviews and independently validates all work.
-- [ ] Document measured performance and remaining compatibility limitations.
+- [x] Document measured performance and remaining compatibility limitations.
 - [ ] Open and verify a draft PR; inspect CI and resolve relevant failures.
+
+## Review decisions and measured outcomes
+
+The Sol plan review corrected the helper name to `requireGraphQLOperations`, identified native source/config lifetime as a prerequisite, and challenged the performance claims. The lead checked each point against upstream 4.4.0 and the native implementation. The proposed blanket native UTF-16 conversion was rejected: production diagnostic conversion already used UTF-16 columns. Missing host prefixes on the first line of embedded documents were reproduced and fixed separately.
+
+The compatibility frontend eagerly loads configured schema and sibling services so invalid configured schemas still produce parse errors. TypeInfo snapshots remain lazy. Local source snapshots and a bounded schema cache avoid rebuilding unchanged project data; metadata and glob membership invalidate snapshots. Unsupported dynamic dependencies bypass snapshots. This trades additional checking for correctness on repeat lint calls.
+
+The lead's independent release benchmark found a 50-file median of 66 ms for fast mode, 170 ms for compatibility mode, and 91 ms upstream. These results do not support a general compatible-mode speedup claim. See [the reproducible performance evidence](./2026-09-05-eslint-custom-rules-benchmarks.md) for distributions, workload limits, and artifact identity.
+
+Independent integration review found and sent back two defects: failed transformed-schema reloads could lose native state and stop retrying, and processor test fixtures resolved against the test runner's working directory. The native reload is transactional, and fixture paths are module-relative. Additional agent review reproduced unsafe autofixes that formed JavaScript interpolation across edit boundaries; those edits are suppressed.
