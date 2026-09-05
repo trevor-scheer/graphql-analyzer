@@ -2,6 +2,7 @@ import type { Rule, SourceCode } from "eslint";
 import * as binding from "./binding";
 import { embeddedDiagnostics } from "./embedded";
 import { lineStarts as computeLineStarts } from "./source-map";
+import { isCompatibilityProgram } from "./parser";
 
 function toKebabCase(name: string): string {
   return name.replace(/([a-z])([A-Z])/g, "$1-$2").toLowerCase();
@@ -11,12 +12,18 @@ function toKebabCase(name: string): string {
 const fileCache = new WeakMap<SourceCode, binding.JsDiagnostic[]>();
 
 function diagnosticsFor(filePath: string, source: SourceCode): binding.JsDiagnostic[] {
-  const cached = fileCache.get(source);
-  if (cached) return cached;
-  const fresh =
-    embeddedDiagnostics(filePath, binding.lintFile) ?? binding.lintFile(filePath, source.text);
-  fileCache.set(source, fresh);
-  return fresh;
+  const state = stateFor(source);
+  if (state.diagnostics) return state.diagnostics;
+  // ESLint must see native reports to track which GraphQL directives are used.
+  const skipEslintSuppressions =
+    isCompatibilityProgram(source.ast) &&
+    source.getAllComments().some((comment) =>
+      /^\s*eslint-(?:disable(?:-next-line|-line)?|enable)(?:\s|$)/u.test(comment.value),
+    );
+  state.diagnostics ??=
+    embeddedDiagnostics(filePath, binding.lintFile, state.overrides, skipEslintSuppressions) ??
+    binding.lintFile(filePath, source.text, state.overrides, skipEslintSuppressions);
+  return state.diagnostics;
 }
 
 // Per-rule override registry populated as ESLint instantiates each rule for a
