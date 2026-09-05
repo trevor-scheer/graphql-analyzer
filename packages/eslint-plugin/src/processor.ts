@@ -1,6 +1,8 @@
 import type { Linter } from "eslint";
+import { name, version } from "./meta";
 
 export const fastProcessor = {
+  meta: { name: `${name}/fast-processor`, version },
   preprocess(code: string): Array<string> {
     return [code];
   },
@@ -13,6 +15,7 @@ export const fastProcessor = {
 };
 
 export const processor = {
+  meta: { name: `${name}/processor`, version },
   preprocess(code: string, filename: string): Array<string | { text: string; filename: string }> {
     return (
       require("./compat-processor") as typeof import("./compat-processor")

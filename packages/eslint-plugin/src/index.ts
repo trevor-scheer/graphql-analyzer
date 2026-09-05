@@ -2,8 +2,9 @@ import { parseForESLint, fastParser } from "./parser";
 import { processor, fastProcessor } from "./processor";
 import { buildRules } from "./rules";
 import { configs } from "./configs";
+import { name, version } from "./meta";
 
-export const parser = { parseForESLint };
+export const parser = { meta: { name: `${name}/parser`, version }, parseForESLint };
 export { parseForESLint, fastParser, processor, fastProcessor, configs };
 export { requireGraphQLSchema, requireGraphQLOperations } from "./helpers";
 export type * from "./types";
