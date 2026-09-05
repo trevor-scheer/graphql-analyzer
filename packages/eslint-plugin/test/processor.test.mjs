@@ -183,6 +183,20 @@ test("does not insert JavaScript delimiters through GraphQL fixes", () => {
   }
 });
 
+test("suppresses fixes that create interpolation across an edit boundary", () => {
+  for (const [source, fix] of [
+    ["const q = gql`{ old }`;", { range: [0, 0], text: "$" }],
+    ["const q = gql`query Q($var: ID) { old }`;", { range: [9, 12], text: "{" }],
+  ]) {
+    plugin.processor.preprocess(source, filename);
+    const [message] = plugin.processor.postprocess(
+      [[{ ruleId: "custom/unsafe", severity: 2, message: "unsafe", line: 1, column: 1, fix }], []],
+      filename,
+    );
+    assert.equal(message.fix, undefined);
+  }
+});
+
 test("preserves raw GraphQL escapes while mapping after escaped backticks", async () => {
   const source = 'const q = gql`{ field(arg: "\\`value\\n") old }`;';
   const [result] = await eslint().lintText(source, { filePath: filename });
