@@ -602,14 +602,14 @@ fn filter_suppressed_diagnostics(
                 let block_ignores = graphql_linter::ignore::parse_ignore_directives(block_source);
                 let block_suppressions =
                     graphql_linter::eslint_disable::Suppressions::from_source(block_source);
-                !graphql_linter::ignore::is_suppressed(&block_ignores, sl, &ld.rule)
-                    && !(eslint_suppressions_enabled
-                        && block_suppressions.is_suppressed(&ld.rule, sl as u32 + 1))
+                !(graphql_linter::ignore::is_suppressed(&block_ignores, sl, &ld.rule)
+                    || (eslint_suppressions_enabled
+                        && block_suppressions.is_suppressed(&ld.rule, sl as u32 + 1)))
             } else {
                 let (sl, _) = file_line_index.line_col(ld.span.start);
-                !graphql_linter::ignore::is_suppressed(&file_ignores, sl, &ld.rule)
-                    && !(eslint_suppressions_enabled
-                        && file_suppressions.is_suppressed(&ld.rule, sl as u32 + 1))
+                !(graphql_linter::ignore::is_suppressed(&file_ignores, sl, &ld.rule)
+                    || (eslint_suppressions_enabled
+                        && file_suppressions.is_suppressed(&ld.rule, sl as u32 + 1)))
             }
         })
         .collect()
