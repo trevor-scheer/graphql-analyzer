@@ -70,6 +70,10 @@ virtual `.graphql` documents, so the GraphQL config above also applies to
 embedded custom rules. Reports, suggestions, and safe fixes map back to the
 original file.
 
+Vue and Svelte extraction also need `typescript` 5 or 6 for their loader's
+runtime API, plus the framework dependencies listed in the documentation.
+TypeScript 7 alone does not satisfy that loader requirement.
+
 ## Choose native-only mode
 
 Use `graphql.fastParser` for standalone GraphQL files when all rules are

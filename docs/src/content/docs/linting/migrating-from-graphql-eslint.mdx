@@ -137,6 +137,8 @@ Other differences to check include:
   work through ESLint, with unsafe embedded edits suppressed.
 - Compatible embedded extraction supports more forms than native extraction.
   Native interpolated templates and GraphQL magic comments are unsupported.
+- Vue and Svelte extraction require TypeScript 5 or 6's runtime API, in addition
+  to their framework loader dependencies. TypeScript 7 alone is insufficient.
 - Native dependency refresh covers known files. New schema files matching
   globs require project reload. New operation documents require project reload
   or direct linting before native rules see them. Custom services rescan local

@@ -201,6 +201,9 @@ and Vue/Svelte/Astro script blocks. The compatibility processor uses
 GraphQL Tools plucking and respects `extensions.pluckConfig`. Framework
 plucking requires the corresponding loader dependencies in your project:
 `@vue/compiler-sfc`, `svelte` with `svelte2tsx`, or `astrojs-compiler-sync`.
+Vue and Svelte plucking also require `typescript` 5 or 6. TypeScript 7's
+compiler package does not expose the runtime API those loaders use. This
+runtime dependency is separate from the compiler you use to build your project.
 
 Fixes that cross interpolation gaps or could change host literal syntax are
 suppressed. Do not assume every JavaScript string containing GraphQL can be
