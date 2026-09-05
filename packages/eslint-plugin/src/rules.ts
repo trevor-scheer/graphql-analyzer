@@ -2,6 +2,7 @@ import type { Rule, SourceCode } from "eslint";
 import * as binding from "./binding";
 import { embeddedDiagnostics } from "./embedded";
 import { lineStarts as computeLineStarts } from "./source-map";
+import { isCompatibilityProgram } from "./parser";
 
 function toKebabCase(name: string): string {
   return name.replace(/([a-z])([A-Z])/g, "$1-$2").toLowerCase();
@@ -26,9 +27,16 @@ function stateFor(source: SourceCode): FileState {
 
 function diagnosticsFor(filePath: string, source: SourceCode): binding.JsDiagnostic[] {
   const state = stateFor(source);
+  if (state.diagnostics) return state.diagnostics;
+  // ESLint must see native reports to track which GraphQL directives are used.
+  const skipEslintSuppressions =
+    isCompatibilityProgram(source.ast) &&
+    source.getAllComments().some((comment) =>
+      /^\s*eslint-(?:disable(?:-next-line|-line)?|enable)(?:\s|$)/u.test(comment.value),
+    );
   state.diagnostics ??=
-    embeddedDiagnostics(filePath, binding.lintFile, state.overrides) ??
-    binding.lintFile(filePath, source.text, state.overrides);
+    embeddedDiagnostics(filePath, binding.lintFile, state.overrides, skipEslintSuppressions) ??
+    binding.lintFile(filePath, source.text, state.overrides, skipEslintSuppressions);
   return state.diagnostics;
 }
 

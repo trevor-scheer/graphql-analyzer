@@ -1,14 +1,22 @@
 import type { ParserOptions, GraphQLESLintParseResult } from "./types";
 import { name, version } from "./meta";
 
+const compatibilityPrograms = new WeakSet<object>();
+
+export function isCompatibilityProgram(program: object): boolean {
+  return compatibilityPrograms.has(program);
+}
+
 export function parseForESLint(
   code: string,
   options: ParserOptions = {},
 ): GraphQLESLintParseResult {
-  return (require("./compat-parser") as typeof import("./compat-parser")).parseForESLint(
+  const result = (require("./compat-parser") as typeof import("./compat-parser")).parseForESLint(
     code,
     options,
   );
+  compatibilityPrograms.add(result.ast);
+  return result;
 }
 
 export const fastParser = {

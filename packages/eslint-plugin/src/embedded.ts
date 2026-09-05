@@ -47,17 +47,23 @@ export function findEmbeddedBlock(
 
 export function embeddedDiagnostics(
   filename: string,
-  lint: (filename: string, source: string, overrides?: Record<string, unknown>) => JsDiagnostic[],
+  lint: (
+    filename: string,
+    source: string,
+    overrides?: Record<string, unknown>,
+    skipEslintSuppressions?: boolean,
+  ) => JsDiagnostic[],
   overrides: Record<string, unknown>,
+  skipEslintSuppressions: boolean,
 ): JsDiagnostic[] | undefined {
   const embedded = findEmbeddedBlock(filename);
   const record = embedded?.record ?? getEmbeddedRecord(filename);
   if (!record) return undefined;
-  const key = stableJson(overrides);
+  const key = stableJson([overrides, skipEslintSuppressions]);
   record.diagnostics ??= new Map();
   let diagnostics = record.diagnostics.get(key);
   if (!diagnostics) {
-    diagnostics = lint(record.filename, record.source, overrides);
+    diagnostics = lint(record.filename, record.source, overrides, skipEslintSuppressions);
     record.diagnostics.set(key, diagnostics);
   }
   if (!embedded) {
