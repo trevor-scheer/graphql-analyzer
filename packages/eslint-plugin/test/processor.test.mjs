@@ -418,3 +418,17 @@ test("sibling services overlay every unsaved embedded block without duplicate fr
     fs.rmSync(directory, { recursive: true, force: true });
   }
 });
+
+test("concurrent ESLint instances map different sources for the same physical filename", async () => {
+  const sources = [
+    "const q = gql`{ old }`;",
+    'const prefix = "😀";\nconst q = gql`{ ${fragment} old }`; const r = gql`{ old }`;',
+  ];
+  const results = await Promise.all(
+    sources.map((source) => eslint({ fix: true }).lintText(source, { filePath: filename })),
+  );
+  for (const [index, [result]] of results.entries()) {
+    assert.deepEqual(result.messages, []);
+    assert.equal(result.output, sources[index].replaceAll("old", "next"));
+  }
+});
