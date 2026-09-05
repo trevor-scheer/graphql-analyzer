@@ -47,24 +47,24 @@ jobs:
             os: windows-latest
     runs-on: ${{ matrix.os }}
     steps:
-      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
         with:
           ref: ${{ needs.check-command.outputs.head_sha }}
 
       - name: Setup Rust toolchain
-        uses: dtolnay/rust-toolchain@29eef336d9b2848a0b548edc03f92a220660cdb8 # stable
+        uses: dtolnay/rust-toolchain@6bed0761d98439e5a578e2877258200ad565ba87 # stable
         with:
           toolchain: stable
           targets: ${{ matrix.target }}
 
       - name: Rust cache
-        uses: Swatinem/rust-cache@e18b497796c12c097a38f9edb9d0641fb99eee32 # v2
+        uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2
         with:
           shared-key: "release-${{ matrix.target }}"
 
       - name: Install cross
         if: matrix.cross
-        uses: taiki-e/install-action@019ff5fd0f8eae341c18fae38f5dcf1ad6dced0b # cross
+        uses: taiki-e/install-action@a82845735191974ac374fc0472388c6df0a158ca # cross
         with:
           tool: cross
 
@@ -107,7 +107,7 @@ jobs:
             binary_name: graphql-lsp.exe
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
         with:
           ref: ${{ needs.check-command.outputs.head_sha }}
 
