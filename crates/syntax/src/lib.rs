@@ -719,6 +719,50 @@ pub trait GraphQLSyntaxDatabase: salsa::Database {
 mod tests {
     use super::*;
 
+    #[cfg(feature = "extract")]
+    #[test]
+    fn extracts_component_documents_using_their_metadata_language() {
+        #[salsa::db]
+        #[derive(Default, Clone)]
+        struct TestDatabase {
+            storage: salsa::Storage<Self>,
+        }
+
+        #[salsa::db]
+        impl salsa::Database for TestDatabase {}
+
+        #[salsa::db]
+        impl GraphQLSyntaxDatabase for TestDatabase {}
+
+        let db = TestDatabase::default();
+        let document = "query { hello }";
+        for (language, source) in [
+            (
+                Language::Svelte,
+                "<script lang=\"ts\">\nimport { gql } from \"graphql-tag\";\nconst q = gql`query { hello }`;\n</script>\n<p>{q}</p>",
+            ),
+            (
+                Language::Astro,
+                "---\nimport { gql } from \"graphql-tag\";\nconst q = gql`query { hello }`;\n---\n<html><body>{q}</body></html>",
+            ),
+        ] {
+            let content = FileContent::new(&db, Arc::from(source));
+            let metadata = FileMetadata::new(
+                &db,
+                graphql_base_db::FileId::new(0),
+                graphql_base_db::FileUri::new("file:///component"),
+                language,
+                DocumentKind::Executable,
+            );
+            let parsed = parse(&db, content, metadata);
+            assert!(!parsed.has_errors(), "{language:?}");
+            assert_eq!(parsed.document_count(), 1, "{language:?}");
+            let block = parsed.documents().next().unwrap();
+            assert_eq!(block.source, document);
+            assert_eq!(block.byte_offset, source.find(document).unwrap());
+        }
+    }
+
     #[test]
     fn test_line_index_new() {
         let text = "line 1\nline 2\nline 3";
