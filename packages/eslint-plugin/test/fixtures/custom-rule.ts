@@ -22,6 +22,8 @@ const rule: GraphQLESLintRule<[{ enabled: boolean }], true> = {
     const schema = requireGraphQLSchema("custom/field", context);
     const siblings = requireGraphQLOperations("custom/field", context);
     const services: ParserServices = context.sourceCode.parserServices;
+    // @ts-expect-error ESLint 10 exposes parser services through sourceCode.
+    void context.parserServices;
     void [schema, siblings, services, context.options[0].enabled];
     return {
       Field(node) {
