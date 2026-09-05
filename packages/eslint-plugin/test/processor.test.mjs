@@ -344,12 +344,14 @@ test("compatible native directives are applied once and retain unused-directive 
   const linter = new ESLint({
     cwd: fixtureRoot,
     overrideConfigFile: true,
-    overrideConfig: [{
-      files: ["**/*.graphql"],
-      languageOptions: { parser: plugin.parser },
-      plugins: { "@graphql-analyzer": plugin },
-      rules: { "@graphql-analyzer/no-anonymous-operations": "error" },
-    }],
+    overrideConfig: [
+      {
+        files: ["**/*.graphql"],
+        languageOptions: { parser: plugin.parser },
+        plugins: { "@graphql-analyzer": plugin },
+        rules: { "@graphql-analyzer/no-anonymous-operations": "error" },
+      },
+    ],
   });
   const physical = path.join(fixtureRoot, "src/directives.graphql");
   for (const rule of ["", " @graphql-analyzer/no-anonymous-operations"]) {
@@ -390,16 +392,19 @@ test("embedded directive ownership stays isolated across blocks and the host", a
   });
   const source =
     'import { gql } from "@apollo/client";\n' +
-    'const a = gql`{ __typename }`;\n' +
-    'const b = gql`\n# eslint-disable-next-line\n{ __typename }\n`;\n' +
-    'debugger;';
+    "const a = gql`{ __typename }`;\n" +
+    "const b = gql`\n# eslint-disable-next-line\n{ __typename }\n`;\n" +
+    "debugger;";
   const [result] = await linter.lintText(source, {
     filePath: path.join(fixtureRoot, "src/mixed-directives.js"),
   });
-  assert.deepEqual(result.messages.map(({ ruleId, line }) => ({ ruleId, line })), [
-    { ruleId: "@graphql-analyzer/no-anonymous-operations", line: 2 },
-    { ruleId: "no-debugger", line: 7 },
-  ]);
+  assert.deepEqual(
+    result.messages.map(({ ruleId, line }) => ({ ruleId, line })),
+    [
+      { ruleId: "@graphql-analyzer/no-anonymous-operations", line: 2 },
+      { ruleId: "no-debugger", line: 7 },
+    ],
+  );
 });
 
 test("disabling inline config preserves compatible native reports", async () => {
@@ -407,17 +412,18 @@ test("disabling inline config preserves compatible native reports", async () => 
     cwd: fixtureRoot,
     overrideConfigFile: true,
     allowInlineConfig: false,
-    overrideConfig: [{
-      files: ["**/*.graphql"],
-      languageOptions: { parser: plugin.parser },
-      plugins: { "@graphql-analyzer": plugin },
-      rules: { "@graphql-analyzer/no-anonymous-operations": "error" },
-    }],
+    overrideConfig: [
+      {
+        files: ["**/*.graphql"],
+        languageOptions: { parser: plugin.parser },
+        plugins: { "@graphql-analyzer": plugin },
+        rules: { "@graphql-analyzer/no-anonymous-operations": "error" },
+      },
+    ],
   });
-  const [result] = await linter.lintText(
-    "# eslint-disable-next-line\n{ __typename }",
-    { filePath: path.join(fixtureRoot, "src/no-inline.graphql") },
-  );
+  const [result] = await linter.lintText("# eslint-disable-next-line\n{ __typename }", {
+    filePath: path.join(fixtureRoot, "src/no-inline.graphql"),
+  });
   assert.equal(result.messages.length, 1);
   assert.equal(result.messages[0].ruleId, "@graphql-analyzer/no-anonymous-operations");
 });
