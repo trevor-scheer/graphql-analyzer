@@ -4,6 +4,7 @@ import * as path from "node:path";
 import * as fs from "node:fs";
 import * as os from "node:os";
 import { createRequire } from "node:module";
+import { fileURLToPath } from "node:url";
 import { ESLint } from "eslint";
 import plugin from "../dist/index.js";
 
@@ -29,7 +30,10 @@ const rule = {
   },
 };
 
-const filename = path.resolve("packages/eslint-plugin/test/component.js");
+const filename = fileURLToPath(new URL("./component.js", import.meta.url));
+const fixtureRoot = fileURLToPath(
+  new URL("../../../test-workspace/eslint-migration/", import.meta.url),
+);
 const require = createRequire(import.meta.url);
 
 function eslint(options = {}) {
@@ -228,7 +232,7 @@ test("maps GraphQL parse errors back to the host literal", async () => {
 });
 
 test("native and custom GraphQL rules coexist with host rules without duplicate reports", async () => {
-  const fixture = path.resolve("test-workspace/eslint-migration");
+  const fixture = fixtureRoot;
   const linter = eslint({
     cwd: fixture,
     overrideConfig: [
@@ -284,7 +288,7 @@ test("uses one physical native analysis across blocks and host rules", async () 
     return original(physical, source);
   };
   try {
-    const fixture = path.resolve("test-workspace/eslint-migration");
+    const fixture = fixtureRoot;
     const physical = path.join(fixture, "src/cached-embedded.js");
     const linter = new ESLint({
       cwd: fixture,
