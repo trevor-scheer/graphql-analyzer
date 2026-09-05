@@ -26,6 +26,11 @@ pub fn init(config_path: String) -> napi::Result<()> {
         .map_err(|e| napi::Error::from_reason(e.to_string()))
 }
 
+#[napi]
+pub fn reset() {
+    host::get_host().lock().reset();
+}
+
 /// Lint a file, optionally layering per-rule overrides on top of the
 /// persistent config for the duration of the call.
 ///
@@ -40,6 +45,7 @@ pub fn lint_file(
     path: String,
     source: String,
     overrides_json: Option<String>,
+    skip_eslint_suppressions: Option<bool>,
 ) -> napi::Result<Vec<JsDiagnostic>> {
     let overrides =
         match overrides_json {
@@ -52,7 +58,14 @@ pub fn lint_file(
             _ => None,
         };
     let mut host = host::get_host().lock();
-    let diagnostics = host.lint_file(&path, &source, overrides);
+    let diagnostics = host
+        .lint_file(
+            &path,
+            &source,
+            overrides,
+            skip_eslint_suppressions.unwrap_or(false),
+        )
+        .map_err(|e| napi::Error::from_reason(e.to_string()))?;
     Ok(diagnostics.into_iter().map(JsDiagnostic::from).collect())
 }
 

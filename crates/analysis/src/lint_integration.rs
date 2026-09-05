@@ -587,6 +587,7 @@ fn filter_suppressed_diagnostics(
     content: FileContent,
     diagnostics: Vec<graphql_linter::LintDiagnostic>,
 ) -> Vec<graphql_linter::LintDiagnostic> {
+    let eslint_suppressions_enabled = db.eslint_suppressions_enabled();
     let file_text = content.text(db);
     let file_line_index = graphql_syntax::line_index(db, content);
     let file_ignores = graphql_linter::ignore::parse_ignore_directives(&file_text);
@@ -601,12 +602,14 @@ fn filter_suppressed_diagnostics(
                 let block_ignores = graphql_linter::ignore::parse_ignore_directives(block_source);
                 let block_suppressions =
                     graphql_linter::eslint_disable::Suppressions::from_source(block_source);
-                !graphql_linter::ignore::is_suppressed(&block_ignores, sl, &ld.rule)
-                    && !block_suppressions.is_suppressed(&ld.rule, sl as u32 + 1)
+                !(graphql_linter::ignore::is_suppressed(&block_ignores, sl, &ld.rule)
+                    || (eslint_suppressions_enabled
+                        && block_suppressions.is_suppressed(&ld.rule, sl as u32 + 1)))
             } else {
                 let (sl, _) = file_line_index.line_col(ld.span.start);
-                !graphql_linter::ignore::is_suppressed(&file_ignores, sl, &ld.rule)
-                    && !file_suppressions.is_suppressed(&ld.rule, sl as u32 + 1)
+                !(graphql_linter::ignore::is_suppressed(&file_ignores, sl, &ld.rule)
+                    || (eslint_suppressions_enabled
+                        && file_suppressions.is_suppressed(&ld.rule, sl as u32 + 1)))
             }
         })
         .collect()
@@ -616,13 +619,9 @@ fn filter_suppressed_diagnostics(
 /// filtering out diagnostics suppressed by either `# graphql-analyzer-ignore`
 /// or `# eslint-disable*` directives.
 ///
-/// Each `LintDiagnostic` carries a `SourceSpan` which bundles byte offsets with block context
-/// (for embedded GraphQL in TS/JS). When block context is present:
-/// - `span.start/end` are relative to `span.source`, not the full file
-/// - We build a `LineIndex` from `span.source` to convert byte offsets to line/column
-/// - We add `span.line_offset` to get the correct position in the original file
-///
-/// For pure GraphQL files (no block context), we use the full file's `LineIndex`.
+/// Embedded spans are block-relative. Adding `span.byte_offset` before using
+/// the file's `LineIndex` preserves first-line columns and UTF-16 positions.
+/// Ignore directives are evaluated in the source that contains the diagnostic.
 fn convert_lint_diagnostics(
     db: &dyn GraphQLAnalysisDatabase,
     content: FileContent,
@@ -632,6 +631,7 @@ fn convert_lint_diagnostics(
 ) -> Vec<Diagnostic> {
     use graphql_linter::DiagnosticSeverity as LintSev;
 
+    let eslint_suppressions_enabled = db.eslint_suppressions_enabled();
     let file_text = content.text(db);
     let file_line_index = graphql_syntax::line_index(db, content);
     let file_ignores = graphql_linter::ignore::parse_ignore_directives(&file_text);
@@ -640,39 +640,23 @@ fn convert_lint_diagnostics(
     lint_diags
         .into_iter()
         .filter_map(|ld| {
-            let (line_offset, start_line, start_col, end_line, end_col, suppressed) =
-                if let Some(ref block_source) = ld.span.source {
-                    let block_line_index = graphql_syntax::LineIndex::new(block_source);
-                    let (sl, sc) = block_line_index.line_col(ld.span.start);
-                    let (el, ec) = block_line_index.line_col(ld.span.end);
-                    tracing::trace!(
-                        line_offset = ld.span.line_offset,
-                        offset_start = ld.span.start,
-                        offset_end = ld.span.end,
-                        start_line_in_block = sl,
-                        start_col_in_block = sc,
-                        final_line = sl + ld.span.line_offset as usize,
-                        message = %ld.message,
-                        "Converting block diagnostic"
-                    );
-                    // For embedded blocks, check both ignore and eslint-disable
-                    // directives against the block source (not the outer file).
-                    let block_ignores =
-                        graphql_linter::ignore::parse_ignore_directives(block_source);
-                    let block_suppressions =
-                        graphql_linter::eslint_disable::Suppressions::from_source(block_source);
-                    let suppressed =
-                        graphql_linter::ignore::is_suppressed(&block_ignores, sl, rule_name)
-                            || block_suppressions.is_suppressed(rule_name, sl as u32 + 1);
-                    (ld.span.line_offset, sl, sc, el, ec, suppressed)
-                } else {
-                    let (sl, sc) = file_line_index.line_col(ld.span.start);
-                    let (el, ec) = file_line_index.line_col(ld.span.end);
-                    let suppressed =
-                        graphql_linter::ignore::is_suppressed(&file_ignores, sl, rule_name)
-                            || file_suppressions.is_suppressed(rule_name, sl as u32 + 1);
-                    (0u32, sl, sc, el, ec, suppressed)
-                };
+            let (start_line, start_col) =
+                file_line_index.line_col(ld.span.byte_offset + ld.span.start);
+            let (end_line, end_col) = file_line_index.line_col(ld.span.byte_offset + ld.span.end);
+            let suppressed = if let Some(ref block_source) = ld.span.source {
+                let block_line_index = graphql_syntax::LineIndex::new(block_source);
+                let (block_line, _) = block_line_index.line_col(ld.span.start);
+                let block_ignores = graphql_linter::ignore::parse_ignore_directives(block_source);
+                let block_suppressions =
+                    graphql_linter::eslint_disable::Suppressions::from_source(block_source);
+                graphql_linter::ignore::is_suppressed(&block_ignores, block_line, rule_name)
+                    || (eslint_suppressions_enabled
+                        && block_suppressions.is_suppressed(rule_name, block_line as u32 + 1))
+            } else {
+                graphql_linter::ignore::is_suppressed(&file_ignores, start_line, rule_name)
+                    || (eslint_suppressions_enabled
+                        && file_suppressions.is_suppressed(rule_name, start_line as u32 + 1))
+            };
 
             if suppressed {
                 tracing::debug!(
@@ -689,33 +673,25 @@ fn convert_lint_diagnostics(
                 LintSev::Info => Severity::Info,
             };
 
-            // Convert the linter's byte-offset fix (if any) into the
-            // line/column form `Diagnostic` carries. Embedded blocks share
-            // the same line index used for the diagnostic range, so fix
-            // positions land in the same coordinate space (block-relative
-            // when there's a `block_source`, file-relative otherwise).
+            let source_is_contiguous = ld.span.source.as_ref().is_none_or(|block_source| {
+                file_text.get(ld.span.byte_offset..ld.span.byte_offset + block_source.len())
+                    == Some(block_source.as_ref())
+            });
             let convert_fix = |f: &graphql_linter::CodeFix| -> crate::CodeFix {
                 let mut edits = Vec::with_capacity(f.edits.len());
                 for edit in &f.edits {
-                    let (es_line, es_col, ee_line, ee_col) =
-                        if let Some(ref block_source) = ld.span.source {
-                            let block_line_index = graphql_syntax::LineIndex::new(block_source);
-                            let (sl, sc) = block_line_index.line_col(edit.offset_range.start);
-                            let (el, ec) = block_line_index.line_col(edit.offset_range.end);
-                            (sl, sc, el, ec)
-                        } else {
-                            let (sl, sc) = file_line_index.line_col(edit.offset_range.start);
-                            let (el, ec) = file_line_index.line_col(edit.offset_range.end);
-                            (sl, sc, el, ec)
-                        };
+                    let (es_line, es_col) =
+                        file_line_index.line_col(ld.span.byte_offset + edit.offset_range.start);
+                    let (ee_line, ee_col) =
+                        file_line_index.line_col(ld.span.byte_offset + edit.offset_range.end);
                     edits.push(crate::TextEdit {
                         range: DiagnosticRange {
                             start: Position {
-                                line: es_line as u32 + ld.span.line_offset,
+                                line: es_line as u32,
                                 character: es_col as u32,
                             },
                             end: Position {
-                                line: ee_line as u32 + ld.span.line_offset,
+                                line: ee_line as u32,
                                 character: ee_col as u32,
                             },
                         },
@@ -727,10 +703,16 @@ fn convert_lint_diagnostics(
                     edits,
                 }
             };
-            let fix = ld.fix.as_ref().map(&convert_fix);
+            // Cooked strings need an escape-aware source map before edits are safe.
+            let fix = ld
+                .fix
+                .as_ref()
+                .filter(|_| source_is_contiguous)
+                .map(&convert_fix);
             let suggestions = ld
                 .suggestions
                 .iter()
+                .filter(|_| source_is_contiguous)
                 .map(|s| crate::CodeSuggestion {
                     desc: s.desc.clone(),
                     fix: convert_fix(&s.fix),
@@ -742,11 +724,11 @@ fn convert_lint_diagnostics(
                 message: ld.message.into(),
                 range: DiagnosticRange {
                     start: Position {
-                        line: start_line as u32 + line_offset,
+                        line: start_line as u32,
                         character: start_col as u32,
                     },
                     end: Position {
-                        line: end_line as u32 + line_offset,
+                        line: end_line as u32,
                         character: end_col as u32,
                     },
                 },
@@ -778,6 +760,69 @@ fn convert_lint_diagnostics(
 /// canonical per-rule URL when the rule didn't set one explicitly.
 fn resolve_rule_url(explicit: Option<String>, rule_name: &str) -> String {
     explicit.unwrap_or_else(|| graphql_linter::rule_doc_url(rule_name))
+}
+
+#[cfg(test)]
+mod diagnostic_conversion_tests {
+    use super::*;
+
+    #[salsa::db]
+    #[derive(Clone, Default)]
+    struct TestDatabase {
+        storage: salsa::Storage<Self>,
+    }
+
+    #[salsa::db]
+    impl salsa::Database for TestDatabase {}
+
+    #[salsa::db]
+    impl graphql_syntax::GraphQLSyntaxDatabase for TestDatabase {}
+
+    #[salsa::db]
+    impl graphql_hir::GraphQLHirDatabase for TestDatabase {}
+
+    #[salsa::db]
+    impl GraphQLAnalysisDatabase for TestDatabase {}
+
+    #[test]
+    fn suppresses_edits_for_non_contiguous_embedded_source() {
+        let db = TestDatabase::default();
+        let source = r#"const query = "query Named { zebra\n apple }";"#;
+        let block = "query Named { zebra\n apple }";
+        let content = FileContent::new(&db, Arc::from(source));
+        let span = graphql_syntax::SourceSpan::with_block_context(
+            14,
+            25,
+            0,
+            "const query = ".len(),
+            Some(Arc::from(block)),
+        );
+        let mut diagnostic =
+            graphql_linter::LintDiagnostic::warning(span, "Sort fields", "alphabetize");
+        diagnostic.fix = Some(graphql_linter::CodeFix::new(
+            "Sort fields",
+            vec![graphql_linter::TextEdit::new(14, 25, "apple zebra")],
+        ));
+        diagnostic
+            .suggestions
+            .push(graphql_linter::CodeSuggestion::replace(
+                "Sort fields",
+                14,
+                25,
+                "apple zebra",
+            ));
+
+        let diagnostics = convert_lint_diagnostics(
+            &db,
+            content,
+            vec![diagnostic],
+            "alphabetize",
+            Severity::Warning,
+        );
+        assert_eq!(diagnostics.len(), 1);
+        assert!(diagnostics[0].fix.is_none());
+        assert!(diagnostics[0].suggestions.is_empty());
+    }
 }
 
 #[cfg(test)]

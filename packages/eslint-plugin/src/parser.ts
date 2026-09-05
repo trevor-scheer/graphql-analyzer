@@ -1,29 +1,41 @@
-import type { Linter } from "eslint";
+import type { ParserOptions, GraphQLESLintParseResult } from "./types";
+import { name, version } from "./meta";
 
-// ESLint's flat config requires a parser. Our rule shims don't read any AST
-// — they delegate to the Rust analyzer — so the parser just produces the
-// minimal empty `Program` that satisfies ESLint's machinery.
-function lastLineCol(code: string): { line: number; column: number } {
-  if (code.length === 0) {
-    return { line: 1, column: 0 };
-  }
-  const lines = code.split("\n");
-  return {
-    line: lines.length,
-    column: lines[lines.length - 1].length,
-  };
+const compatibilityPrograms = new WeakSet<object>();
+
+export function isCompatibilityProgram(program: object): boolean {
+  return compatibilityPrograms.has(program);
 }
 
-export function parseForESLint(code: string, _options?: Linter.ParserOptions) {
-  return {
-    ast: {
-      type: "Program" as const,
-      sourceType: "script" as const,
-      body: [] as never[],
-      tokens: [] as never[],
-      comments: [] as never[],
-      loc: { start: { line: 1, column: 0 }, end: lastLineCol(code) },
-      range: [0, code.length] as [number, number],
-    },
-  };
+export function parseForESLint(
+  code: string,
+  options: ParserOptions = {},
+): GraphQLESLintParseResult {
+  const result = (require("./compat-parser") as typeof import("./compat-parser")).parseForESLint(
+    code,
+    options,
+  );
+  compatibilityPrograms.add(result.ast);
+  return result;
 }
+
+export const fastParser = {
+  meta: { name: `${name}/fast-parser`, version },
+  parseForESLint(code: string) {
+    const lines = code.split(/\r\n|[\n\r]/u);
+    return {
+      ast: {
+        type: "Program" as const,
+        sourceType: "script" as const,
+        body: [] as never[],
+        tokens: [] as never[],
+        comments: [] as never[],
+        loc: {
+          start: { line: 1, column: 0 },
+          end: { line: lines.length, column: lines.at(-1)!.length },
+        },
+        range: [0, code.length] as [number, number],
+      },
+    };
+  },
+};

@@ -27,12 +27,7 @@ const CONFIG_FILENAMES = [
   "graphql.config.ts",
 ];
 
-// One-time init is keyed by resolved config path rather than a global flag.
-// ESLint invocations that span multiple projects (monorepos) then get the
-// right config per file rather than whichever project's config loaded first.
-// Rust-side Salsa also tolerates repeated init calls for the same config.
-const initializedConfigs = new Set<string>();
-const missingConfigDirs = new Set<string>();
+let activeConfig: { path: string; source: string } | undefined;
 
 function findConfigFile(startDir: string): string | null {
   let dir = startDir;
@@ -51,30 +46,26 @@ function findConfigFile(startDir: string): string | null {
 }
 
 function ensureInitialized(filePath: string): void {
-  const dir = path.dirname(filePath);
-  if (missingConfigDirs.has(dir)) return;
-
-  const configPath = findConfigFile(dir);
+  const configPath = findConfigFile(path.dirname(path.resolve(filePath)));
   if (!configPath) {
-    missingConfigDirs.add(dir);
+    if (activeConfig) coreBinding.reset();
+    activeConfig = undefined;
     return;
   }
 
   const resolved = path.resolve(configPath);
-  if (initializedConfigs.has(resolved)) return;
-
   try {
+    const source = fs.readFileSync(resolved, "utf8");
+    if (activeConfig?.path === resolved && activeConfig.source === source) return;
     coreBinding.init(resolved);
-    initializedConfigs.add(resolved);
+    activeConfig = { path: resolved, source };
   } catch (err) {
-    // Surface malformed configs instead of silently linting without project
-    // context — otherwise the user just sees "no diagnostics" with no signal.
+    coreBinding.reset();
+    activeConfig = undefined;
     const message = err instanceof Error ? err.message : String(err);
     console.warn(
       `[@graphql-analyzer/eslint-plugin] Failed to load config at ${resolved}: ${message}`,
     );
-    // Remember we tried; don't retry on every file.
-    initializedConfigs.add(resolved);
   }
 }
 
@@ -88,14 +79,11 @@ export function lintFile(
   /// analyzer; entries from `.graphqlrc.yaml` still apply for any rule not
   /// in this map.
   overrides?: Record<string, unknown>,
+  skipEslintSuppressions = false,
 ): JsDiagnostic[] {
   ensureInitialized(filePath);
-  // No TS-side cache: the Rust analyzer is Salsa-memoized, and any cache here
-  // would need a content hash (not just length) to avoid stale results.
-  // JSON-string transport at the napi boundary keeps the addon signature
-  // simple — the Rust side parses with serde.
   const overridesJson = overrides ? JSON.stringify(overrides) : undefined;
-  return coreBinding.lintFile(filePath, source, overridesJson);
+  return coreBinding.lintFile(filePath, source, overridesJson, skipEslintSuppressions);
 }
 
 export function extractGraphql(source: string, language: string): JsExtractedBlock[] {

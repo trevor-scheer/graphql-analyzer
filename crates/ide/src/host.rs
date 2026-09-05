@@ -563,8 +563,28 @@ impl AnalysisHost {
         if let Some(input) = self.db.lint_config_input {
             input.set_config(&mut self.db).to(Arc::new(config));
         } else {
-            let input = LintConfigInput::new(&self.db, Arc::new(config));
+            let input = LintConfigInput::new(&self.db, Arc::new(config), true);
             self.db.lint_config_input = Some(input);
+        }
+    }
+
+    /// Set native `ESLint` suppression and return the previous setting.
+    pub fn set_eslint_suppressions_enabled(&mut self, enabled: bool) -> bool {
+        if let Some(input) = self.db.lint_config_input {
+            let previous = input.eslint_suppressions_enabled(&self.db);
+            if previous != enabled {
+                input
+                    .set_eslint_suppressions_enabled(&mut self.db)
+                    .to(enabled);
+            }
+            previous
+        } else {
+            self.db.lint_config_input = Some(LintConfigInput::new(
+                &self.db,
+                Arc::new(graphql_linter::LintConfig::default()),
+                enabled,
+            ));
+            true
         }
     }
 

@@ -180,7 +180,7 @@ pub fn parse(
 
     #[cfg(feature = "extract")]
     if metadata.language(db).requires_extraction() {
-        return extract_and_parse(db, &content.text(db), uri.as_str());
+        return extract_and_parse(db, &content.text(db), uri.as_str(), metadata.language(db));
     }
     // When the extract feature is off (wasm), all files parse as raw GraphQL.
     parse_graphql(&content.text(db), uri.as_str())
@@ -223,10 +223,15 @@ fn parse_graphql(content: &str, uri: &str) -> Parse {
     }
 }
 
-/// Extract GraphQL from TypeScript/JavaScript and parse each block
+/// Extract GraphQL from its host language and parse each block
 #[cfg(feature = "extract")]
-fn extract_and_parse(db: &dyn GraphQLSyntaxDatabase, content: &str, uri: &str) -> Parse {
-    use graphql_extract::{extract_from_source, ExtractConfig, Language};
+fn extract_and_parse(
+    db: &dyn GraphQLSyntaxDatabase,
+    content: &str,
+    uri: &str,
+    language: Language,
+) -> Parse {
+    use graphql_extract::{extract_from_source, ExtractConfig};
 
     tracing::debug!(content_len = content.len(), "extract_and_parse called");
 
@@ -240,7 +245,6 @@ fn extract_and_parse(db: &dyn GraphQLSyntaxDatabase, content: &str, uri: &str) -
         "Using extract config"
     );
 
-    let language = Language::TypeScript;
     let extracted = match extract_from_source(content, language, &config, uri) {
         Ok(blocks) => {
             tracing::debug!(blocks_extracted = blocks.len(), "Extraction successful");
@@ -718,6 +722,50 @@ pub trait GraphQLSyntaxDatabase: salsa::Database {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[cfg(feature = "extract")]
+    #[test]
+    fn extracts_component_documents_using_their_metadata_language() {
+        #[salsa::db]
+        #[derive(Default, Clone)]
+        struct TestDatabase {
+            storage: salsa::Storage<Self>,
+        }
+
+        #[salsa::db]
+        impl salsa::Database for TestDatabase {}
+
+        #[salsa::db]
+        impl GraphQLSyntaxDatabase for TestDatabase {}
+
+        let db = TestDatabase::default();
+        let document = "query { hello }";
+        for (language, source) in [
+            (
+                Language::Svelte,
+                "<script lang=\"ts\">\nimport { gql } from \"graphql-tag\";\nconst q = gql`query { hello }`;\n</script>\n<p>{q}</p>",
+            ),
+            (
+                Language::Astro,
+                "---\nimport { gql } from \"graphql-tag\";\nconst q = gql`query { hello }`;\n---\n<html><body>{q}</body></html>",
+            ),
+        ] {
+            let content = FileContent::new(&db, Arc::from(source));
+            let metadata = FileMetadata::new(
+                &db,
+                graphql_base_db::FileId::new(0),
+                graphql_base_db::FileUri::new("file:///component"),
+                language,
+                DocumentKind::Executable,
+            );
+            let parsed = parse(&db, content, metadata);
+            assert!(!parsed.has_errors(), "{language:?}");
+            assert_eq!(parsed.document_count(), 1, "{language:?}");
+            let block = parsed.documents().next().unwrap();
+            assert_eq!(block.source, document);
+            assert_eq!(block.byte_offset, source.find(document).unwrap());
+        }
+    }
 
     #[test]
     fn test_line_index_new() {
