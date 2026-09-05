@@ -103,4 +103,27 @@ Release-preparation simulation failed under npm 11.19.0 because regeneration pro
 
 The lead started from stale local `main` at `bb444fe` without refreshing the remote first. After draft creation, GitHub reported merge conflicts and no CI runs. A fetch and non-mutating `git merge-tree` inspection found 12 conflicting files against live `main` at `0735a0a`, including the native host/diagnostic interfaces, plugin entry points, documentation, and package management. Live `main` uses pnpm, ESLint 10, and newer Rust/TypeScript tooling.
 
-No merge or conflict resolution was applied. The implementation, review results, and benchmarks remain valid for the recorded baseline, but they do not validate a port to live `main`. The draft is blocked pending a revised integration plan and approval to port, review, and remeasure it. CI monitoring paused at the `babysit` skill's large/risky-change boundary.
+No merge or conflict resolution was applied in that turn. The implementation, review results, and benchmarks remained valid for the recorded baseline, but did not validate a port to live `main`. CI monitoring paused at the `babysit` skill's large/risky-change boundary.
+
+## Approved integration onto current main
+
+The user approved updating the draft to latest `main`. The integration target is `0735a0a`; the lead fetched before starting and will recheck the remote before publishing. A merge commit preserves the published reproduction/implementation history.
+
+The implementation agents own three independent integration areas: native project state and diagnostics; parser, public types, and pnpm dependencies; and processor/rule-shim behavior. The lead owns documentation, benchmarks, conflict review, and independent validation. Current-main capabilities take precedence over stale limitation statements: preserve ESLint options, multi-project routing, native suggestions, validation-name stubs, and all five presets.
+
+Validation uses Rust 1.96, pnpm 10.34.4, TypeScript 7, and ESLint 10. The upstream GraphQL-ESLint 4.4 oracle uses the existing `eslint-v9` alias. Rebuild the release native addon, run the combined integration/parity/custom-rule suites, verify supported packed consumers, run formatting/lint/typechecks and documentation builds, and repeat the benchmark with both ESLint versions recorded. A separate reviewer will inspect the combined changes before the PR update and CI monitoring.
+
+- [x] Resolve conflicts without dropping current-main behavior.
+- [x] Review and validate the combined implementation.
+- [x] Replace stale performance and migration claims with integrated evidence.
+- [x] Prepare the updated draft for push and GitHub CI.
+
+### Integration review and local validation
+
+The merge is `e45bf2b`. A fresh fetch before publication still resolved main to `0735a0a`. Cross-owner review and the lead's validation found three integration defects: physical native component analysis discarded the host language, compatible directives could be suppressed twice, and Vue plucking resolved TypeScript 7 without its required runtime API. Regression commits precede their fixes. Review also caught a public type declaring the removed ESLint 10 `context.parserServices` property; helpers and types now use `context.sourceCode.parserServices` on every supported version.
+
+Native calls retain project routing, per-call rule options, suggestions, and independent source overlays. Compatible directives delegate to ESLint through a Salsa-tracked per-call flag; native analyzer ignores remain active, and the flag is restored afterward. Fast-mode suppressions accept canonical and recognized GraphQL-ESLint rule names. Normal embedded documents still share one physical native analysis. Existing native glob-discovery and extraction limits remain documented.
+
+The lead independently ran the 98-test plugin suite both in the worktree and with a fresh frozen pnpm install, plus 1,258 affected Rust tests, repository formatting/lint/typechecks, and the 72-page documentation build. A throwaway checkout passed the release-prep simulation. Final packed consumers passed runtime and strict declaration checks on ESLint 8.40/TypeScript 5, ESLint 9/TypeScript 6, and ESLint 10/TypeScript 7. The first two also passed Vue/Svelte extraction on Node 18. Existing lint warnings remain. The benchmark's alias-version reporting failure received a separate regression test and fix before rerunning measurements.
+
+The renewed release benchmark uses clean revision `8b0bfbe`, holds ESLint 9 constant for the primary comparison, and records a separate analyzer-on-ESLint-10 run. The [integrated evidence](./2026-09-05-eslint-custom-rules-benchmarks.md) retains the compatibility-cost caveat. The earlier Sol plan review remains applicable; the merged implementation also received cross-owner review and independent lead validation. GitHub check status is tracked on draft PR #1134 after this local checkpoint.
