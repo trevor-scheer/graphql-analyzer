@@ -98,3 +98,9 @@ The final independent Sol review reproduced an ESLint persistent-cache failure c
 Sol also reproduced stale native inventory after a new file is added to an existing schema glob. The lead retained this as a documented pre-existing limitation, not a new custom-frontend blocker. Native dependency refresh covers known files; compatible custom-rule services separately detect glob membership changes. Native inventory discovery, rule-option forwarding, and multi-project support need their own implementation scope.
 
 Release-preparation simulation failed under npm 11.19.0 because regeneration produced five native optional-package entries with missing versions. The lead ran the same script in isolated source copies of this branch and unchanged `bb444fe`; both failed with the same five missing entries. No release-workflow changes were made. The packed runtime dependency audit reported no critical or high findings and three moderate entries through Apollo's `uuid` dependency.
+
+## Integration blocker after draft creation
+
+The lead started from stale local `main` at `bb444fe` without refreshing the remote first. After draft creation, GitHub reported merge conflicts and no CI runs. A fetch and non-mutating `git merge-tree` inspection found 12 conflicting files against live `main` at `0735a0a`, including the native host/diagnostic interfaces, plugin entry points, documentation, and package management. Live `main` uses pnpm, ESLint 10, and newer Rust/TypeScript tooling.
+
+No merge or conflict resolution was applied. The implementation, review results, and benchmarks remain valid for the recorded baseline, but they do not validate a port to live `main`. The draft is blocked pending a revised integration plan and approval to port, review, and remeasure it. CI monitoring paused at the `babysit` skill's large/risky-change boundary.
