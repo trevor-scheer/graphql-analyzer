@@ -31,9 +31,11 @@ function diagnosticsFor(filePath: string, source: SourceCode): binding.JsDiagnos
   // ESLint must see native reports to track which GraphQL directives are used.
   const skipEslintSuppressions =
     isCompatibilityProgram(source.ast) &&
-    source.getAllComments().some((comment) =>
-      /^\s*eslint-(?:disable(?:-next-line|-line)?|enable)(?:\s|$)/u.test(comment.value),
-    );
+    source
+      .getAllComments()
+      .some((comment) =>
+        /^\s*eslint-(?:disable(?:-next-line|-line)?|enable)(?:\s|$)/u.test(comment.value),
+      );
   state.diagnostics ??=
     embeddedDiagnostics(filePath, binding.lintFile, state.overrides, skipEslintSuppressions) ??
     binding.lintFile(filePath, source.text, state.overrides, skipEslintSuppressions);
