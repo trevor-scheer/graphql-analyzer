@@ -72,13 +72,55 @@ impl NapiAnalysisHost {
         let base_dir = config_path.parent().unwrap_or_else(|| Path::new("."));
         self.workspace_root = base_dir.to_path_buf();
 
-        let project_count = config.projects().count();
-        if project_count > 1 {
-            anyhow::bail!(
-                "Multi-project .graphqlrc configs are not yet supported by the ESLint plugin \
-                 (found {project_count} projects in {}). Use a single-project config for now.",
-                config_path.display()
-            );
+    pub fn extract_config(&self) -> graphql_extract::ExtractConfig {
+        // Extraction has no file path for project routing, so it uses the first project.
+        self.projects
+            .first()
+            .map_or_else(graphql_extract::ExtractConfig::default, |p| {
+                p.host.get_extract_config()
+            })
+    }
+
+    pub fn lint_file(
+        &mut self,
+        path: &str,
+        source: &str,
+        overrides: Option<std::collections::HashMap<String, graphql_linter::LintRuleConfig>>,
+        skip_eslint_suppressions: bool,
+    ) -> anyhow::Result<Vec<graphql_ide::Diagnostic>> {
+        let canonical = canonicalize_or(Path::new(path));
+
+        let Some(project_idx) = self.project_for_file(&canonical) else {
+            return Ok(Vec::new());
+        };
+        let project = &mut self.projects[project_idx];
+
+        project.refresh_dependencies(&self.workspace_root)?;
+        let file_path = project.update_source(&canonical, source);
+
+        // ESLint options apply only to this call; later files keep the project config.
+        let restore = if let Some(overrides) = overrides.filter(|m| !m.is_empty()) {
+            let original = project.host.lint_config();
+            let merged = (*original).clone().with_overrides(overrides);
+            project.host.set_lint_config(merged);
+            Some(original)
+        } else {
+            None
+        };
+
+        let original_suppressions = project
+            .host
+            .set_eslint_suppressions_enabled(!skip_eslint_suppressions);
+        let diagnostics = {
+            let snapshot = project.host.snapshot();
+            snapshot.all_diagnostics_for_file(&file_path)
+        };
+
+        project
+            .host
+            .set_eslint_suppressions_enabled(original_suppressions);
+        if let Some(original) = restore {
+            project.host.set_lint_config((*original).clone());
         }
 
             if let Some(lint_value) = project.lint() {

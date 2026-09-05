@@ -36,15 +36,30 @@ pub fn init(config_path: String) -> napi::Result<()> {
 /// keeps the napi signature simple — callers (e.g. ESLint's rule visitor)
 /// just `JSON.stringify` their overrides.
 #[napi]
-pub fn reset() {
-    host::get_host().lock().reset();
-}
-
-#[napi]
-pub fn lint_file(path: String, source: String) -> napi::Result<Vec<JsDiagnostic>> {
+pub fn lint_file(
+    path: String,
+    source: String,
+    overrides_json: Option<String>,
+    skip_eslint_suppressions: Option<bool>,
+) -> napi::Result<Vec<JsDiagnostic>> {
+    let overrides =
+        match overrides_json {
+            Some(s) if !s.is_empty() => Some(
+                serde_json::from_str::<
+                    std::collections::HashMap<String, graphql_linter::LintRuleConfig>,
+                >(&s)
+                .map_err(|e| napi::Error::from_reason(format!("invalid overrides: {e}")))?,
+            ),
+            _ => None,
+        };
     let mut host = host::get_host().lock();
     let diagnostics = host
-        .lint_file(&path, &source)
+        .lint_file(
+            &path,
+            &source,
+            overrides,
+            skip_eslint_suppressions.unwrap_or(false),
+        )
         .map_err(|e| napi::Error::from_reason(e.to_string()))?;
     Ok(diagnostics.into_iter().map(JsDiagnostic::from).collect())
 }
