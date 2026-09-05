@@ -49,6 +49,7 @@ test("converted visitors, raw nodes, and all nine TypeInfo fields match upstream
   actual.forEach((node, index) => {
     const reference = expected[index];
     assert.equal(node.type, reference.type);
+    assert.equal(node.loc.source, reference.loc.source);
     assert.deepEqual(node.range, reference.range);
     assert.deepEqual(node.leadingComments, reference.leadingComments);
     assert.equal(print(node.rawNode()), print(reference.rawNode()));
@@ -92,7 +93,7 @@ test("locations use UTF-16 offsets and complete multiline token spans", () => {
   for (const node of [...walk(converted.root), ...converted.tokens, ...converted.comments]) {
     const expected = node.range.map((offset) => getLocation(document.loc.source, offset));
     assert.deepEqual(
-      node.loc,
+      { start: node.loc.start, end: node.loc.end },
       {
         start: { line: expected[0].line, column: expected[0].column - 1 },
         end: { line: expected[1].line, column: expected[1].column - 1 },
