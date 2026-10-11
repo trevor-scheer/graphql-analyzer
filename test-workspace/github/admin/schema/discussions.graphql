@@ -1,7 +1,15 @@
 """
 A discussion in a repository.
 """
-type Discussion implements Node & Comment & Closable & Labelable & Lockable & Reactable & RepositoryNode & Subscribable & UniformResourceLocatable {
+type Discussion implements Node &
+  Comment &
+  Closable &
+  Labelable &
+  Lockable &
+  Reactable &
+  RepositoryNode &
+  Subscribable &
+  UniformResourceLocatable {
   """
   Reason that the conversation was locked.
   """
