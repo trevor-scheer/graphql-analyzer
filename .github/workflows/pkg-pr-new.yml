@@ -1,0 +1,131 @@
+name: Package previews
+
+on:
+  pull_request:
+    branches: [main]
+
+permissions: {}
+
+concurrency:
+  group: pkg-pr-new-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
+
+jobs:
+  build-core:
+    name: Build core (${{ matrix.target }})
+    runs-on: ${{ matrix.os }}
+    strategy:
+      matrix:
+        include:
+          - target: aarch64-apple-darwin
+            os: macos-latest
+            npm_dir: darwin-arm64
+          - target: x86_64-apple-darwin
+            os: macos-latest
+            npm_dir: darwin-x64
+          - target: aarch64-unknown-linux-gnu
+            os: ubuntu-latest
+            npm_dir: linux-arm64-gnu
+            linux_cross: true
+          - target: x86_64-unknown-linux-gnu
+            os: ubuntu-latest
+            npm_dir: linux-x64-gnu
+            dispatcher: true
+          - target: x86_64-pc-windows-msvc
+            os: windows-latest
+            npm_dir: win32-x64-msvc
+    steps:
+      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6
+
+      - name: Install Rust
+        run: rustup show
+
+      - name: Add Rust target
+        run: rustup target add ${{ matrix.target }}
+
+      - name: Rust cache
+        uses: Swatinem/rust-cache@e18b497796c12c097a38f9edb9d0641fb99eee32 # v2
+        with:
+          shared-key: "preview-core-${{ matrix.target }}"
+
+      - name: Setup mise + pnpm
+        uses: jdx/mise-action@5228313ee0372e111a38da051671ca30fc5a96db # v3
+        with:
+          experimental: true
+
+      - name: Install workspace deps
+        run: pnpm install --frozen-lockfile
+
+      - name: Install Linux ARM cross toolchain
+        if: matrix.linux_cross
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y gcc-aarch64-linux-gnu
+          echo "CARGO_TARGET_AARCH64_UNKNOWN_LINUX_GNU_LINKER=aarch64-linux-gnu-gcc" >> "$GITHUB_ENV"
+          echo "CC_aarch64_unknown_linux_gnu=aarch64-linux-gnu-gcc" >> "$GITHUB_ENV"
+
+      - name: Build native addon
+        working-directory: packages/core
+        run: pnpm exec napi build --manifest-path ../../crates/napi/Cargo.toml --output-dir . --platform --release --target ${{ matrix.target }}
+
+      - name: Upload .node binding
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+        with:
+          name: core-bindings-${{ matrix.npm_dir }}
+          path: packages/core/graphql-analyzer.*.node
+          if-no-files-found: error
+
+      - name: Upload dispatcher entry points
+        if: matrix.dispatcher
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+        with:
+          name: core-dispatcher
+          path: |
+            packages/core/index.js
+            packages/core/index.d.ts
+          if-no-files-found: error
+
+  publish:
+    name: Publish package previews
+    needs: build-core
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6
+
+      - name: Setup mise + pnpm
+        uses: jdx/mise-action@5228313ee0372e111a38da051671ca30fc5a96db # v3
+        with:
+          experimental: true
+
+      - name: Install workspace deps
+        run: pnpm install --frozen-lockfile
+
+      - name: Download .node bindings
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8
+        with:
+          pattern: core-bindings-*
+          path: napi-artifacts
+          merge-multiple: true
+
+      - name: Download dispatcher entry points
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8
+        with:
+          name: core-dispatcher
+          path: packages/core
+
+      - name: Distribute bindings into platform packages
+        working-directory: packages/core
+        run: pnpm exec napi artifacts --output-dir ../../napi-artifacts
+
+      - name: Build ESLint plugin
+        run: pnpm --filter @graphql-analyzer/eslint-plugin run build
+
+      - name: Publish all npm packages together
+        run: >-
+          pnpm exec pkg-pr-new publish
+          --previewVersion
+          --no-template
+          --packageManager=pnpm
+          './packages/core/npm/*'
+          './packages/core'
+          './packages/eslint-plugin'
