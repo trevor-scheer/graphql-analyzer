@@ -68,7 +68,7 @@ impl TypeCoverage {
 /// Uses per-file aggregation queries for incremental computation.
 /// When a single file changes, only that file's `file_schema_coordinates`
 /// is recomputed; other files' contributions come from Salsa cache.
-#[salsa::tracked]
+#[salsa::tracked(returns(clone))]
 pub fn find_unused_fields(
     db: &dyn GraphQLAnalysisDatabase,
     project_files: graphql_base_db::ProjectFiles,
@@ -113,7 +113,7 @@ pub fn find_unused_fields(
 /// spreads, then expands transitively through fragment-to-fragment spreads.
 /// This ensures fragments only referenced by other unreachable fragments
 /// are correctly reported as unused.
-#[salsa::tracked]
+#[salsa::tracked(returns(clone))]
 pub fn find_unused_fragments(
     db: &dyn GraphQLAnalysisDatabase,
     project_files: graphql_base_db::ProjectFiles,
@@ -161,7 +161,7 @@ pub fn find_unused_fragments(
 ///
 /// Iterates all document files and walks each operation's selection set
 /// recursively (including fragment spreads) to find fields of the target type.
-#[salsa::tracked]
+#[salsa::tracked(returns(clone))]
 #[allow(clippy::needless_pass_by_value)] // Arc<str> needed for Salsa tracking
 pub fn field_usage_for_type(
     db: &dyn GraphQLAnalysisDatabase,
@@ -260,7 +260,7 @@ pub fn field_usage_for_type(
 ///
 /// Returns detailed usage information for every schema field,
 /// including which operations use each field and how many times.
-#[salsa::tracked]
+#[salsa::tracked(returns(clone))]
 pub fn analyze_field_usage(
     db: &dyn GraphQLAnalysisDatabase,
     project_files: graphql_base_db::ProjectFiles,

@@ -88,7 +88,7 @@ fn collect_apollo_diagnostics(errors: &DiagnosticList) -> HashMap<Arc<str>, Vec<
 /// - Union member validation (union members must be object types)
 /// - Type reference validation
 /// - Duplicate definition detection
-#[salsa::tracked]
+#[salsa::tracked(returns(clone))]
 pub fn merged_schema_with_diagnostics(
     db: &dyn GraphQLAnalysisDatabase,
     project_files: graphql_base_db::ProjectFiles,
