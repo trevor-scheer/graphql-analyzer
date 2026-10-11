@@ -86,7 +86,7 @@ opentelemetry = "0.33"
 opentelemetry_sdk = { version = "0.33", features = ["rt-tokio"] }
 opentelemetry-otlp = "0.33"
 opentelemetry-semantic-conventions = "0.33"
-tracing-opentelemetry = "0.33"
+tracing-opentelemetry = "0.34"
 
 # Incremental computation
 salsa = "0.27"
