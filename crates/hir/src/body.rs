@@ -54,7 +54,7 @@ pub struct FragmentBody {
 ///
 /// This query only invalidates when the operation's selection set changes.
 /// The operation's structure (name, variables) can change without invalidating this.
-#[salsa::tracked]
+#[salsa::tracked(returns(clone))]
 pub fn operation_body(
     db: &dyn crate::GraphQLHirDatabase,
     file_content: graphql_base_db::FileContent,
@@ -86,7 +86,7 @@ pub fn operation_body(
 /// Extract the body of a fragment by name
 ///
 /// This query only invalidates when the fragment's selection set changes.
-#[salsa::tracked]
+#[salsa::tracked(returns(clone))]
 #[allow(clippy::needless_pass_by_value)] // Arc<str> needed for Salsa tracking
 pub fn fragment_body(
     db: &dyn crate::GraphQLHirDatabase,
@@ -116,7 +116,7 @@ pub fn fragment_body(
 /// Get all fragments transitively used by an operation
 ///
 /// This handles circular fragment references gracefully by tracking visited fragments.
-#[salsa::tracked]
+#[salsa::tracked(returns(clone))]
 pub fn operation_transitive_fragments(
     db: &dyn crate::GraphQLHirDatabase,
     file_content: graphql_base_db::FileContent,

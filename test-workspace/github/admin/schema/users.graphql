@@ -1,7 +1,12 @@
 """
 A user is an individual's account on GitHub.
 """
-type User implements Node & Actor & RepositoryOwner & Sponsor & Sponsorable & UniformResourceLocatable {
+type User implements Node &
+  Actor &
+  RepositoryOwner &
+  Sponsor &
+  Sponsorable &
+  UniformResourceLocatable {
   """
   URL of the user's avatar.
   """

@@ -49,7 +49,7 @@ pub fn file_validation_diagnostics(
 }
 
 /// Get only syntax errors for a file (no validation against schema)
-#[salsa::tracked]
+#[salsa::tracked(returns(clone))]
 fn syntax_diagnostics(
     db: &dyn GraphQLAnalysisDatabase,
     content: graphql_base_db::FileContent,
@@ -91,7 +91,7 @@ fn syntax_diagnostics(
 }
 
 /// Internal tracked function for validation with project files
-#[salsa::tracked]
+#[salsa::tracked(returns(clone))]
 fn file_validation_diagnostics_impl(
     db: &dyn GraphQLAnalysisDatabase,
     content: graphql_base_db::FileContent,
@@ -186,7 +186,7 @@ pub fn file_diagnostics(
 }
 
 /// Internal tracked function that combines validation and linting
-#[salsa::tracked]
+#[salsa::tracked(returns(clone))]
 fn file_diagnostics_impl(
     db: &dyn GraphQLAnalysisDatabase,
     content: graphql_base_db::FileContent,

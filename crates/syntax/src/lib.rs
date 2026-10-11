@@ -170,7 +170,7 @@ impl Parse {
 
 /// Parse a file into a syntax tree
 /// This is the foundation - all semantic analysis builds on this
-#[salsa::tracked]
+#[salsa::tracked(returns(clone))]
 pub fn parse(
     db: &dyn GraphQLSyntaxDatabase,
     content: FileContent,
@@ -698,7 +698,7 @@ impl LineIndex {
 }
 
 /// Compute line index for a file (for position conversions)
-#[salsa::tracked]
+#[salsa::tracked(returns(clone))]
 pub fn line_index(db: &dyn GraphQLSyntaxDatabase, content: FileContent) -> Arc<LineIndex> {
     Arc::new(LineIndex::new(&content.text(db)))
 }

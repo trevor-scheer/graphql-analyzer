@@ -60,7 +60,7 @@ jobs:
           echo "Resolved: CLI=$CLI_VERSION CORE=$CORE_VERSION ESLINT=$ESLINT_VERSION"
 
       - name: Clone analyzer-testbed
-        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
         with:
           repository: trevor-scheer/analyzer-testbed
           path: testbed

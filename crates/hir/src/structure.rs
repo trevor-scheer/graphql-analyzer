@@ -374,7 +374,7 @@ impl BlockContext {
 
 /// Extract the file structure from a parsed syntax tree
 /// This only extracts structural information (names, signatures), not bodies
-#[salsa::tracked]
+#[salsa::tracked(returns(clone))]
 pub fn file_structure(
     db: &dyn crate::GraphQLHirDatabase,
     file_id: FileId,
