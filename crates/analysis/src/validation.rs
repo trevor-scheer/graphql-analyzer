@@ -13,7 +13,7 @@ use std::sync::Arc;
 /// - Circular fragment detection
 /// - Type coercion validation
 
-#[salsa::tracked]
+#[salsa::tracked(returns(clone))]
 pub fn validate_file(
     db: &dyn GraphQLAnalysisDatabase,
     content: FileContent,

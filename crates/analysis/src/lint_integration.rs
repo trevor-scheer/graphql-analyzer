@@ -47,7 +47,7 @@ pub fn lint_file_with_project(
 }
 
 /// Internal tracked function for linting with project files
-#[salsa::tracked]
+#[salsa::tracked(returns(clone))]
 fn lint_file_impl(
     db: &dyn GraphQLAnalysisDatabase,
     content: FileContent,
@@ -275,7 +275,7 @@ pub fn project_lint_diagnostics(
 }
 
 /// Internal tracked function for project-wide linting
-#[salsa::tracked]
+#[salsa::tracked(returns(clone))]
 fn project_lint_diagnostics_impl(
     db: &dyn GraphQLAnalysisDatabase,
     project_files: ProjectFiles,
