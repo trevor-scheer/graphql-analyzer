@@ -265,6 +265,14 @@ For warnings you believe are false positives, use `#[allow(clippy::specific_lint
    - Target the `main` branch (unless working on a specific feature branch)
    - Fill out the PR template
 
+Pull requests targeting `main` also publish pkg.pr.new previews of the npm
+packages. Once the package preview job finishes, its comment has install URLs
+for `@graphql-analyzer/core`, `@graphql-analyzer/eslint-plugin`, and the five
+native platform packages. Use the core or ESLint plugin URL to test a PR;
+their dependencies resolve to native packages from the same preview. Use the
+comment's `npm install` command for preview installs. pnpm installations can
+reject these URL-based child packages when `blockExoticSubdeps` is enabled.
+
 ### Pull Request Guidelines
 
 **Title:**

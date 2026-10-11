@@ -38,7 +38,7 @@ fn text_range_to_diagnostic_range(
 /// - Valid field selections against schema
 /// - Valid variable types
 /// - Fragment spread resolution
-#[salsa::tracked]
+#[salsa::tracked(returns(clone))]
 pub fn validate_document_file(
     db: &dyn GraphQLAnalysisDatabase,
     content: FileContent,
