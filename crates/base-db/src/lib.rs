@@ -20,6 +20,7 @@ pub use graphql_types::{DocumentKind, FileId, FileUri, Language};
 /// This is set by the LSP layer when files are opened/changed
 #[salsa::input]
 pub struct FileContent {
+    #[returns(clone)]
     pub text: Arc<str>,
 }
 
@@ -31,11 +32,15 @@ pub struct FileContent {
 /// - `document_kind`: What the content represents (Schema or Executable)
 #[salsa::input]
 pub struct FileMetadata {
+    #[returns(clone)]
     pub file_id: FileId,
+    #[returns(clone)]
     pub uri: FileUri,
     /// Source language - determines parsing strategy
+    #[returns(clone)]
     pub language: Language,
     /// Document kind - determines semantic processing
+    #[returns(clone)]
     pub document_kind: DocumentKind,
 }
 
@@ -62,6 +67,7 @@ impl FileMetadata {
 #[salsa::input]
 pub struct SchemaFileIds {
     /// List of schema file IDs - stable across content changes
+    #[returns(clone)]
     pub ids: Arc<Vec<FileId>>,
 }
 
@@ -71,6 +77,7 @@ pub struct SchemaFileIds {
 #[salsa::input]
 pub struct DocumentFileIds {
     /// List of document file IDs - stable across content changes
+    #[returns(clone)]
     pub ids: Arc<Vec<FileId>>,
 }
 
@@ -84,6 +91,7 @@ pub struct DocumentFileIds {
 #[salsa::input]
 pub struct ResolvedSchemaFileIds {
     /// List of resolved schema file IDs
+    #[returns(clone)]
     pub ids: Arc<Vec<FileId>>,
 }
 
@@ -93,8 +101,10 @@ pub struct ResolvedSchemaFileIds {
 #[salsa::input]
 pub struct FileEntry {
     /// The file's content
+    #[returns(clone)]
     pub content: FileContent,
     /// The file's metadata
+    #[returns(clone)]
     pub metadata: FileMetadata,
 }
 
@@ -109,6 +119,7 @@ pub struct FileEntry {
 #[salsa::input]
 pub struct FileEntryMap {
     /// Mapping from FileId to FileEntry - each entry is independently tracked
+    #[returns(clone)]
     pub entries: Arc<HashMap<FileId, FileEntry>>,
 }
 
@@ -125,8 +136,10 @@ pub struct FileEntryMap {
 pub struct FilePathMap {
     /// URI string → FileId. Keys are `Arc<str>` so we can interchange with
     /// `FileUri` / the IDE's `FilePath` without copying.
+    #[returns(clone)]
     pub uri_to_id: Arc<HashMap<Arc<str>, FileId>>,
     /// FileId → URI string (reverse direction).
+    #[returns(clone)]
     pub id_to_uri: Arc<HashMap<FileId, Arc<str>>>,
 }
 
@@ -141,16 +154,21 @@ pub struct FilePathMap {
 #[salsa::input]
 pub struct ProjectFiles {
     /// Schema file IDs - only changes when schema files are added/removed
+    #[returns(clone)]
     pub schema_file_ids: SchemaFileIds,
     /// Document file IDs - only changes when document files are added/removed
+    #[returns(clone)]
     pub document_file_ids: DocumentFileIds,
     /// Resolved schema file IDs - only populated when `resolvedSchema` is configured.
     /// When non-empty, queries validate against these files instead of `schema_file_ids`.
+    #[returns(clone)]
     pub resolved_schema_file_ids: ResolvedSchemaFileIds,
     /// Per-file entry map for granular invalidation
     /// Each `FileEntry` can be updated independently without invalidating other files
+    #[returns(clone)]
     pub file_entry_map: FileEntryMap,
     /// URI ↔ FileId resolution. Stable across content edits.
+    #[returns(clone)]
     pub file_path_map: FilePathMap,
 }
 
@@ -160,7 +178,7 @@ pub struct ProjectFiles {
 /// - Each file has its own `FileEntry` input
 /// - Updating file A's content doesn't invalidate queries for file B
 /// - The `HashMap` lookup creates a dependency only on the specific `FileEntry`
-#[salsa::tracked]
+#[salsa::tracked(returns(clone))]
 pub fn file_lookup(
     db: &dyn salsa::Database,
     project_files: ProjectFiles,
@@ -179,7 +197,7 @@ pub fn file_lookup(
 ///
 /// Salsa tracked queries require owned key arguments, so `uri` is taken by
 /// value even though we only borrow it for the lookup.
-#[salsa::tracked]
+#[salsa::tracked(returns(clone))]
 #[allow(clippy::needless_pass_by_value)]
 pub fn file_id_for_uri(
     db: &dyn salsa::Database,
@@ -191,7 +209,7 @@ pub fn file_id_for_uri(
 }
 
 /// Resolve a `FileId` back to its URI string, if any.
-#[salsa::tracked]
+#[salsa::tracked(returns(clone))]
 pub fn uri_for_file_id(
     db: &dyn salsa::Database,
     project_files: ProjectFiles,
@@ -205,7 +223,7 @@ pub fn uri_for_file_id(
 ///
 /// Cheaper than iterating `schema_file_ids` and `document_file_ids` separately
 /// when the caller doesn't care about the kind split.
-#[salsa::tracked]
+#[salsa::tracked(returns(clone))]
 pub fn all_file_ids(db: &dyn salsa::Database, project_files: ProjectFiles) -> Arc<Vec<FileId>> {
     let path_map = project_files.file_path_map(db);
     let ids: Vec<FileId> = path_map.id_to_uri(db).keys().copied().collect();

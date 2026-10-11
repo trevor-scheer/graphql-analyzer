@@ -1,7 +1,12 @@
 """
 An organization account on GitHub.
 """
-type Organization implements Node & Actor & RepositoryOwner & Sponsor & Sponsorable & UniformResourceLocatable {
+type Organization implements Node &
+  Actor &
+  RepositoryOwner &
+  Sponsor &
+  Sponsorable &
+  UniformResourceLocatable {
   """
   URL of the organization's avatar.
   """
@@ -683,7 +688,11 @@ enum TeamMembershipType {
 """
 A team discussion.
 """
-type TeamDiscussion implements Node & Comment & Reactable & Subscribable & UniformResourceLocatable {
+type TeamDiscussion implements Node &
+  Comment &
+  Reactable &
+  Subscribable &
+  UniformResourceLocatable {
   author: Actor
   authorAssociation: CommentAuthorAssociation!
   body: String!

@@ -12,6 +12,7 @@ use std::sync::Arc;
 /// - Snapshot isolation (config is immutable in Analysis snapshots)
 #[salsa::input]
 pub(crate) struct LintConfigInput {
+    #[returns(clone)]
     pub config: Arc<graphql_linter::LintConfig>,
 }
 
@@ -27,6 +28,7 @@ pub(crate) struct LintConfigInput {
 #[cfg(feature = "extract")]
 #[salsa::input]
 pub(crate) struct ExtractConfigInput {
+    #[returns(clone)]
     pub config: Arc<graphql_extract::ExtractConfig>,
 }
 

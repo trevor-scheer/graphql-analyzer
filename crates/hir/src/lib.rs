@@ -114,7 +114,7 @@ pub trait GraphQLHirDatabase: graphql_syntax::GraphQLSyntaxDatabase {
 
 /// Get type definitions from a single schema file
 /// This query is cached per-file - editing another file won't invalidate it
-#[salsa::tracked]
+#[salsa::tracked(returns(clone))]
 pub fn file_type_defs(
     db: &dyn GraphQLHirDatabase,
     file_id: FileId,
@@ -127,7 +127,7 @@ pub fn file_type_defs(
 
 /// Get fragments from a single document file
 /// This query is cached per-file - editing another file won't invalidate it
-#[salsa::tracked]
+#[salsa::tracked(returns(clone))]
 pub fn file_fragments(
     db: &dyn GraphQLHirDatabase,
     file_id: FileId,
@@ -140,7 +140,7 @@ pub fn file_fragments(
 
 /// Get directive definitions from a single schema file
 /// This query is cached per-file - editing another file won't invalidate it
-#[salsa::tracked]
+#[salsa::tracked(returns(clone))]
 pub fn file_directive_defs(
     db: &dyn GraphQLHirDatabase,
     file_id: FileId,
@@ -153,7 +153,7 @@ pub fn file_directive_defs(
 
 /// Get operations from a single document file
 /// This query is cached per-file - editing another file won't invalidate it
-#[salsa::tracked]
+#[salsa::tracked(returns(clone))]
 pub fn file_operations(
     db: &dyn GraphQLHirDatabase,
     file_id: FileId,
@@ -168,7 +168,7 @@ pub fn file_operations(
 /// Returns all type names used in field return types, argument types,
 /// union members, implements clauses, fragment type conditions, and variable types.
 /// Works for both schema and document files.
-#[salsa::tracked]
+#[salsa::tracked(returns(clone))]
 pub fn file_type_name_references(
     db: &dyn GraphQLHirDatabase,
     file_id: FileId,
@@ -457,7 +457,7 @@ pub fn all_fragments(
 /// - Calls `file_defined_fragment_names` per-file (each cached independently)
 ///
 /// When a single file changes, only that file's contribution is recomputed.
-#[salsa::tracked]
+#[salsa::tracked(returns(clone))]
 pub fn project_fragment_name_index(
     db: &dyn GraphQLHirDatabase,
     project_files: graphql_base_db::ProjectFiles,
@@ -480,7 +480,7 @@ pub fn project_fragment_name_index(
 
 /// Index mapping fragment names to their file content and metadata
 /// Uses granular per-file caching for efficient invalidation.
-#[salsa::tracked]
+#[salsa::tracked(returns(clone))]
 pub fn fragment_file_index(
     db: &dyn GraphQLHirDatabase,
     project_files: graphql_base_db::ProjectFiles,
@@ -506,7 +506,7 @@ pub fn fragment_file_index(
 /// Per-file query for fragment sources in a single file.
 /// Returns a map of fragment name -> source text for all fragments in this file.
 /// This enables fine-grained caching: editing file A only invalidates file A's sources.
-#[salsa::tracked]
+#[salsa::tracked(returns(clone))]
 pub fn file_fragment_sources(
     db: &dyn GraphQLHirDatabase,
     _file_id: graphql_base_db::FileId,
@@ -533,7 +533,7 @@ pub fn file_fragment_sources(
 /// Per-file query for fragment ASTs in a single file.
 /// Returns a map of fragment name -> AST document containing that fragment.
 /// This enables caching of parsed ASTs to avoid re-parsing during validation.
-#[salsa::tracked]
+#[salsa::tracked(returns(clone))]
 pub fn file_fragment_asts(
     db: &dyn GraphQLHirDatabase,
     _file_id: graphql_base_db::FileId,
@@ -560,7 +560,7 @@ pub fn file_fragment_asts(
 
 /// Index mapping type names to their definition locations (file and name range).
 /// Returns a Vec per type name because types can have extensions across multiple files.
-#[salsa::tracked]
+#[salsa::tracked(returns(clone))]
 pub fn type_definition_location_index(
     db: &dyn GraphQLHirDatabase,
     project_files: graphql_base_db::ProjectFiles,
@@ -586,7 +586,7 @@ pub fn type_definition_location_index(
 
 /// Index mapping fragment names to their file location.
 /// Used by `fragment_source` to find which file contains a fragment.
-#[salsa::tracked]
+#[salsa::tracked(returns(clone))]
 pub fn fragment_file_location_index(
     db: &dyn GraphQLHirDatabase,
     project_files: graphql_base_db::ProjectFiles,
@@ -613,7 +613,7 @@ pub fn fragment_file_location_index(
 ///
 /// When fragment "Foo" changes, only queries that called `fragment_source(db, "Foo")`
 /// are invalidated, not queries that depend on other fragments.
-#[salsa::tracked]
+#[salsa::tracked(returns(clone))]
 #[allow(clippy::needless_pass_by_value)] // Salsa tracked functions require owned arguments
 pub fn fragment_source(
     db: &dyn GraphQLHirDatabase,
@@ -641,7 +641,7 @@ pub fn fragment_source(
 ///
 /// When fragment "Foo" changes, only queries that called `fragment_ast(db, "Foo")`
 /// are invalidated, not queries that depend on other fragments.
-#[salsa::tracked]
+#[salsa::tracked(returns(clone))]
 #[allow(clippy::needless_pass_by_value)] // Salsa tracked functions require owned arguments
 pub fn fragment_ast(
     db: &dyn GraphQLHirDatabase,
@@ -669,7 +669,7 @@ pub fn fragment_ast(
 ///
 /// NOTE: This is a convenience query for bulk access. For fine-grained invalidation,
 /// use `fragment_source(db, project_files, fragment_name)` instead.
-#[salsa::tracked]
+#[salsa::tracked(returns(clone))]
 pub fn fragment_source_index(
     db: &dyn GraphQLHirDatabase,
     project_files: graphql_base_db::ProjectFiles,
@@ -692,7 +692,7 @@ pub fn fragment_source_index(
 /// Per-file query for fragment spreads mapping
 /// This enables fine-grained incremental computation - editing fragment A
 /// only invalidates file A's spreads, not the entire project index.
-#[salsa::tracked]
+#[salsa::tracked(returns(clone))]
 pub fn file_fragment_spreads(
     db: &dyn GraphQLHirDatabase,
     file_id: graphql_base_db::FileId,
@@ -714,7 +714,7 @@ pub fn file_fragment_spreads(
 /// Index mapping fragment names to the fragments they reference (spread)
 /// Uses per-file queries for fine-grained incremental computation.
 /// Editing one fragment file only rebuilds that file's spreads, not the entire index.
-#[salsa::tracked]
+#[salsa::tracked(returns(clone))]
 pub fn fragment_spreads_index(
     db: &dyn GraphQLHirDatabase,
     project_files: graphql_base_db::ProjectFiles,
@@ -740,7 +740,7 @@ pub fn fragment_spreads_index(
 ///
 /// This provides O(implementors) lookup instead of O(total types) when finding
 /// which types implement a given interface, used by completion and other features.
-#[salsa::tracked]
+#[salsa::tracked(returns(clone))]
 pub fn interface_implementors(
     db: &dyn GraphQLHirDatabase,
     project_files: graphql_base_db::ProjectFiles,
@@ -759,7 +759,7 @@ pub fn interface_implementors(
 
 /// Get all operations in the project
 /// Uses granular per-file caching for efficient invalidation.
-#[salsa::tracked]
+#[salsa::tracked(returns(clone))]
 pub fn all_operations(
     db: &dyn GraphQLHirDatabase,
     project_files: graphql_base_db::ProjectFiles,
@@ -790,7 +790,7 @@ pub fn all_operations(
 /// - Calls `file_operation_names` per-file (each cached independently)
 ///
 /// When a single file changes, only that file's contribution is recomputed.
-#[salsa::tracked]
+#[salsa::tracked(returns(clone))]
 pub fn project_operation_name_index(
     db: &dyn GraphQLHirDatabase,
     project_files: graphql_base_db::ProjectFiles,
@@ -820,7 +820,7 @@ pub fn project_operation_name_index(
 /// Per-file query for fragment names used (spread) in a file.
 /// Returns all fragment spread names found in operations and fragments.
 /// This enables incremental computation for the `no_unused_fragments` lint rule.
-#[salsa::tracked]
+#[salsa::tracked(returns(clone))]
 #[allow(clippy::items_after_statements)]
 pub fn file_used_fragment_names(
     db: &dyn GraphQLHirDatabase,
@@ -872,7 +872,7 @@ pub fn file_used_fragment_names(
 /// Per-file query for fragment names spread only within operations (not fragments).
 /// This is the seed set for unused fragment detection: only fragments reachable
 /// from an operation entry point should be considered "used".
-#[salsa::tracked]
+#[salsa::tracked(returns(clone))]
 #[allow(clippy::items_after_statements)]
 pub fn file_operation_fragment_spreads(
     db: &dyn GraphQLHirDatabase,
@@ -917,7 +917,7 @@ pub fn file_operation_fragment_spreads(
 /// Per-file query for defined fragment names in a file.
 /// Returns `fragment_name` for all fragments defined in the file.
 /// This enables incremental computation for the `no_unused_fragments` lint rule.
-#[salsa::tracked]
+#[salsa::tracked(returns(clone))]
 pub fn file_defined_fragment_names(
     db: &dyn GraphQLHirDatabase,
     file_id: FileId,
@@ -946,7 +946,7 @@ pub struct FragmentNameInfo {
 /// Per-file query for defined fragment info in a file.
 /// Returns info for all fragments including block context for embedded GraphQL.
 /// This enables incremental computation for the `unique_names` lint rule.
-#[salsa::tracked]
+#[salsa::tracked(returns(clone))]
 pub fn file_fragment_info(
     db: &dyn GraphQLHirDatabase,
     file_id: FileId,
@@ -989,7 +989,7 @@ pub struct OperationNameInfo {
 /// Per-file query for operation names in a file.
 /// Returns info for all named operations including block context for embedded GraphQL.
 /// This enables incremental computation for the `unique_names` lint rule.
-#[salsa::tracked]
+#[salsa::tracked(returns(clone))]
 pub fn file_operation_names(
     db: &dyn GraphQLHirDatabase,
     file_id: FileId,
@@ -1035,7 +1035,7 @@ pub struct SchemaCoordinate {
 /// Fragment spreads are resolved transitively: if a file uses `...FragmentA`,
 /// and `FragmentA` is defined elsewhere and uses fields, those fields are
 /// included in this file's coordinates.
-#[salsa::tracked]
+#[salsa::tracked(returns(clone))]
 #[allow(clippy::items_after_statements)]
 pub fn file_schema_coordinates(
     db: &dyn GraphQLHirDatabase,
@@ -1191,7 +1191,7 @@ pub fn file_schema_coordinates(
 /// Index mapping type names to the files that reference them.
 /// Covers both schema files and document files.
 /// Uses per-file `file_type_name_references` for fine-grained caching.
-#[salsa::tracked]
+#[salsa::tracked(returns(clone))]
 pub fn type_name_references_index(
     db: &dyn GraphQLHirDatabase,
     project_files: graphql_base_db::ProjectFiles,
@@ -1232,7 +1232,7 @@ pub fn type_name_references_index(
 
 /// Aggregate all schema coordinates used across all document files.
 /// Uses per-file `file_schema_coordinates` contributions for fine-grained caching.
-#[salsa::tracked]
+#[salsa::tracked(returns(clone))]
 pub fn all_used_schema_coordinates(
     db: &dyn GraphQLHirDatabase,
     project_files: graphql_base_db::ProjectFiles,
@@ -1254,7 +1254,7 @@ pub fn all_used_schema_coordinates(
 
 /// Aggregate all used fragment names across all document files.
 /// Uses per-file `file_used_fragment_names` contributions for fine-grained caching.
-#[salsa::tracked]
+#[salsa::tracked(returns(clone))]
 pub fn all_used_fragment_names(
     db: &dyn GraphQLHirDatabase,
     project_files: graphql_base_db::ProjectFiles,
@@ -1276,7 +1276,7 @@ pub fn all_used_fragment_names(
 /// Aggregate fragment names spread only within operations across all document files.
 /// This provides the correct seed set for unused fragment detection: only fragments
 /// directly referenced from operations count as entry points.
-#[salsa::tracked]
+#[salsa::tracked(returns(clone))]
 pub fn all_operation_fragment_spreads(
     db: &dyn GraphQLHirDatabase,
     project_files: graphql_base_db::ProjectFiles,
