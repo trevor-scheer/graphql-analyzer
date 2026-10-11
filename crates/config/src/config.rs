@@ -1366,7 +1366,8 @@ mod schema_sync_tests {
         let json_value: Result<serde_json::Value, _> = serde_saphyr::from_str(yaml);
         let schema_valid = if let Ok(value) = json_value {
             let schema = load_schema();
-            let compiled = jsonschema::draft7::new(&schema).expect("Failed to compile JSON schema");
+            let compiled =
+                jsonschema::validator_for(&schema).expect("Failed to compile JSON schema");
             compiled.validate(&value).is_ok()
         } else {
             false // Invalid YAML
