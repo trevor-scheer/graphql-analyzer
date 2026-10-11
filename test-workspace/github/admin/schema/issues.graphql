@@ -1,7 +1,16 @@
 """
 An Issue is a place to discuss ideas, enhancements, tasks, and bugs for a project.
 """
-type Issue implements Node & Assignable & Closable & Comment & Labelable & Lockable & Reactable & RepositoryNode & Subscribable & UniformResourceLocatable {
+type Issue implements Node &
+  Assignable &
+  Closable &
+  Comment &
+  Labelable &
+  Lockable &
+  Reactable &
+  RepositoryNode &
+  Subscribable &
+  UniformResourceLocatable {
   """
   Reason that the conversation was locked.
   """
@@ -286,7 +295,11 @@ type Issue implements Node & Assignable & Closable & Comment & Labelable & Locka
 """
 A comment on an Issue.
 """
-type IssueComment implements Node & Comment & Reactable & RepositoryNode & UniformResourceLocatable {
+type IssueComment implements Node &
+  Comment &
+  Reactable &
+  RepositoryNode &
+  UniformResourceLocatable {
   """
   The actor who authored the comment.
   """

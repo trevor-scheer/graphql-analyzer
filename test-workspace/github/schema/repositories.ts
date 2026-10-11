@@ -4,7 +4,11 @@ export const repositories = gql`
   """
   A repository contains the content for a project.
   """
-  type Repository implements Node & RepositoryNode & Starrable & Subscribable & UniformResourceLocatable {
+  type Repository implements Node &
+    RepositoryNode &
+    Starrable &
+    Subscribable &
+    UniformResourceLocatable {
     """
     A list of users that can be assigned to issues in this repository.
     """
@@ -1327,7 +1331,11 @@ export const repositories = gql`
     CREATED_AT
   }
 
-  type CommitComment implements Node & Comment & Reactable & RepositoryNode & UniformResourceLocatable {
+  type CommitComment implements Node &
+    Comment &
+    Reactable &
+    RepositoryNode &
+    UniformResourceLocatable {
     author: Actor
     authorAssociation: CommentAuthorAssociation!
     body: String!

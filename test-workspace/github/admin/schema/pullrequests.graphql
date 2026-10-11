@@ -1,7 +1,16 @@
 """
 A pull request is a proposed change to a repository.
 """
-type PullRequest implements Node & Assignable & Closable & Comment & Labelable & Lockable & Reactable & RepositoryNode & Subscribable & UniformResourceLocatable {
+type PullRequest implements Node &
+  Assignable &
+  Closable &
+  Comment &
+  Labelable &
+  Lockable &
+  Reactable &
+  RepositoryNode &
+  Subscribable &
+  UniformResourceLocatable {
   """
   Reason the conversation was locked.
   """
@@ -663,7 +672,11 @@ type PullRequestReview implements Node & Comment & RepositoryNode & UniformResou
 """
 A comment on a pull request review.
 """
-type PullRequestReviewComment implements Node & Comment & Reactable & RepositoryNode & UniformResourceLocatable {
+type PullRequestReviewComment implements Node &
+  Comment &
+  Reactable &
+  RepositoryNode &
+  UniformResourceLocatable {
   author: Actor
   authorAssociation: CommentAuthorAssociation!
   body: String!

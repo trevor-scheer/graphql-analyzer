@@ -59,7 +59,7 @@ extensions:
       rules:
         selectionSetDepth: [warn, { maxDepth: 3 }]
 
-# Ignore Relay connection fields so edges/node don't count toward depth
+        # Ignore Relay connection fields so edges/node don't count toward depth
         selectionSetDepth:
           - warn
           - maxDepth: 4
