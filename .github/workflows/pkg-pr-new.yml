@@ -125,7 +125,6 @@ jobs:
           pnpm exec pkg-pr-new publish
           --previewVersion
           --no-template
-          --packageManager=pnpm
           './packages/core/npm/*'
           './packages/core'
           './packages/eslint-plugin'
