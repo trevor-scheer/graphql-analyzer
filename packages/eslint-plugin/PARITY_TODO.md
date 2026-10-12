@@ -293,7 +293,9 @@ and a depth-3 selection that the ignore should exempt.
 
 ### 6. Preset surface is incomplete and the contents diverge from upstream
 
-**Status:** RESEARCHED — substantially larger than the original TODO assumed.
+**Status:** IMPLEMENTED. The analysis and sequence below record the original
+plan; the plugin now implements all 30 validation rules and all five upstream
+flat presets.
 
 **Evidence:** Upstream ships **5** flat presets (`flat/schema-recommended`,
 `flat/schema-all`, `flat/schema-relay`, `flat/operations-recommended`,

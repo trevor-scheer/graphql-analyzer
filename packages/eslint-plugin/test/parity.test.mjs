@@ -18,11 +18,6 @@
 // force a parity decision on first sight.
 //
 // Intentional gaps (see docs/src/content/docs/linting/eslint-plugin.mdx):
-//   - GraphQL spec validation rules (`known-type-names`, `fields-on-correct-type`,
-//     etc.) always run inside the analyzer's validation pass. We expose them
-//     as no-op stub rules (`STUB_RULES`) so users migrating upstream's preset
-//     configs don't see "rule not found" errors — but the configurable shim
-//     never fires, since the underlying check is always-on.
 //   - A handful of linter-specific rules we have that graphql-eslint doesn't
 //     (`operation-name-suffix`, `redundant-fields`, `resty-field-names`, etc.).
 
@@ -54,46 +49,6 @@ const KNOWN_EXTRA = new Set([
   "unique-names",
 ]);
 
-// Rules we expose as no-op stubs purely for drop-in config compatibility
-// with `@graphql-eslint`'s preset configs that reference GraphQL spec
-// validation rules by name. The underlying check still runs as built-in
-// validation; the stub just stops ESLint from erroring with "rule not
-// found" when a user pastes upstream's `flat/schema-recommended` rules
-// list. Excluded from the shared-rule parity assertions for the same
-// reason — there's nothing to compare diagnostics-wise (they're no-ops).
-const STUB_RULES = new Set([
-  "executable-definitions",
-  "fields-on-correct-type",
-  "fragments-on-composite-type",
-  "known-argument-names",
-  "known-directives",
-  "known-fragment-names",
-  "known-type-names",
-  "lone-anonymous-operation",
-  "lone-schema-definition",
-  "no-fragment-cycles",
-  "no-undefined-variables",
-  "one-field-subscriptions",
-  "overlapping-fields-can-be-merged",
-  "possible-fragment-spread",
-  "possible-type-extension",
-  "provided-required-arguments",
-  "scalar-leafs",
-  "unique-argument-names",
-  "unique-directive-names",
-  "unique-directive-names-per-location",
-  "unique-field-definition-names",
-  "unique-fragment-name",
-  "unique-input-field-names",
-  "unique-operation-name",
-  "unique-operation-types",
-  "unique-type-names",
-  "unique-variable-names",
-  "value-literals-of-correct-type",
-  "variables-are-input-types",
-  "variables-in-allowed-position",
-]);
-
 function theirRules() {
   return new Set(Object.keys(theirs.rules ?? {}));
 }
@@ -103,15 +58,13 @@ function ourRules() {
 }
 
 test("no unexpected missing rules vs graphql-eslint", () => {
-  // Every upstream rule should be present in our plugin — either as an
-  // implemented rule or as a no-op stub (`STUB_RULES`) for spec validation
-  // rules that always run as built-in validation. New upstream additions
-  // need a deliberate decision: implement, or stub.
+  // Every upstream rule should be implemented. New upstream additions need
+  // a deliberate parity fixture before the shared-rule guard can pass.
   const missing = [...theirRules()].filter((r) => !ourRules().has(r)).sort();
   assert.deepEqual(
     missing,
     [],
-    `graphql-eslint has these rules we don't — implement them or add to STUB_RULES (and the plugin's stub list) with a reason:\n  ${missing.join("\n  ")}`,
+    `graphql-eslint has these rules we don't — implement them:\n  ${missing.join("\n  ")}`,
   );
 });
 
@@ -152,6 +105,323 @@ const camelCase = (s) => s.replace(/-([a-z])/g, (_, c) => c.toUpperCase());
 //     compares the firing line. Use "full" wherever both plugins produce
 //     well-defined ranges.
 const EXERCISED = {
+  "executable-definitions": {
+    files: { "schema.graphql": "type Query { hello: String }\n" },
+    target: "schema.graphql",
+    severity: 2,
+    span: "full",
+    validation: true,
+  },
+  "fields-on-correct-type": {
+    files: {
+      "schema.graphql": "type Query { hello: String }\n",
+      "src/op.graphql": "query Q { helo }\n",
+    },
+    target: "src/op.graphql",
+    severity: 2,
+    span: "full",
+    compareSuggest: true,
+    validation: true,
+  },
+  "fragments-on-composite-type": {
+    files: {
+      "schema.graphql": "type Query { hello: String }\n",
+      "src/op.graphql": "fragment F on String { __typename }\n",
+    },
+    target: "src/op.graphql",
+    severity: 2,
+    span: "full",
+    validation: true,
+  },
+  "known-argument-names": {
+    files: {
+      "schema.graphql": "type Query { hello(name: String): String }\n",
+      "src/op.graphql": 'query Q { hello(nmae: "x") }\n',
+    },
+    target: "src/op.graphql",
+    severity: 2,
+    span: "full",
+    compareSuggest: true,
+    validation: true,
+  },
+  "known-directives": {
+    files: {
+      "schema.graphql": "type Query { hello: String }\n",
+      "src/op.graphql": "query Q { hello @client @clinet }\n",
+    },
+    target: "src/op.graphql",
+    options: { ignoreClientDirectives: ["client"] },
+    severity: 2,
+    span: "full",
+    validation: true,
+  },
+  "known-fragment-names": {
+    files: {
+      "schema.graphql": "type Query { hello: String }\n",
+      "src/op.graphql": "query Q { ...Missing }\n",
+    },
+    target: "src/op.graphql",
+    severity: 2,
+    span: "full",
+    validation: true,
+  },
+  "known-type-names": {
+    files: {
+      "schema.graphql": "type Query { user: User } type User { id: ID }\n",
+      "src/op.graphql": "fragment F on Usre { id }\n",
+    },
+    target: "src/op.graphql",
+    severity: 2,
+    span: "full",
+    compareSuggest: true,
+    validation: true,
+  },
+  "lone-anonymous-operation": {
+    files: {
+      "schema.graphql": "type Query { hello: String }\n",
+      "src/op.graphql": "{ hello }\nquery Named { hello }\n",
+    },
+    target: "src/op.graphql",
+    severity: 2,
+    span: "full",
+    validation: true,
+  },
+  "lone-schema-definition": {
+    files: {
+      "schema.graphql": "type Query { hello: String }\n",
+      "src/schema.graphql": "schema { query: Query }\nschema { query: Query }\n",
+      "src/valid.graphql": "query Valid { hello }\n",
+    },
+    target: "src/schema.graphql",
+    severity: 2,
+    span: "full",
+    validation: true,
+  },
+  "no-fragment-cycles": {
+    files: {
+      "schema.graphql": "type Query { hello: String }\n",
+      "src/op.graphql":
+        "fragment A on Query { ...B }\nfragment B on Query { ...A }\nquery Q { ...A }\n",
+    },
+    target: "src/op.graphql",
+    severity: 2,
+    span: "full",
+    validation: true,
+  },
+  "no-undefined-variables": {
+    files: {
+      "schema.graphql": "type Query { hello(name: String): String }\n",
+      "src/op.graphql": "query Q { hello(name: $missing) }\n",
+    },
+    target: "src/op.graphql",
+    severity: 2,
+    span: "full",
+    validation: true,
+  },
+  "one-field-subscriptions": {
+    files: {
+      "schema.graphql":
+        "type Query { hello: String }\ntype Subscription { first: String second: String }\n",
+      "src/op.graphql": "subscription S { first second }\n",
+    },
+    target: "src/op.graphql",
+    severity: 2,
+    span: "full",
+    validation: true,
+  },
+  "overlapping-fields-can-be-merged": {
+    files: {
+      "schema.graphql": "type Query { first: String second: String }\n",
+      "src/op.graphql": "query Q { name: first name: second }\n",
+    },
+    target: "src/op.graphql",
+    severity: 2,
+    span: "full",
+    validation: true,
+  },
+  "possible-fragment-spread": {
+    files: {
+      "schema.graphql":
+        "type Query { user: User }\ntype User { id: ID }\ntype Product { id: ID }\n",
+      "src/op.graphql": "query Q { user { ... on Product { id } } }\n",
+    },
+    target: "src/op.graphql",
+    severity: 2,
+    span: "full",
+    validation: true,
+  },
+  "possible-type-extension": {
+    files: {
+      "schema.graphql": "type Query { hello: String }\n",
+      "src/schema.graphql": "extend type Missing { hello: String }\n",
+      "src/valid.graphql": "query Valid { hello }\n",
+    },
+    target: "src/schema.graphql",
+    severity: 2,
+    span: "full",
+    compareSuggest: true,
+    validation: true,
+  },
+  "provided-required-arguments": {
+    files: {
+      "schema.graphql": "type Query { hello(name: String!): String }\n",
+      "src/op.graphql": "query Q { hello }\n",
+    },
+    target: "src/op.graphql",
+    severity: 2,
+    span: "full",
+    validation: true,
+  },
+  "scalar-leafs": {
+    files: {
+      "schema.graphql": "type Query { user: User }\ntype User { id: ID }\n",
+      "src/op.graphql": "query Q { user }\n",
+    },
+    target: "src/op.graphql",
+    severity: 2,
+    span: "full",
+    compareSuggest: true,
+    validation: true,
+  },
+  "unique-argument-names": {
+    files: {
+      "schema.graphql": "type Query { hello(name: String): String }\n",
+      "src/op.graphql": 'query Q { hello(name: "a", name: "b") }\n',
+    },
+    target: "src/op.graphql",
+    severity: 2,
+    span: "full",
+    validation: true,
+  },
+  "unique-directive-names": {
+    files: {
+      "schema.graphql": "type Query { hello: String }\n",
+      "src/schema.graphql": "directive @tag on FIELD\ndirective @tag on QUERY\n",
+      "src/valid.graphql": "query Valid { hello }\n",
+    },
+    target: "src/schema.graphql",
+    severity: 2,
+    span: "full",
+    validation: true,
+  },
+  "unique-directive-names-per-location": {
+    files: {
+      "schema.graphql": "type Query { hello: String }\n",
+      "src/op.graphql": "query Q { hello @skip(if: true) @skip(if: false) }\n",
+    },
+    target: "src/op.graphql",
+    severity: 2,
+    span: "full",
+    validation: true,
+  },
+  "unique-field-definition-names": {
+    files: {
+      "schema.graphql": "type Query { hello: String }\n",
+      "src/schema.graphql": "type Duplicate { name: String name: String }\n",
+      "src/valid.graphql": "query Valid { hello }\n",
+    },
+    target: "src/schema.graphql",
+    severity: 2,
+    span: "full",
+    validation: true,
+  },
+  "unique-fragment-name": {
+    files: {
+      "schema.graphql": "type Query { hello: String }\n",
+      "src/first.graphql": "fragment F on Query { hello }\n",
+      "src/second.graphql": "fragment F on Query { hello }\n",
+    },
+    target: "src/first.graphql",
+    severity: 2,
+    span: "full",
+    validation: true,
+  },
+  "unique-input-field-names": {
+    files: {
+      "schema.graphql":
+        "type Query { hello(input: Input): String }\ninput Input { name: String }\n",
+      "src/op.graphql": 'query Q { hello(input: { name: "a", name: "b" }) }\n',
+    },
+    target: "src/op.graphql",
+    severity: 2,
+    span: "full",
+    validation: true,
+  },
+  "unique-operation-name": {
+    files: {
+      "schema.graphql": "type Query { hello: String }\n",
+      "src/first.graphql": "query Q { hello }\n",
+      "src/second.graphql": "query Q { hello }\n",
+    },
+    target: "src/first.graphql",
+    severity: 2,
+    span: "full",
+    validation: true,
+  },
+  "unique-operation-types": {
+    files: {
+      "schema.graphql": "type Query { hello: String }\n",
+      "src/schema.graphql": "schema { query: Query query: Query }\n",
+      "src/valid.graphql": "query Valid { hello }\n",
+    },
+    target: "src/schema.graphql",
+    severity: 2,
+    span: "full",
+    validation: true,
+  },
+  "unique-type-names": {
+    files: {
+      "schema.graphql": "type Query { hello: String }\n",
+      "src/schema.graphql": "type Duplicate { id: ID }\ntype Duplicate { name: String }\n",
+      "src/valid.graphql": "query Valid { hello }\n",
+    },
+    target: "src/schema.graphql",
+    severity: 2,
+    span: "full",
+    validation: true,
+  },
+  "unique-variable-names": {
+    files: {
+      "schema.graphql": "type Query { hello(name: String): String }\n",
+      "src/op.graphql": "query Q($name: String, $name: String) { hello(name: $name) }\n",
+    },
+    target: "src/op.graphql",
+    severity: 2,
+    span: "full",
+    validation: true,
+  },
+  "value-literals-of-correct-type": {
+    files: {
+      "schema.graphql": "type Query { hello(count: Int): String }\n",
+      "src/op.graphql": 'query Q { hello(count: "many") }\n',
+    },
+    target: "src/op.graphql",
+    severity: 2,
+    span: "full",
+    compareSuggest: true,
+    validation: true,
+  },
+  "variables-are-input-types": {
+    files: {
+      "schema.graphql": "type Query { hello: String }\ntype User { id: ID }\n",
+      "src/op.graphql": "query Q($user: User) { hello }\n",
+    },
+    target: "src/op.graphql",
+    severity: 2,
+    span: "full",
+    validation: true,
+  },
+  "variables-in-allowed-position": {
+    files: {
+      "schema.graphql": "type Query { hello(count: Int!): String }\n",
+      "src/op.graphql": "query Q($count: String) { hello(count: $count) }\n",
+    },
+    target: "src/op.graphql",
+    severity: 2,
+    span: "full",
+    validation: true,
+  },
+
   // ----- already-verified rules from prior PRs (#1008, #1011, #1012, #1013, #1014) -----
 
   "no-anonymous-operations": {
@@ -613,9 +883,8 @@ const EXERCISED = {
 test("every shared rule is parity-verified", () => {
   // Inverts the default: any shared rule must appear in EXERCISED with a
   // verified parity assertion. New rules added to either plugin force a
-  // decision on first sight. Stubs are excluded — they're no-op shims for
-  // drop-in compatibility, not active rules with diagnostics to compare.
-  const shared = [...ourRules()].filter((r) => theirRules().has(r) && !STUB_RULES.has(r));
+  // decision on first sight.
+  const shared = [...ourRules()].filter((r) => theirRules().has(r));
   const exercised = new Set(Object.keys(EXERCISED));
 
   const unaccounted = shared.filter((r) => !exercised.has(r)).sort();
@@ -656,6 +925,10 @@ test("messages, counts, and source positions match graphql-eslint exactly", asyn
         theirDiag = lintTheirsInChild(root, rule, cfg);
       } catch (err) {
         errors.push(`${rule}: theirs threw: ${err.message.split("\n")[0]}`);
+        return;
+      }
+      if (cfg.validation && theirDiag.length === 0) {
+        errors.push(`${rule}: validation fixture did not trigger the community rule`);
         return;
       }
       if (ourDiag.length === 0 && theirDiag.length === 0) {
@@ -878,16 +1151,18 @@ async function withProject(rule, cfg, fn) {
     if (cfg.files["schema.graphql"]) lines.push(`schema: "schema.graphql"`);
     const docs = Object.keys(cfg.files).filter((p) => p.startsWith("src/"));
     if (docs.length > 0) lines.push(`documents: "src/**/*"`);
-    lines.push(`extensions:`);
-    lines.push(`  graphql-analyzer:`);
-    lines.push(`    lint:`);
-    lines.push(`      rules:`);
-    if (cfg.options !== undefined) {
-      lines.push(`        ${camelCase(rule)}:`);
-      lines.push(`          - warn`);
-      lines.push(`          - ${JSON.stringify(cfg.options)}`);
-    } else {
-      lines.push(`        ${camelCase(rule)}: warn`);
+    if (!cfg.validation) {
+      lines.push(`extensions:`);
+      lines.push(`  graphql-analyzer:`);
+      lines.push(`    lint:`);
+      lines.push(`      rules:`);
+      if (cfg.options !== undefined) {
+        lines.push(`        ${camelCase(rule)}:`);
+        lines.push(`          - warn`);
+        lines.push(`          - ${JSON.stringify(cfg.options)}`);
+      } else {
+        lines.push(`        ${camelCase(rule)}: warn`);
+      }
     }
     writeFileSync(path.join(root, ".graphqlrc.yaml"), lines.join("\n") + "\n");
 

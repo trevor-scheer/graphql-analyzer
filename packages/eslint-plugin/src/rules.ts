@@ -225,8 +225,7 @@ function makeRule(analyzerRuleName: string, description: string): Rule.RuleModul
   return rule;
 }
 
-// These names let GraphQL-ESLint presets load without enabling validation checks.
-const VALIDATION_RULE_STUBS = [
+const VALIDATION_RULE_NAMES = [
   "executable-definitions",
   "fields-on-correct-type",
   "fragments-on-composite-type",
@@ -259,20 +258,54 @@ const VALIDATION_RULE_STUBS = [
   "variables-in-allowed-position",
 ];
 
-function makeStubRule(ruleName: string): Rule.RuleModule {
+const VALIDATION_SUGGESTIONS = new Set([
+  "fields-on-correct-type",
+  "known-argument-names",
+  "known-type-names",
+  "possible-type-extension",
+  "scalar-leafs",
+  "value-literals-of-correct-type",
+]);
+
+function makeValidationRule(ruleName: string): Rule.RuleModule {
+  const uniqueName = ruleName === "unique-fragment-name" || ruleName === "unique-operation-name";
   return {
     meta: {
-      type: "problem",
+      type: uniqueName ? "suggestion" : "problem",
       docs: {
-        description:
-          `Accepts the GraphQL-ESLint rule name \`${ruleName}\` in configuration. ` +
-          `This rule does not report validation diagnostics.`,
+        description: `Validate GraphQL ${ruleName.replaceAll("-", " ")}.`,
       },
-      schema: OPTIONS_SCHEMA,
-      messages: {},
+      schema:
+        ruleName === "known-directives"
+          ? [
+              {
+                type: "object",
+                additionalProperties: false,
+                required: ["ignoreClientDirectives"],
+                properties: {
+                  ignoreClientDirectives: {
+                    type: "array",
+                    uniqueItems: true,
+                    minItems: 1,
+                    items: { type: "string" },
+                  },
+                },
+              },
+            ]
+          : [],
+      ...(VALIDATION_SUGGESTIONS.has(ruleName) ? { hasSuggestions: true } : {}),
+      ...(uniqueName
+        ? {
+            messages: {
+              [ruleName]: `${ruleName === "unique-fragment-name" ? "Fragment" : "Operation"} named "{{ documentName }}" already defined in:\n{{ summary }}`,
+            },
+          }
+        : {}),
     },
-    create() {
-      return {};
+    create(context) {
+      const { createValidationListener } =
+        require("./validation-rules") as typeof import("./validation-rules");
+      return createValidationListener(ruleName, context);
     },
   };
 }
@@ -285,8 +318,8 @@ export function buildRules(): Record<string, Rule.RuleModule> {
     const kebabName = toKebabCase(rule.name);
     rules[kebabName] = makeRule(rule.name, rule.description);
   }
-  for (const stubName of VALIDATION_RULE_STUBS) {
-    rules[stubName] = makeStubRule(stubName);
+  for (const ruleName of VALIDATION_RULE_NAMES) {
+    rules[ruleName] = makeValidationRule(ruleName);
   }
 
   return rules;

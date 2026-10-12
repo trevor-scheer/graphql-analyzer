@@ -1,8 +1,7 @@
 // Flat-config presets — each one mirrors the contents of the corresponding
 // `@graphql-eslint/eslint-plugin` preset so a user can rename the plugin
 // scope and keep their preset reference unchanged. Spec-validation rules
-// referenced here resolve to no-op stubs (`STUB_RULES` in `rules.ts`); the
-// underlying check still runs as built-in validation. `naming-convention`
+// run graphql-js checks through the ESLint adapter. `naming-convention`
 // uses options upstream supplies for these presets — features still being
 // implemented on our side (PARITY_TODO item 3) silently degrade rather
 // than hard-fail.
