@@ -16,6 +16,8 @@
 //!   a matching `eslint-enable` (or end of file). Bare form suppresses all.
 //! - `# eslint-enable [rule, ...]` — re-enables rules disabled above.
 
+use std::borrow::Cow;
+
 /// A resolved set of suppressed `(rule_name, line_number)` pairs derived from
 /// directive comments in a single source file. Line numbers are 1-based.
 pub struct Suppressions {
@@ -127,12 +129,38 @@ impl Suppressions {
     /// Returns `true` if `rule_name` at `line` (1-based) is suppressed.
     #[must_use]
     pub fn is_suppressed(&self, rule_name: &str, line: u32) -> bool {
+        let rule_name = normalize_rule_name(rule_name);
         self.ranges.iter().any(|r| {
             line >= r.start_line
                 && line <= r.end_line
-                && (r.rule.is_none() || r.rule.as_deref() == Some(rule_name))
+                && (r.rule.is_none() || r.rule.as_deref() == Some(rule_name.as_ref()))
         })
     }
+}
+
+fn normalize_rule_name(name: &str) -> Cow<'_, str> {
+    let name = name
+        .strip_prefix("@graphql-analyzer/")
+        .or_else(|| name.strip_prefix("@graphql-eslint/"))
+        .unwrap_or(name);
+    if name.contains('/') || !name.contains('-') {
+        return Cow::Borrowed(name);
+    }
+    let mut normalized = String::with_capacity(name.len());
+    let mut uppercase_next = false;
+    for character in name.chars() {
+        if character == '-' {
+            uppercase_next = true;
+        } else {
+            normalized.push(if uppercase_next {
+                character.to_ascii_uppercase()
+            } else {
+                character
+            });
+            uppercase_next = false;
+        }
+    }
+    Cow::Owned(normalized)
 }
 
 #[derive(Debug)]
@@ -172,7 +200,7 @@ fn parse_eslint_directive(trimmed: &str) -> Option<ParsedDirective> {
     } else {
         rules_str
             .split(',')
-            .map(|s| s.trim().to_string())
+            .map(|s| normalize_rule_name(s.trim()).into_owned())
             .filter(|s| !s.is_empty())
             .collect()
     };
@@ -183,6 +211,32 @@ fn parse_eslint_directive(trimmed: &str) -> Option<ParsedDirective> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn recognizes_analyzer_eslint_names_without_suppressing_other_plugins() {
+        for name in [
+            "noAnonymousOperations",
+            "no-anonymous-operations",
+            "@graphql-analyzer/no-anonymous-operations",
+            "@graphql-eslint/no-anonymous-operations",
+        ] {
+            let source = format!("# eslint-disable {name}\nquery {{ hello }}\n# eslint-enable {name}\nquery {{ hello }}");
+            let suppressions = Suppressions::from_source(&source);
+            assert!(
+                suppressions.is_suppressed("noAnonymousOperations", 2),
+                "{name}"
+            );
+            assert!(
+                !suppressions.is_suppressed("noAnonymousOperations", 4),
+                "{name}"
+            );
+            assert!(!suppressions.is_suppressed("noDeprecated", 2), "{name}");
+        }
+        let suppressions = Suppressions::from_source(
+            "# eslint-disable-next-line other/no-anonymous-operations\nquery { hello }",
+        );
+        assert!(!suppressions.is_suppressed("noAnonymousOperations", 2));
+    }
 
     #[test]
     fn bare_disable_next_line_suppresses_all_rules() {

@@ -1,25 +1,21 @@
-import { parseForESLint } from "./parser";
-import { processor } from "./processor";
+import { parseForESLint, fastParser } from "./parser";
+import { processor, fastProcessor } from "./processor";
 import { buildRules } from "./rules";
 import { configs } from "./configs";
+import { name, version } from "./meta";
 
-export const parser = { parseForESLint };
-export { processor, configs };
+export const parser = { meta: { name: `${name}/parser`, version }, parseForESLint };
+export { parseForESLint, fastParser, processor, fastProcessor, configs };
+export { requireGraphQLSchema, requireGraphQLOperations } from "./helpers";
+export type * from "./types";
+export const processors = { graphql: processor };
 export const rules = buildRules();
-
-// ESLint v9 flat config dispatches processors by name, e.g.
-// `processor: "@graphql-analyzer/graphql"`. Passing the object directly
-// works for invoking preprocess/postprocess but ESLint can't then route the
-// virtual blocks back to a config with our rules enabled — only the named
-// reference establishes that link. Mirrors @graphql-eslint's `processors`
-// shape (`{ graphql: processor }`).
-export const processors = {
-  graphql: processor,
-};
 
 const plugin = {
   parser,
+  fastParser,
   processor,
+  fastProcessor,
   processors,
   rules,
   configs,

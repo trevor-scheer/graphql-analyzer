@@ -14,6 +14,8 @@ use std::sync::Arc;
 pub(crate) struct LintConfigInput {
     #[returns(clone)]
     pub config: Arc<graphql_linter::LintConfig>,
+    #[returns(clone)]
+    pub eslint_suppressions_enabled: bool,
 }
 
 /// Input: Extract configuration for TypeScript/JavaScript extraction
@@ -76,6 +78,7 @@ impl Default for IdeDatabase {
         db.lint_config_input = Some(LintConfigInput::new(
             &db,
             Arc::new(graphql_linter::LintConfig::default()),
+            true,
         ));
         #[cfg(feature = "extract")]
         {
@@ -110,6 +113,11 @@ impl graphql_hir::GraphQLHirDatabase for IdeDatabase {
 
 #[salsa::db]
 impl graphql_analysis::GraphQLAnalysisDatabase for IdeDatabase {
+    fn eslint_suppressions_enabled(&self) -> bool {
+        self.lint_config_input
+            .is_none_or(|input| input.eslint_suppressions_enabled(self))
+    }
+
     fn lint_config(&self) -> Arc<graphql_linter::LintConfig> {
         self.lint_config_input.map_or_else(
             || Arc::new(graphql_linter::LintConfig::default()),

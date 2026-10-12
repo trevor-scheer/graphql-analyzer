@@ -135,6 +135,15 @@ test("plugin exposes expected shape", () => {
   }
 });
 
+test("fast processor is an identity passthrough for JS/TS-family files", () => {
+  const tsx = `import { gql } from "@apollo/client";\nconst Q = gql\`query { __typename }\`;\n`;
+  const preprocessed = plugin.fastProcessor.preprocess(tsx, "component.tsx");
+  assert.deepEqual(preprocessed, [tsx], "fast preprocessing should preserve original source");
+
+  const merged = plugin.fastProcessor.postprocess([[{ ruleId: "x", line: 1 }]], "component.tsx");
+  assert.equal(merged.length, 1);
+});
+
 test("processor extracts embedded GraphQL from JS/TS-family files", () => {
   const tsx = `import { gql } from "@apollo/client";\nconst Q = gql\`query { __typename }\`;\n`;
   const preprocessed = plugin.processor.preprocess(tsx, "component.tsx");
