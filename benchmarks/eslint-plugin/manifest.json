@@ -1,0 +1,33 @@
+{
+  "github": {
+    "kind": "sdl",
+    "url": "https://docs.github.com/public/fpt/schema.docs.graphql",
+    "description": "GitHub GraphQL API public schema",
+    "retrievedAt": "2026-10-12T00:36:39.380Z",
+    "sha256": "3ed095654b22b1a8e7a88af36af2b28cb6d9613da332e9c57303e30476958d42",
+    "bytes": 1562177,
+    "types": 1829,
+    "fields": 8420
+  },
+  "graphos": {
+    "kind": "introspection",
+    "url": "https://api.apollographql.com/api/graphql",
+    "description": "Apollo GraphOS Platform API public schema",
+    "retrievedAt": "2026-10-12T00:36:39.661Z",
+    "sha256": "02559ddbe70e22db15a761cf96c363dc0e6f76f3a540eb10f59243ed56133e8f",
+    "bytes": 255835,
+    "types": 524,
+    "fields": 1594
+  },
+  "saleor": {
+    "kind": "sdl",
+    "url": "https://raw.githubusercontent.com/saleor/saleor/e5e4625a231d72d06517bd7840a070f3c57000f1/saleor/graphql/schema.graphql",
+    "revision": "e5e4625a231d72d06517bd7840a070f3c57000f1",
+    "description": "Saleor schema at a fixed source commit",
+    "retrievedAt": "2026-10-12T00:36:40.069Z",
+    "sha256": "85f0363e446d2ce59ed3fa1a2a8c4f00406f481cbbb8f97bfa01fb2a5cc6ca9c",
+    "bytes": 1065360,
+    "types": 1470,
+    "fields": 6374
+  }
+}

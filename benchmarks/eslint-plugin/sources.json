@@ -1,0 +1,18 @@
+{
+  "github": {
+    "kind": "sdl",
+    "url": "https://docs.github.com/public/fpt/schema.docs.graphql",
+    "description": "GitHub GraphQL API public schema"
+  },
+  "graphos": {
+    "kind": "introspection",
+    "url": "https://api.apollographql.com/api/graphql",
+    "description": "Apollo GraphOS Platform API public schema"
+  },
+  "saleor": {
+    "kind": "sdl",
+    "url": "https://raw.githubusercontent.com/saleor/saleor/e5e4625a231d72d06517bd7840a070f3c57000f1/saleor/graphql/schema.graphql",
+    "revision": "e5e4625a231d72d06517bd7840a070f3c57000f1",
+    "description": "Saleor schema at a fixed source commit"
+  }
+}
