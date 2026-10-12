@@ -4,6 +4,10 @@ export function requiresFullCi(paths) {
   return paths.length === 0 || paths.some((path) => !path.startsWith("docs/"));
 }
 
+export function requiresDocsCi(paths) {
+  return paths.length === 0 || paths.some((path) => path.startsWith("docs/"));
+}
+
 function changedPaths(base, head) {
   try {
     const diff = execFileSync(
@@ -25,6 +29,7 @@ if (process.argv[1]?.endsWith("/ci-scope.mjs")) {
   if (!validCommits) console.error("Commit IDs unavailable; running full CI");
   const paths = validCommits ? changedPaths(base, head) : [];
   const full = requiresFullCi(paths);
+  const docs = requiresDocsCi(paths);
   console.error(`${paths.length} changed files; ${full ? "full" : "docs-only"} CI`);
-  process.stdout.write(`full=${full}\n`);
+  process.stdout.write(`full=${full}\ndocs=${docs}\n`);
 }
