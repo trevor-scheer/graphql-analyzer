@@ -1,8 +1,15 @@
 import assert from "node:assert/strict";
 import { spawnSync, execFileSync } from "node:child_process";
 import { cpus, arch, platform } from "node:os";
-import { existsSync, mkdirSync, readFileSync, readdirSync, writeFileSync } from "node:fs";
-import { join } from "node:path";
+import {
+  appendFileSync,
+  existsSync,
+  mkdirSync,
+  readFileSync,
+  readdirSync,
+  writeFileSync,
+} from "node:fs";
+import { basename, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import {
   directory,
@@ -275,6 +282,10 @@ const lines = [
   `# ESLint ${mode} report`,
   "",
   `Date: ${report.metadata.date}`,
+  `Revision: ${report.metadata.revision}${report.metadata.dirty ? " (dirty)" : ""}`,
+  `Runner: ${report.metadata.cpu} (${report.metadata.platform}); Node ${report.metadata.node}; ESLint ${report.metadata.eslint}`,
+  `Plugins: community ${report.metadata.upstream}; analyzer ${report.metadata.analyzerPlugin}; native build ${report.metadata.nativeBuild}`,
+  `Samples: ${samples} fresh processes per lane; ${repeats} warm and changed-file repeats; ${warmups} warmups`,
   "",
   `Per-rule parity: ${ruleTests.status}. Corpus mismatches: ${mismatches.length}.`,
   "",
@@ -282,9 +293,33 @@ const lines = [
   "",
   "Validation stubs are configuration aliases; native validation diagnostics are outside rule-by-rule parity.",
   "",
+  "Ratios divide the community median by the analyzer median. Values above 1 mean the analyzer was faster in this run; values below 1 mean it was slower.",
+  "",
+  "| Corpus | Scenario | Analyzer lane | Cold community / analyzer ms (ratio) | Warm community / analyzer ms (ratio) | Changed community / analyzer ms (ratio) |",
+  "| --- | --- | --- | ---: | ---: | ---: |",
+];
+function comparison(base, candidate) {
+  return `${base.median} / ${candidate.median} (${(base.median / candidate.median).toFixed(2)}×)`;
+}
+for (const name of corpora)
+  for (const scenario of scenarios)
+    for (const lane of scenarioLanes[scenario].filter(
+      (candidate) => candidate !== "upstream" && candidate !== "upstream-custom",
+    )) {
+      const baseline =
+        results[name][scenario][lane.endsWith("-custom") ? "upstream-custom" : "upstream"];
+      const analyzer = results[name][scenario][lane];
+      lines.push(
+        `| ${name} | ${scenario} | ${lane} | ${comparison(baseline.coldProjectMs, analyzer.coldProjectMs)} | ${comparison(baseline.warmProjectMs, analyzer.warmProjectMs)} | ${comparison(baseline.changedLintMs, analyzer.changedLintMs)} |`,
+      );
+    }
+lines.push(
+  "",
+  "Full measurements (median/p95):",
+  "",
   "| Corpus | Scenario | Lane | Cold median/p95 ms | Warm median/p95 ms | Changed median/p95 ms | RSS median/p95 MiB |",
   "| --- | --- | --- | ---: | ---: | ---: | ---: |",
-];
+);
 for (const name of corpora)
   for (const scenario of scenarios)
     for (const lane of scenarioLanes[scenario]) {
@@ -293,9 +328,12 @@ for (const name of corpora)
         `| ${name} | ${scenario} | ${lane} | ${entry.coldProjectMs.median}/${entry.coldProjectMs.p95} | ${entry.warmProjectMs.median}/${entry.warmProjectMs.p95} | ${entry.changedLintMs.median}/${entry.changedLintMs.p95} | ${entry.rssMiB.median}/${entry.rssMiB.p95} |`,
       );
     }
-lines.push("", `Raw data: ${output}`, "");
+lines.push("", `Raw data: ${basename(output)} (included in the CI artifact)`, "");
 const markdown = output.replace(/\.json$/, ".md");
 writeFileSync(markdown, lines.join("\n"));
+if (process.env.GITHUB_STEP_SUMMARY) {
+  appendFileSync(process.env.GITHUB_STEP_SUMMARY, `${lines.join("\n")}\n`);
+}
 console.log(`Reports: ${output} and ${markdown}`);
 if (ruleTests.status === "failed" || mismatches.length || coverage.upstreamOnly.length) {
   console.error(

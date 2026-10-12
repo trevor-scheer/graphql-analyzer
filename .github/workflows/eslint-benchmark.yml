@@ -1,0 +1,75 @@
+name: ESLint benchmark
+
+on:
+  pull_request:
+    paths:
+      - ".github/workflows/eslint-benchmark.yml"
+      - "benchmarks/eslint-plugin/**"
+      - "crates/**"
+      - "packages/core/**"
+      - "packages/eslint-plugin/**"
+      - ".cargo/**"
+      - "Cargo.lock"
+      - "pnpm-lock.yaml"
+      - "package.json"
+      - "pnpm-workspace.yaml"
+      - "rust-toolchain.toml"
+      - ".node-version"
+      - "mise.toml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  compare:
+    name: Compare ESLint plugins
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+
+      - name: Install Rust
+        run: rustup show
+
+      - name: Rust cache
+        uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2
+        with:
+          shared-key: "ci-eslint-benchmark"
+
+      - name: Setup mise + pnpm
+        uses: jdx/mise-action@5228313ee0372e111a38da051671ca30fc5a96db # v3
+        with:
+          experimental: true
+
+      - name: Install workspace deps
+        run: pnpm install --frozen-lockfile
+
+      - name: Build native addon in release mode
+        run: pnpm --filter @graphql-analyzer/core run build
+
+      - name: Build ESLint plugin
+        run: pnpm --filter @graphql-analyzer/eslint-plugin run build
+
+      - name: Prepare pinned benchmark corpora
+        run: |
+          node benchmarks/eslint-plugin/fetch.mjs
+          BENCH_FILES=12 node benchmarks/eslint-plugin/generate.mjs
+
+      - name: Compare with community plugin
+        env:
+          BENCH_NATIVE_BUILD: release
+        run: node benchmarks/eslint-plugin/run.mjs bench --samples=3 --repeats=3 --warmups=1
+
+      - name: Upload timing reports
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+        with:
+          name: eslint-benchmark-reports
+          path: benchmarks/eslint-plugin/reports/
+          if-no-files-found: warn
+          retention-days: 30

@@ -1,11 +1,13 @@
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
+import { gunzipSync, gzipSync } from "node:zlib";
 import { directory, graphql, json, schemas, sha256 } from "./shared.mjs";
 
 const refresh = process.argv.includes("--refresh");
 const sourceList = json(join(directory, "sources.json"));
 const manifestPath = join(directory, "manifest.json");
 const manifest = existsSync(manifestPath) ? json(manifestPath) : {};
+const snapshotDirectory = join(directory, "snapshots");
 mkdirSync(schemas, { recursive: true });
 
 async function download(source) {
@@ -53,6 +55,7 @@ function counts(sdl) {
 
 for (const [name, source] of Object.entries(sourceList)) {
   const schemaPath = join(schemas, `${name}.graphql`);
+  const snapshotPath = join(snapshotDirectory, `${name}.graphql.gz`);
   const pinned = manifest[name];
   if (!refresh && existsSync(schemaPath) && pinned) {
     const cached = readFileSync(schemaPath);
@@ -60,6 +63,15 @@ for (const [name, source] of Object.entries(sourceList)) {
       console.log(`${name}: verified cached schema (${pinned.bytes} bytes)`);
       continue;
     }
+  }
+  if (!refresh && pinned && existsSync(snapshotPath)) {
+    const bundled = gunzipSync(readFileSync(snapshotPath));
+    if (sha256(bundled) !== pinned.sha256) {
+      throw new Error(`${name}: bundled schema differs from manifest`);
+    }
+    writeFileSync(schemaPath, bundled);
+    console.log(`${name}: verified bundled schema (${pinned.bytes} bytes)`);
+    continue;
   }
   const sdl = await download(source);
   const bytes = Buffer.byteLength(sdl);
@@ -72,6 +84,10 @@ for (const [name, source] of Object.entries(sourceList)) {
   }
   const statistics = counts(sdl);
   writeFileSync(schemaPath, sdl);
+  if (refresh) {
+    mkdirSync(snapshotDirectory, { recursive: true });
+    writeFileSync(snapshotPath, gzipSync(sdl, { level: 9 }));
+  }
   manifest[name] = {
     ...source,
     retrievedAt: new Date().toISOString(),

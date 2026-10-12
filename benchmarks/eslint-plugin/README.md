@@ -3,9 +3,10 @@
 This suite compares `@graphql-analyzer/eslint-plugin` with the community
 `@graphql-eslint/eslint-plugin` on the same GraphQL files and ESLint 9 runtime.
 It tests the public GitHub API schema, Apollo GraphOS Platform API schema, and
-a Saleor schema pinned to a source commit. All network work happens before the
-timed runs. Downloaded schemas, generated operations, and reports are ignored
-by Git.
+a Saleor schema pinned to a source commit. All corpus preparation happens before
+the timed runs. Compressed, pinned schema snapshots are tracked under
+`snapshots/` so CI and fresh checkouts use the same inputs. Expanded schemas,
+generated operations, and reports are ignored by Git.
 
 ## Setup
 
@@ -20,14 +21,13 @@ BENCH_FILES=12 node benchmarks/eslint-plugin/generate.mjs
 ```
 
 `fetch.mjs` verifies cached files against `manifest.json`. If the cache is
-empty, it downloads each schema and checks its pinned SHA-256. GitHub and
-GraphOS publish changing schemas, so a fresh checkout may fail the pin check.
-Exact reproduction of an older baseline then requires its locally cached
-pinned snapshots; a reviewed manifest refresh measures a new corpus.
+empty, it expands the tracked snapshots and checks their pinned SHA-256. The
+timed run does not fetch schemas. A reviewed manifest and snapshot refresh
+measures a new corpus.
 To review and deliberately update a source snapshot, run
 `node benchmarks/eslint-plugin/fetch.mjs --refresh`, inspect the changed
-`manifest.json`, then regenerate. Saleor's URL uses a fixed commit. The
-manifest records retrieval date, URL, SHA-256, bytes, type count, and field
+`manifest.json` and compressed snapshots, then regenerate. Saleor's URL uses a
+fixed commit. The manifest records retrieval date, URL, SHA-256, bytes, type count, and field
 count. `generate.mjs` checks the hashes, creates deterministic operations
 offline, and validates each operation against its schema. Set `BENCH_FILES`
 to a positive integer to change the project size.
@@ -80,6 +80,11 @@ machines are not a reliable basis for one.
 Reports are written to `benchmarks/eslint-plugin/reports/` as JSON and
 Markdown. They identify the Git revision and dirty state, Node/ESLint/GraphQL
 versions, CPU, platform, native addon hash, schema hashes, and workload size.
+The `ESLint benchmark` GitHub Actions workflow runs the three corpora on
+relevant pull requests and by manual dispatch. Its job summary compares cold,
+warm, and changed-file medians with the community plugin. The JSON and Markdown
+reports are attached to the run for 30 days. Timings are observations, not a CI
+pass/fail threshold; diagnostic mismatches still fail the job.
 The native build command above uses release mode. Compare runs only when
 machine, dependency versions, build mode, source hashes, file count, and rule
 set match. These workloads cover local SDL, GraphQL documents, and one embedded
