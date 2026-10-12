@@ -11,8 +11,27 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
+  scope:
+    name: Preview Scope
+    runs-on: ubuntu-latest
+    outputs:
+      preview: ${{ steps.changed.outputs.preview }}
+    steps:
+      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6
+        with:
+          fetch-depth: 0
+
+      - name: Classify changed paths
+        id: changed
+        env:
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          HEAD_SHA: ${{ github.sha }}
+        run: node scripts/ci-scope.mjs >> "$GITHUB_OUTPUT"
+
   build-core:
     name: Build core (${{ matrix.target }})
+    needs: scope
+    if: needs.scope.outputs.preview == 'true'
     runs-on: ${{ matrix.os }}
     strategy:
       matrix:
