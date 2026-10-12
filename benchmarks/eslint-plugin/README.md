@@ -40,18 +40,20 @@ node benchmarks/eslint-plugin/run.mjs parity
 
 This runs the existing rule-by-rule parity tests, then compares diagnostics
 on each large corpus. It covers operation files, direct linting of the full
-schema, and a JavaScript file with embedded GraphQL. It fails on parser errors,
+schema, a JavaScript file with embedded GraphQL, and a validation workload with
+one invalid field, one unknown type, and one undefined variable per operation.
+It fails on parser errors,
 missing upstream rule names, or differences in active rule diagnostics. The
 comparison includes rule, severity, message, location, fixes, and suggestions.
 Each workload has a deliberate rule violation so the comparison cannot pass
 with empty diagnostics. An edited, valid version must change the result.
 
-The report lists active shared rules, validation-rule stubs, and rules unique
-to either plugin. Validation stubs accept community rule names in configs but
-do not report those rule-specific diagnostics. Native validation runs
-separately, so the suite reports this as a parity gap. The existing small
-fixtures remain the authoritative per-rule option and suggestion checks;
-the large corpora add scale and schema diversity.
+The report lists active shared rules, including the 30 implemented GraphQL
+validation rules, and rules unique to either plugin. The validation workload
+enables `fields-on-correct-type`, `known-type-names`, and
+`no-undefined-variables` in both plugins and checks one diagnostic per rule per
+file. The existing small fixtures remain the authoritative per-rule option and
+suggestion checks; the large corpora add scale and schema diversity.
 
 For a shorter development pass:
 
@@ -71,6 +73,10 @@ with the same custom `typeInfo()` rule. Direct schema linting uses a schema
 rule across upstream, compatible, and fast parsers. Embedded JavaScript uses
 the documented host processor plus virtual GraphQL parser configuration and
 compares upstream and compatible modes, with and without that custom rule.
+The validation workload uses the same three validation rules and 12 invalid
+documents per schema across upstream, compatible, and fast-parser lanes. The
+fast-parser lane still loads GraphQL.js for validation, so it does not measure
+the pure native path of the non-validation workloads.
 The suite rotates lane order between samples, measures module loading, first
 result, cold lint, warm lint, and alternating changed-file lint, and records
 median, p95, range, and observed RSS. It checks diagnostic equivalence in
@@ -89,4 +95,5 @@ The native build command above uses release mode. Compare runs only when
 machine, dependency versions, build mode, source hashes, file count, and rule
 set match. These workloads cover local SDL, GraphQL documents, and one embedded
 JavaScript template. They do not measure remote schema loading or every host
-language supported by the plugin.
+language supported by the plugin. The validation workload measures three
+representative rules; the per-rule parity tests cover all 30 validation rules.

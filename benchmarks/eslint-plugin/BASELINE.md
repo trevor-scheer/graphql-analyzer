@@ -1,13 +1,13 @@
 # ESLint plugin benchmark baseline
 
-The October 12, 2026 UTC release-mode run found **zero diagnostic differences** across the measured upstream, compatible, fast native, and custom-rule lanes. The existing per-rule parity tests also passed. This is workload parity, not full feature parity: the analyzer still exports 30 validation-rule stubs that do not emit rule-specific diagnostics.
+The October 12, 2026 UTC release-mode run found **zero diagnostic differences** across the measured upstream, compatible, fast native, and custom-rule lanes. The existing per-rule parity tests also passed. This was measured before the 30 validation rules were implemented, so the historical timings below do not include validation diagnostics. The current suite adds a separate validation workload; CI reports its timings and diagnostic parity against the community plugin.
 
 ## Inputs and environment
 
 - Machine: Apple M3, darwin arm64; Node v24.15.0; ESLint 9.39.4; `@graphql-eslint/eslint-plugin` 4.4.1; GraphQL 16.13.2.
 - Analyzer plugin 0.1.4, core 0.1.3; native build: release; addon SHA-256: `f266bd1289af669a723b58bcdb37b500dbd5a1716cd732f9cbb202e6838d0098`.
 - 3 fresh-process samples, 1 warmup, 3 repeated warm/project measurements per sample; 12 generated operations per schema.
-- Coverage: 34 active shared rules, 30 validation stubs, 4 analyzer-only rules, 0 missing upstream names.
+- Coverage at the time: 34 active shared rules, 30 validation stubs, 4 analyzer-only rules, 0 missing upstream names. The current implementation has 64 active shared rules, including all 30 validation rules.
 
 The schema snapshots and their source URLs are pinned in [`manifest.json`](manifest.json).
 
@@ -64,7 +64,7 @@ Times are milliseconds. Each cell shows the median followed by p95 in parenthese
 
 - The fast native lane had the lowest median cold and warm lint time in these local workloads. Compatible mode paid for JavaScript GraphQL AST conversion and was often slower than upstream. These observations do not establish a general speedup for the compatible parser.
 - Direct schema linting included the full public SDL plus one comment violation. Operation linting used 12 deterministic, validated documents with one duplicate field each. Embedded linting used one JavaScript `gql` template and compared the same custom `typeInfo()` rule.
-- The 30 validation-rule stubs accept community configuration names but do not expose the matching rule-specific reports. Built-in validation is separate. The suite checks active rule behavior and reports this gap explicitly.
+- These historical measurements do not predict validation-rule performance. The current suite compares three validation rules on the same generated invalid documents and checks one diagnostic per rule per file.
 - Three process samples are enough to expose large differences but too few for a statistical performance guarantee. Processes ran sequentially on a shared development machine. The observed RSS snapshots can miss transient peaks.
 - GitHub and GraphOS publish mutable schemas. The tracked compressed snapshots make this baseline reproducible from a fresh checkout; a reviewed manifest and snapshot refresh measures a new corpus. Saleor uses an immutable source commit.
 - The report recorded `dirty: true`: the run used PR #1134 revision `a717e3a29dc41639286f66e65c24f117676a2125` with the new suite uncommitted. Reproduce the run on the committed branch to capture its final Git revision.

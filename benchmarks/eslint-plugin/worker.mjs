@@ -20,12 +20,15 @@ const pluginModule = upstream
   : requirePlugin("./dist/index.js");
 const plugin = pluginModule.default ?? pluginModule;
 const moduleLoadMs = performance.now() - start;
+const validation = scenario === "validation";
 const workdir =
   scenario === "schema"
     ? join(project, "schema-workload")
     : scenario === "embedded"
       ? join(project, "embedded-workload")
-      : project;
+      : validation
+        ? join(project, "validation-workload")
+        : project;
 const pattern =
   scenario === "schema"
     ? "schema.graphql"
@@ -67,9 +70,15 @@ const graphqlConfig = {
     ...(custom ? { custom: { rules: { typed: customRule } } } : {}),
   },
   rules: {
-    ...(scenario === "schema"
-      ? { "bench/no-hashtag-description": "error" }
-      : { "bench/no-anonymous-operations": "error", "bench/no-duplicate-fields": "error" }),
+    ...(validation
+      ? {
+          "bench/fields-on-correct-type": "error",
+          "bench/known-type-names": "error",
+          "bench/no-undefined-variables": "error",
+        }
+      : scenario === "schema"
+        ? { "bench/no-hashtag-description": "error" }
+        : { "bench/no-anonymous-operations": "error", "bench/no-duplicate-fields": "error" }),
     ...(custom ? { "custom/typed": "warn" } : {}),
   },
 };
@@ -123,7 +132,7 @@ async function measure(run) {
 const first = await measure(() => linter.lintFiles([pattern]));
 const firstResultMs = performance.now() - start;
 const fileCount =
-  scenario === "operations"
+  scenario === "operations" || validation
     ? Number(JSON.parse(readFileSync(join(project, "corpus.json"), "utf8")).operations)
     : 1;
 assert.equal(first.result.length, fileCount, "project file count drift");
@@ -172,7 +181,7 @@ const modules = Object.keys(requirePlugin.cache);
 const loadedCompatibility = modules.some((filename) =>
   /node_modules\/(?:graphql\/|graphql-config\/|@graphql-tools\/graphql-tag-pluck\/)/.test(filename),
 );
-if (lane === "fast") {
+if (lane === "fast" && !validation) {
   assert.equal(loadedCompatibility, false, "fast mode loaded compatibility dependencies");
 }
 

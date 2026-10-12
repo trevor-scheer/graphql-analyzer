@@ -27,7 +27,7 @@ import {
 const mode = process.argv[2];
 if (!["parity", "bench"].includes(mode)) {
   throw new Error(
-    "Usage: node benchmarks/eslint-plugin/run.mjs parity|bench [--corpus=github|graphos|saleor] [--scenario=operations|schema|embedded] [--samples=N] [--repeats=N] [--warmups=N] [--skip-rule-tests]",
+    "Usage: node benchmarks/eslint-plugin/run.mjs parity|bench [--corpus=github|graphos|saleor] [--scenario=operations|validation|schema|embedded] [--samples=N] [--repeats=N] [--warmups=N] [--skip-rule-tests]",
   );
 }
 function argument(name, fallback) {
@@ -67,6 +67,7 @@ for (const name of corpora) {
 
 const scenarioLanes = {
   operations: ["upstream", "compatible", "fast", "upstream-custom", "compatible-custom"],
+  validation: ["upstream", "compatible", "fast"],
   schema: ["upstream", "compatible", "fast"],
   embedded: ["upstream", "compatible", "upstream-custom", "compatible-custom"],
 };
@@ -80,20 +81,14 @@ const theirsModule = requirePlugin("@graphql-eslint/eslint-plugin");
 const theirs = theirsModule.default ?? theirsModule;
 const theirsRules = new Set(Object.keys(theirs.rules));
 const oursRules = new Set(Object.keys(ours.rules));
-const stubRules = [...oursRules]
-  .filter((name) =>
-    ours.rules[name].meta?.docs?.description?.includes(
-      "This rule does not report validation diagnostics.",
-    ),
-  )
+const validationRules = [...oursRules]
+  .filter((name) => ours.rules[name].meta?.docs?.description?.startsWith("Validate GraphQL "))
   .sort();
 const coverage = {
   upstreamRules: theirsRules.size,
   analyzerRules: oursRules.size,
-  activeShared: [...oursRules]
-    .filter((name) => theirsRules.has(name) && !stubRules.includes(name))
-    .sort(),
-  validationStubs: stubRules,
+  activeShared: [...oursRules].filter((name) => theirsRules.has(name)).sort(),
+  validationRules,
   analyzerOnly: [...oursRules].filter((name) => !theirsRules.has(name)).sort(),
   upstreamOnly: [...theirsRules].filter((name) => !oursRules.has(name)).sort(),
 };
@@ -173,6 +168,21 @@ for (const name of corpora) {
         base.diagnostics.project.length > 0,
         `${name}/${scenario}: fixture produced no native diagnostics`,
       );
+      if (scenario === "validation") {
+        const fileCount = json(join(project, "corpus.json")).operations;
+        for (const rule of [
+          "fields-on-correct-type",
+          "known-type-names",
+          "no-undefined-variables",
+        ]) {
+          assert.equal(
+            base.diagnostics.project.filter((diagnostic) => diagnostic.rule === rule).length,
+            fileCount,
+            `${name}/${scenario}: expected one ${rule} diagnostic per file`,
+          );
+        }
+        assert.deepEqual(base.diagnostics.valid, [], `${name}/${scenario}: valid edit failed`);
+      }
       for (const lane of lanes.filter((candidate) => candidate !== "upstream")) {
         const observed = observations[name][scenario][lane][sample];
         for (const key of ["project", "valid"]) {
@@ -289,9 +299,9 @@ const lines = [
   "",
   `Per-rule parity: ${ruleTests.status}. Corpus mismatches: ${mismatches.length}.`,
   "",
-  `Active shared rules: ${coverage.activeShared.length}; validation stubs: ${coverage.validationStubs.length}; analyzer-only: ${coverage.analyzerOnly.length}; upstream-only: ${coverage.upstreamOnly.length}.`,
+  `Active shared rules: ${coverage.activeShared.length}; validation rules: ${coverage.validationRules.length}; analyzer-only: ${coverage.analyzerOnly.length}; upstream-only: ${coverage.upstreamOnly.length}.`,
   "",
-  "Validation stubs are configuration aliases; native validation diagnostics are outside rule-by-rule parity.",
+  "The validation workload enables fields-on-correct-type, known-type-names, and no-undefined-variables across all operation files.",
   "",
   "Ratios divide the community median by the analyzer median. Values above 1 mean the analyzer was faster in this run; values below 1 mean it was slower.",
   "",

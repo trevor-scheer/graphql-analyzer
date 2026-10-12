@@ -47,7 +47,11 @@ for (const [name, pinned] of Object.entries(manifest)) {
   rmSync(project, { recursive: true, force: true });
   mkdirSync(join(project, "operations"), { recursive: true });
   mkdirSync(join(project, "valid"), { recursive: true });
+  const validationWorkload = join(project, "validation-workload");
+  mkdirSync(join(validationWorkload, "operations"), { recursive: true });
+  mkdirSync(join(validationWorkload, "valid"), { recursive: true });
   copyFileSync(schemaSource, join(project, "schema.graphql"));
+  copyFileSync(schemaSource, join(validationWorkload, "schema.graphql"));
   writeFileSync(
     join(project, ".graphqlrc.json"),
     JSON.stringify(
@@ -89,6 +93,29 @@ for (const [name, pinned] of Object.entries(manifest)) {
         source,
       );
     }
+    const validationErrors = valid
+      .replace(`query ${operation} {`, `query ${operation}($unused: BenchmarkUnknownType) {`)
+      .replace(
+        "  __typename\n}\n",
+        "  __typename @include(if: $undefined)\n  __benchmarkMissingField\n}\n",
+      );
+    const validationRules = [
+      graphql.FieldsOnCorrectTypeRule,
+      graphql.KnownTypeNamesRule,
+      graphql.NoUndefinedVariablesRule,
+    ];
+    const document = graphql.parse(validationErrors);
+    for (const rule of validationRules) {
+      const errors = graphql.validate(schema, document, [rule]);
+      if (errors.length !== 1) {
+        throw new Error(
+          `${name}/validation/${operation}: expected one ${rule.name} error, got ${errors.map((error) => error.message).join("; ")}`,
+        );
+      }
+    }
+    const filename = `operation-${String(index).padStart(3, "0")}.graphql`;
+    writeFileSync(join(validationWorkload, "operations", filename), validationErrors);
+    writeFileSync(join(validationWorkload, "valid", filename), valid);
   }
   writeFileSync(
     join(project, "corpus.json"),
@@ -103,6 +130,17 @@ for (const [name, pinned] of Object.entries(manifest)) {
       null,
       2,
     )}\n`,
+  );
+  writeFileSync(
+    join(validationWorkload, ".graphqlrc.json"),
+    JSON.stringify(
+      {
+        schema: "schema.graphql",
+        documents: "operations/*.graphql",
+      },
+      null,
+      2,
+    ),
   );
   const schemaWorkload = join(project, "schema-workload");
   mkdirSync(schemaWorkload, { recursive: true });
