@@ -8,8 +8,22 @@ function toKebabCase(name: string): string {
   return name.replace(/([a-z])([A-Z])/g, "$1-$2").toLowerCase();
 }
 
-// Share native analysis across rules without retaining stale project diagnostics across lint passes.
-const fileCache = new WeakMap<SourceCode, binding.JsDiagnostic[]>();
+interface FileState {
+  overrides: Record<string, { severity: string; options?: unknown }>;
+  diagnostics?: binding.JsDiagnostic[];
+}
+
+// A SourceCode belongs to one lint pass, including its complete enabled rule set.
+const fileStates = new WeakMap<SourceCode, FileState>();
+
+function stateFor(source: SourceCode): FileState {
+  let state = fileStates.get(source);
+  if (!state) {
+    state = { overrides: {} };
+    fileStates.set(source, state);
+  }
+  return state;
+}
 
 function diagnosticsFor(filePath: string, source: SourceCode): binding.JsDiagnostic[] {
   const state = stateFor(source);
@@ -27,17 +41,6 @@ function diagnosticsFor(filePath: string, source: SourceCode): binding.JsDiagnos
     binding.lintFile(filePath, source.text, state.overrides, skipEslintSuppressions);
   return state.diagnostics;
 }
-
-// Per-rule override registry populated as ESLint instantiates each rule for a
-// file (`create(context)`). ESLint calls every enabled rule's `create()`
-// before any visitor method fires, so by the time the first `Program()`
-// runs the registry already contains every rule's ESLint-config options
-// for the current run. That lets the binding call use one merged overrides
-// payload instead of one binding call per rule. Different ESLint runs may
-// enable different rules, but options for a given rule are stable across
-// files within a run, so a Map keyed by analyzer rule name converges to
-// the right snapshot.
-const overridesByRule = new Map<string, { severity: string; options?: unknown }>();
 
 // Recursively convert any `RegExp` instances to their `.source` string. JS
 // configs (e.g. `forbiddenPatterns: [/foo/i]`) carry RegExp instances; those
@@ -68,25 +71,13 @@ function normalizeRegExps(value: unknown): unknown {
   return value;
 }
 
-function registerOverride(analyzerRuleName: string, options: unknown): void {
-  // ESLint only invokes `create()` for rules enabled at warn or error
-  // (level >= 1), so just registering forces the analyzer to enable the
-  // rule. Severity here is the analyzer's "should I run this rule?" flag,
-  // not the user-facing severity — ESLint stamps its own level on the
-  // resulting messages. `"warn"` is the safe lower bound that always
-  // enables the rule.
+function registerOverride(source: SourceCode, analyzerRuleName: string, options: unknown): void {
   const normalized = options !== undefined ? normalizeRegExps(options) : undefined;
-  overridesByRule.set(analyzerRuleName, {
+  // ESLint owns report severity; warn enables the native rule for this pass.
+  stateFor(source).overrides[analyzerRuleName] = {
     severity: "warn",
     ...(normalized !== undefined ? { options: normalized } : {}),
-  });
-}
-
-function buildOverridesPayload(): Record<string, unknown> | undefined {
-  if (overridesByRule.size === 0) return undefined;
-  const out: Record<string, unknown> = {};
-  for (const [name, cfg] of overridesByRule) out[name] = cfg;
-  return out;
+  };
 }
 
 // Rules where graphql-eslint reports a single-position `loc` (start only) so
@@ -171,10 +162,7 @@ function makeRule(analyzerRuleName: string, description: string): Rule.RuleModul
       messages: {},
     },
     create(context) {
-      // Register this rule's ESLint-config options into the shared registry
-      // so the eventual binding call carries every enabled rule's overrides
-      // in one payload (one binding call per file, not per rule).
-      registerOverride(analyzerRuleName, context.options[0]);
+      registerOverride(context.sourceCode, analyzerRuleName, context.options[0]);
       return {
         Program() {
           const diagnostics = diagnosticsFor(context.filename, context.sourceCode);
@@ -203,22 +191,16 @@ function makeRule(analyzerRuleName: string, description: string): Rule.RuleModul
               return edits.map((e) => fixer.replaceTextRange(e.range, e.text));
             };
             const fix =
-              d.fix && ESLINT_FIXABLE_RULES.has(analyzerRuleName)
-                ? (fixer: Rule.RuleFixer) => {
-                    const text = context.sourceCode.text;
-                    const lineStarts = computeLineStarts(text);
-                    const edits = d.fix!.edits.map((e) => ({
-                      range: [
-                        lineStarts[e.rangeStartLine - 1] + (e.rangeStartColumn - 1),
-                        lineStarts[e.rangeEndLine - 1] + (e.rangeEndColumn - 1),
-                      ] as [number, number],
-                      text: e.newText,
-                    }));
-                    if (edits.length === 1) {
-                      return fixer.replaceTextRange(edits[0].range, edits[0].text);
-                    }
-                    return edits.map((e) => fixer.replaceTextRange(e.range, e.text));
-                  }
+              d.fix && ESLINT_FIXABLE_RULES.has(analyzerRuleName) ? buildFixer(d.fix) : undefined;
+            // Suggestions are independent of the fix surface — every
+            // analyzer-emitted suggestion routes through ESLint's `suggest`
+            // array regardless of whether the rule also surfaces a `fix`.
+            const suggest =
+              d.suggestions && d.suggestions.length > 0
+                ? d.suggestions.map((s) => ({
+                    desc: s.desc,
+                    fix: buildFixer(s.fix),
+                  }))
                 : undefined;
             const reportExtras = {
               ...(fix ? { fix } : {}),
@@ -233,11 +215,7 @@ function makeRule(analyzerRuleName: string, description: string): Rule.RuleModul
                 ...reportExtras,
               });
             } else {
-              context.report({
-                message: d.message,
-                loc,
-                ...(fix ? { fix } : {}),
-              });
+              context.report({ message: d.message, loc, ...reportExtras });
             }
           }
         },
@@ -245,6 +223,58 @@ function makeRule(analyzerRuleName: string, description: string): Rule.RuleModul
     },
   };
   return rule;
+}
+
+// These names let GraphQL-ESLint presets load without enabling validation checks.
+const VALIDATION_RULE_STUBS = [
+  "executable-definitions",
+  "fields-on-correct-type",
+  "fragments-on-composite-type",
+  "known-argument-names",
+  "known-directives",
+  "known-fragment-names",
+  "known-type-names",
+  "lone-anonymous-operation",
+  "lone-schema-definition",
+  "no-fragment-cycles",
+  "no-undefined-variables",
+  "one-field-subscriptions",
+  "overlapping-fields-can-be-merged",
+  "possible-fragment-spread",
+  "possible-type-extension",
+  "provided-required-arguments",
+  "scalar-leafs",
+  "unique-argument-names",
+  "unique-directive-names",
+  "unique-directive-names-per-location",
+  "unique-field-definition-names",
+  "unique-fragment-name",
+  "unique-input-field-names",
+  "unique-operation-name",
+  "unique-operation-types",
+  "unique-type-names",
+  "unique-variable-names",
+  "value-literals-of-correct-type",
+  "variables-are-input-types",
+  "variables-in-allowed-position",
+];
+
+function makeStubRule(ruleName: string): Rule.RuleModule {
+  return {
+    meta: {
+      type: "problem",
+      docs: {
+        description:
+          `Accepts the GraphQL-ESLint rule name \`${ruleName}\` in configuration. ` +
+          `This rule does not report validation diagnostics.`,
+      },
+      schema: OPTIONS_SCHEMA,
+      messages: {},
+    },
+    create() {
+      return {};
+    },
+  };
 }
 
 export function buildRules(): Record<string, Rule.RuleModule> {

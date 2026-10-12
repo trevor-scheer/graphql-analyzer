@@ -82,11 +82,9 @@ type ParentNode<T> = T extends DocumentNode
                       : unknown;
 export type GraphQLESTreeNode<T, W extends boolean = false> = T extends ASTNode
   ? {
-      -readonly [K in keyof T as K extends "loc"
-        ? never
-        : K extends "type"
-          ? "gqlType"
-          : K]: Converted<T[K], W>;
+      -readonly [
+        K in keyof T as K extends "loc" ? never : K extends "type" ? "gqlType" : K
+      ]: Converted<T[K], W>;
     } & {
       type: T["kind"];
       loc: AST.SourceLocation;

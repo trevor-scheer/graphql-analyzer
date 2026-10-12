@@ -432,9 +432,9 @@ test("uses one physical native analysis across blocks and host rules", async () 
   const binding = require("../dist/binding.js");
   const original = binding.lintFile;
   const calls = [];
-  binding.lintFile = (physical, source) => {
+  binding.lintFile = (physical, source, overrides) => {
     calls.push(physical);
-    return original(physical, source);
+    return original(physical, source, overrides);
   };
   try {
     const fixture = fixtureRoot;
@@ -460,6 +460,65 @@ test("uses one physical native analysis across blocks and host rules", async () 
       { filePath: physical },
     );
     assert.deepEqual(calls, [physical]);
+  } finally {
+    binding.lintFile = original;
+  }
+});
+
+test("embedded native cache separates virtual rule options and subsequent lint passes", async () => {
+  const binding = require("../dist/binding.js");
+  const original = binding.lintFile;
+  const calls = [];
+  binding.lintFile = (physical, source, overrides) => {
+    calls.push({ physical, overrides });
+    return [];
+  };
+  try {
+    const physical = path.join(fixtureRoot, "src/options.js");
+    const source = "const a = gql`{ __typename }`; const b = gql`{ __typename }`;";
+    const configs = [
+      { files: ["**/*.js"], processor: plugin.processor },
+      {
+        files: ["**/*.graphql"],
+        languageOptions: { parser: plugin.parser },
+        plugins: { native: plugin },
+        rules: { "native/no-anonymous-operations": "error" },
+      },
+    ];
+    const linter = new ESLint({
+      cwd: fixtureRoot,
+      overrideConfigFile: true,
+      overrideConfig: [
+        ...configs,
+        {
+          files: ["**/0_document.graphql"],
+          rules: { "native/alphabetize": ["error", { selections: [] }] },
+        },
+        {
+          files: ["**/1_document.graphql"],
+          rules: {
+            "native/alphabetize": ["error", { selections: ["OperationDefinition"] }],
+          },
+        },
+      ],
+    });
+    for (let pass = 0; pass < 2; pass++) {
+      const [result] = await linter.lintText(source, { filePath: physical });
+      assert.deepEqual(result.messages, []);
+      assert.equal(calls.length, (pass + 1) * 2);
+      assert.deepEqual(calls[pass * 2].overrides.alphabetize.options, { selections: [] });
+      assert.deepEqual(calls[pass * 2 + 1].overrides.alphabetize.options, {
+        selections: ["OperationDefinition"],
+      });
+    }
+    await new ESLint({
+      cwd: fixtureRoot,
+      overrideConfigFile: true,
+      overrideConfig: configs,
+    }).lintText(source, { filePath: physical });
+    assert.equal(calls.length, 5);
+    assert.deepEqual(calls[4].overrides, { noAnonymousOperations: { severity: "warn" } });
+    assert.ok(calls.every((call) => call.physical === physical));
   } finally {
     binding.lintFile = original;
   }

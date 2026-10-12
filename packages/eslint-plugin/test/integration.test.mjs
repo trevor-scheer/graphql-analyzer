@@ -144,6 +144,20 @@ test("fast processor is an identity passthrough for JS/TS-family files", () => {
   assert.equal(merged.length, 1);
 });
 
+test("processor extracts embedded GraphQL from JS/TS-family files", () => {
+  const tsx = `import { gql } from "@apollo/client";\nconst Q = gql\`query { __typename }\`;\n`;
+  const preprocessed = plugin.processor.preprocess(tsx, "component.tsx");
+  // Expect [extractedBlock, originalSource]. ESLint matches the block's
+  // `.graphql` filename against the user's `**/*.graphql` config block to
+  // dispatch our parser/rules; the original source goes to whatever parser
+  // the user has wired for `.tsx`.
+  assert.equal(preprocessed.length, 2, "should return one block + the original source");
+  assert.equal(typeof preprocessed[0], "object");
+  assert.match(preprocessed[0].filename, /\.graphql$/);
+  assert.equal(preprocessed[0].text, "query { __typename }");
+  assert.equal(preprocessed[1], tsx);
+});
+
 test("processor postprocess remaps line offsets back to host coords", () => {
   const tsx =
     `import { gql } from "@apollo/client";\n` +

@@ -7,11 +7,16 @@ use parking_lot::Mutex;
 
 use graphql_ide::{AnalysisHost, DocumentKind, FilePath, Language};
 
-#[derive(Default)]
-pub struct NapiAnalysisHost {
+struct ProjectState {
+    config: graphql_config::ProjectConfig,
     host: AnalysisHost,
     known_files: HashMap<PathBuf, KnownFile>,
-    config_path: Option<PathBuf>,
+}
+
+#[derive(Default)]
+pub struct NapiAnalysisHost {
+    projects: Vec<ProjectState>,
+    workspace_root: PathBuf,
 }
 
 #[derive(Clone)]
@@ -67,10 +72,22 @@ impl NapiAnalysisHost {
 
     pub fn init_from_config(&mut self, config_path: &Path) -> anyhow::Result<()> {
         self.reset();
-
         let config = graphql_config::load_config(config_path)?;
-        let base_dir = config_path.parent().unwrap_or_else(|| Path::new("."));
-        self.workspace_root = base_dir.to_path_buf();
+        let base_dir = canonicalize_or(config_path.parent().unwrap_or_else(|| Path::new(".")));
+        let projects = config
+            .projects()
+            .map(|(name, project)| {
+                ProjectState::load(project, &base_dir)
+                    .map_err(|e| anyhow::anyhow!("Invalid project '{name}': {e}"))
+            })
+            .collect::<anyhow::Result<Vec<_>>>()?;
+        if projects.is_empty() {
+            anyhow::bail!("No projects found in config");
+        }
+        self.projects = projects;
+        self.workspace_root = base_dir;
+        Ok(())
+    }
 
     pub fn extract_config(&self) -> graphql_extract::ExtractConfig {
         // Extraction has no file path for project routing, so it uses the first project.
@@ -123,41 +140,60 @@ impl NapiAnalysisHost {
             project.host.set_lint_config((*original).clone());
         }
 
-            if let Some(lint_value) = project.lint() {
-                let lint_config = serde_json::from_value::<graphql_linter::LintConfig>(lint_value)?;
-                if let Err(e) = lint_config.validate() {
-                    return Err(anyhow::anyhow!(
-                        "Invalid lint configuration in project '{name}':\n\n{e}"
-                    ));
-                }
-                host.set_lint_config(lint_config);
+        Ok(diagnostics)
+    }
+
+    fn project_for_file(&self, canonical: &Path) -> Option<usize> {
+        for (idx, p) in self.projects.iter().enumerate() {
+            if p.config.matches_file(canonical, &self.workspace_root) {
+                return Some(idx);
             }
+        }
+        let unconstrained: Vec<usize> = self
+            .projects
+            .iter()
+            .enumerate()
+            .filter(|(_, p)| !p.config.has_file_constraints())
+            .map(|(i, _)| i)
+            .collect();
+        if unconstrained.len() == 1 {
+            return Some(unconstrained[0]);
+        }
+        // A single project also owns files outside its discovery patterns.
+        if self.projects.len() == 1 {
+            return Some(0);
+        }
+        None
+    }
+}
 
-            // Files matched by the project's `documents:` config are explicit
-            // GraphQL sources, so a bare `gql` tag without an `import` should
-            // still be extracted (issue #1035). User overrides come from
-            // `extensions.graphql-analyzer.extractConfig` (or its `pluckConfig`
-            // alias). Conflict between the two is a config error.
-            let extract_value = project
-                .extract_config()
-                .map_err(|e| anyhow::anyhow!("Invalid extract config in project '{name}': {e}"))?;
-            let extract_config = graphql_extract::resolve_for_documents(extract_value.as_ref());
-            host.set_extract_config(extract_config);
-
-            let mut known_files = HashSet::new();
-            let schema_result = host.load_schemas_from_config(project, base_dir)?;
-            for path in &schema_result.loaded_paths {
-                known_files.insert(canonicalize_or(path));
+impl ProjectState {
+    fn load(project: &graphql_config::ProjectConfig, base_dir: &Path) -> anyhow::Result<Self> {
+        let mut state = Self {
+            config: project.clone(),
+            host: AnalysisHost::new(),
+            known_files: HashMap::new(),
+        };
+        if let Some(lint_value) = project.lint() {
+            let lint_config = serde_json::from_value::<graphql_linter::LintConfig>(lint_value)?;
+            if let Err(e) = lint_config.validate() {
+                return Err(anyhow::anyhow!("Invalid lint configuration:\n\n{e}"));
             }
+            state.host.set_lint_config(lint_config);
+        }
 
-        let schema_result = self.host.load_schemas_from_config(project, base_dir)?;
+        let extract_value = project.extract_config()?;
+        let extract_config = graphql_extract::resolve_for_documents(extract_value.as_ref());
+        state.host.set_extract_config(extract_config);
+
+        let schema_result = state.host.load_schemas_from_config(project, base_dir)?;
         let resolved_schema = project
             .resolved_schema()
             .map(|path| canonicalize_or(&base_dir.join(path)));
         for path in &schema_result.loaded_paths {
             let language = language_and_kind_from_path(&path.to_string_lossy()).0;
-            self.remember_file(path, language, DocumentKind::Schema);
-            if let Some(file) = self.known_files.get_mut(&canonicalize_or(path)) {
+            state.remember_file(path, language, DocumentKind::Schema);
+            if let Some(file) = state.known_files.get_mut(&canonicalize_or(path)) {
                 file.reload_schema |= path
                     .extension()
                     .is_some_and(|extension| extension == "json")
@@ -165,17 +201,17 @@ impl NapiAnalysisHost {
             }
         }
 
-        let extract_config = self.host.get_extract_config();
+        let extract_config = state.host.get_extract_config();
         let (loaded, _result) =
-            self.host
+            state
+                .host
                 .load_documents_from_config(project, base_dir, &extract_config);
         for file in &loaded {
             let path = file_path_to_pathbuf(&file.path);
-            self.remember_file(&path, file.language, file.document_kind);
+            state.remember_file(&path, file.language, file.document_kind);
         }
 
-        self.config_path = Some(config_path.to_path_buf());
-        Ok(())
+        Ok(state)
     }
 
     fn remember_file(&mut self, path: &Path, language: Language, document_kind: DocumentKind) {
@@ -231,7 +267,7 @@ impl NapiAnalysisHost {
         file.path.clone()
     }
 
-    fn refresh_dependencies(&mut self) -> anyhow::Result<()> {
+    fn refresh_dependencies(&mut self, base_dir: &Path) -> anyhow::Result<()> {
         let changes: Vec<_> = self
             .known_files
             .iter()
@@ -249,54 +285,40 @@ impl NapiAnalysisHost {
             let file = &self.known_files[path];
             file.reload_schema && source != &file.disk_source
         }) {
-            if let Some(config_path) = self.config_path.clone() {
-                // The schema loader owns JSON introspection and split embedded schema entries.
-                let overlays: Vec<_> = self
-                    .known_files
-                    .iter()
-                    .filter(|(path, file)| {
-                        !changes.iter().any(|(changed, source, _)| {
-                            changed == *path && source != &file.disk_source
-                        })
-                    })
-                    .filter_map(|(path, file)| {
-                        file.overlay
-                            .as_ref()
-                            .map(|source| (path.clone(), file.clone(), source.clone()))
-                    })
-                    .collect();
-                let missing: Vec<_> = changes
-                    .iter()
-                    .filter(|(_, source, _)| source.is_none())
-                    .map(|(path, _, fingerprint)| {
-                        let mut file = self.known_files[path].clone();
-                        file.disk_source = None;
-                        file.disk_fingerprint = fingerprint.clone();
-                        file.overlay = None;
-                        (path.clone(), file)
-                    })
-                    .collect();
-                let mut refreshed = Self::default();
-                refreshed.init_from_config(&config_path)?;
-                refreshed.known_files.extend(missing);
-                for (path, file, source) in overlays {
-                    refreshed.known_files.entry(path.clone()).or_insert(file);
-                    refreshed.update_source(&path, &source);
-                }
-                *self = refreshed;
-                return Ok(());
+            // The schema loader owns JSON introspection and split embedded schema entries.
+            let overlays: Vec<_> = self
+                .known_files
+                .iter()
+                .filter(|(path, file)| {
+                    !changes
+                        .iter()
+                        .any(|(changed, source, _)| changed == *path && source != &file.disk_source)
+                })
+                .filter_map(|(path, file)| {
+                    file.overlay
+                        .as_ref()
+                        .map(|source| (path.clone(), file.clone(), source.clone()))
+                })
+                .collect();
+            let missing: Vec<_> = changes
+                .iter()
+                .filter(|(_, source, _)| source.is_none())
+                .map(|(path, _, fingerprint)| {
+                    let mut file = self.known_files[path].clone();
+                    file.disk_source = None;
+                    file.disk_fingerprint = fingerprint.clone();
+                    file.overlay = None;
+                    (path.clone(), file)
+                })
+                .collect();
+            let mut refreshed = Self::load(&self.config, base_dir)?;
+            refreshed.known_files.extend(missing);
+            for (path, file, source) in overlays {
+                refreshed.known_files.entry(path.clone()).or_insert(file);
+                refreshed.update_source(&path, &source);
             }
-
-            let _ = name; // currently only surfaced in error messages above
-            self.projects.push(ProjectState {
-                config: project.clone(),
-                host,
-                known_files,
-            });
-        }
-
-        if self.projects.is_empty() {
-            return Err(anyhow::anyhow!("No projects found in config"));
+            *self = refreshed;
+            return Ok(());
         }
 
         for (path, source, fingerprint) in changes {
@@ -317,31 +339,6 @@ impl NapiAnalysisHost {
             file.overlay = None;
         }
         Ok(())
-    }
-
-    pub fn extract_config(&self) -> graphql_extract::ExtractConfig {
-        // Extract config is only used for embedded-GraphQL extraction in the
-        // processor, before any per-file routing happens. Use the first
-        // project's config — projects in a single workspace typically share
-        // pluck conventions, and a stricter API would force the processor to
-        // know which file it's looking at before extracting.
-        self.projects
-            .first()
-            .map_or_else(graphql_extract::ExtractConfig::default, |p| {
-                p.host.get_extract_config()
-            })
-    }
-
-    pub fn lint_file(
-        &mut self,
-        path: &str,
-        source: &str,
-    ) -> anyhow::Result<Vec<graphql_ide::Diagnostic>> {
-        self.refresh_dependencies()?;
-        let canonical = canonicalize_or(Path::new(path));
-        let file_path = self.update_source(&canonical, source);
-        let snapshot = self.host.snapshot();
-        Ok(snapshot.all_diagnostics_for_file(&file_path))
     }
 }
 

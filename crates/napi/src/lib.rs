@@ -26,6 +26,11 @@ pub fn init(config_path: String) -> napi::Result<()> {
         .map_err(|e| napi::Error::from_reason(e.to_string()))
 }
 
+#[napi]
+pub fn reset() {
+    host::get_host().lock().reset();
+}
+
 /// Lint a file, optionally layering per-rule overrides on top of the
 /// persistent config for the duration of the call.
 ///

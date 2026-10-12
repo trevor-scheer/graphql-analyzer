@@ -8,6 +8,7 @@ export const compatibilityProcessor = {
   supportsAutofix: true,
   preprocess(code: string, filename: string): Array<string | { text: string; filename: string }> {
     deleteEmbeddedRecord(filename);
+    if (/\.(graphql|gql)$/.test(filename)) return [code];
     try {
       const options = { skipIndent: true, ...getPluckConfig(filename) };
       const container = /\.(vue|svelte|astro|gts|gjs)$/.test(filename);

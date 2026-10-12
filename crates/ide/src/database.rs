@@ -14,6 +14,7 @@ use std::sync::Arc;
 pub(crate) struct LintConfigInput {
     #[returns(clone)]
     pub config: Arc<graphql_linter::LintConfig>,
+    #[returns(clone)]
     pub eslint_suppressions_enabled: bool,
 }
 

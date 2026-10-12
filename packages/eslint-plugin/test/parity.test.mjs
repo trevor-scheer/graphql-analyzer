@@ -830,7 +830,13 @@ function canonical(diagnostics, span, skipFix = false, compareSuggest = false) {
           : { line: d.line };
       return {
         ...pos,
-        message: d.message,
+        // macOS exposes the same temp directory through /var and /private/var.
+        // The native loader resolves the symlink while graphql-eslint keeps
+        // the lexical path; both references identify the same file.
+        message:
+          process.platform === "darwin"
+            ? d.message.replaceAll("/private/var/", "/var/")
+            : d.message,
         // messageId is metadata our shim emits for rule-level assertion in
         // the Rust unit-test layer; upstream's runtime ESLint output may
         // omit it. Don't compare it here — the unit-test layer pins it.

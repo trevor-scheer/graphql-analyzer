@@ -647,6 +647,8 @@ fn convert_lint_diagnostics(
                 let block_line_index = graphql_syntax::LineIndex::new(block_source);
                 let (block_line, _) = block_line_index.line_col(ld.span.start);
                 let block_ignores = graphql_linter::ignore::parse_ignore_directives(block_source);
+                let block_suppressions =
+                    graphql_linter::eslint_disable::Suppressions::from_source(block_source);
                 graphql_linter::ignore::is_suppressed(&block_ignores, block_line, rule_name)
                     || (eslint_suppressions_enabled
                         && block_suppressions.is_suppressed(rule_name, block_line as u32 + 1))
@@ -675,8 +677,7 @@ fn convert_lint_diagnostics(
                 file_text.get(ld.span.byte_offset..ld.span.byte_offset + block_source.len())
                     == Some(block_source.as_ref())
             });
-            // Cooked strings need an escape-aware source map before edits are safe.
-            let fix = ld.fix.as_ref().filter(|_| source_is_contiguous).map(|f| {
+            let convert_fix = |f: &graphql_linter::CodeFix| -> crate::CodeFix {
                 let mut edits = Vec::with_capacity(f.edits.len());
                 for edit in &f.edits {
                     let (es_line, es_col) =
@@ -702,10 +703,16 @@ fn convert_lint_diagnostics(
                     edits,
                 }
             };
-            let fix = ld.fix.as_ref().map(&convert_fix);
+            // Cooked strings need an escape-aware source map before edits are safe.
+            let fix = ld
+                .fix
+                .as_ref()
+                .filter(|_| source_is_contiguous)
+                .map(&convert_fix);
             let suggestions = ld
                 .suggestions
                 .iter()
+                .filter(|_| source_is_contiguous)
                 .map(|s| crate::CodeSuggestion {
                     desc: s.desc.clone(),
                     fix: convert_fix(&s.fix),
@@ -778,7 +785,7 @@ mod diagnostic_conversion_tests {
     impl GraphQLAnalysisDatabase for TestDatabase {}
 
     #[test]
-    fn suppresses_fixes_for_non_contiguous_embedded_source() {
+    fn suppresses_edits_for_non_contiguous_embedded_source() {
         let db = TestDatabase::default();
         let source = r#"const query = "query Named { zebra\n apple }";"#;
         let block = "query Named { zebra\n apple }";
@@ -796,6 +803,14 @@ mod diagnostic_conversion_tests {
             "Sort fields",
             vec![graphql_linter::TextEdit::new(14, 25, "apple zebra")],
         ));
+        diagnostic
+            .suggestions
+            .push(graphql_linter::CodeSuggestion::replace(
+                "Sort fields",
+                14,
+                25,
+                "apple zebra",
+            ));
 
         let diagnostics = convert_lint_diagnostics(
             &db,
@@ -806,6 +821,7 @@ mod diagnostic_conversion_tests {
         );
         assert_eq!(diagnostics.len(), 1);
         assert!(diagnostics[0].fix.is_none());
+        assert!(diagnostics[0].suggestions.is_empty());
     }
 }
 
