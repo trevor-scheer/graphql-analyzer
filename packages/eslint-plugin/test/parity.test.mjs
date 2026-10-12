@@ -68,7 +68,6 @@ const STUB_RULES = new Set([
   "known-argument-names",
   "known-directives",
   "known-fragment-names",
-  "known-type-names",
   "lone-anonymous-operation",
   "lone-schema-definition",
   "no-fragment-cycles",
@@ -152,6 +151,18 @@ const camelCase = (s) => s.replace(/-([a-z])/g, (_, c) => c.toUpperCase());
 //     compares the firing line. Use "full" wherever both plugins produce
 //     well-defined ranges.
 const EXERCISED = {
+  "known-type-names": {
+    files: {
+      "schema.graphql": "type Query { user: User } type User { id: ID }\n",
+      "src/op.graphql": "fragment F on Usre { id }\n",
+    },
+    target: "src/op.graphql",
+    severity: 2,
+    span: "full",
+    compareSuggest: true,
+    validation: true,
+  },
+
   // ----- already-verified rules from prior PRs (#1008, #1011, #1012, #1013, #1014) -----
 
   "no-anonymous-operations": {
@@ -878,16 +889,18 @@ async function withProject(rule, cfg, fn) {
     if (cfg.files["schema.graphql"]) lines.push(`schema: "schema.graphql"`);
     const docs = Object.keys(cfg.files).filter((p) => p.startsWith("src/"));
     if (docs.length > 0) lines.push(`documents: "src/**/*"`);
-    lines.push(`extensions:`);
-    lines.push(`  graphql-analyzer:`);
-    lines.push(`    lint:`);
-    lines.push(`      rules:`);
-    if (cfg.options !== undefined) {
-      lines.push(`        ${camelCase(rule)}:`);
-      lines.push(`          - warn`);
-      lines.push(`          - ${JSON.stringify(cfg.options)}`);
-    } else {
-      lines.push(`        ${camelCase(rule)}: warn`);
+    if (!cfg.validation) {
+      lines.push(`extensions:`);
+      lines.push(`  graphql-analyzer:`);
+      lines.push(`    lint:`);
+      lines.push(`      rules:`);
+      if (cfg.options !== undefined) {
+        lines.push(`        ${camelCase(rule)}:`);
+        lines.push(`          - warn`);
+        lines.push(`          - ${JSON.stringify(cfg.options)}`);
+      } else {
+        lines.push(`        ${camelCase(rule)}: warn`);
+      }
     }
     writeFileSync(path.join(root, ".graphqlrc.yaml"), lines.join("\n") + "\n");
 
