@@ -255,7 +255,7 @@ same-length edit that preserves the modification timestamp can evade the
 native dependency fingerprint.
 
 Native rules expose autofixes for `alphabetize` and suggestions where the
-analyzer provides them. Spec-validation names are exported as no-op rules;
-registering them does not emit the native validation diagnostic stream through
-ESLint. See the [migration guide](/graphql-analyzer/linting/migrating-from-graphql-eslint/)
+analyzer provides them. Spec-validation rules run graphql-js validation and
+report diagnostics through ESLint. Rules that check operations need a configured
+schema; project-wide checks also need configured documents. See the [migration guide](/graphql-analyzer/linting/migrating-from-graphql-eslint/)
 and [rules catalog](/graphql-analyzer/rules/catalog/) when choosing rules.

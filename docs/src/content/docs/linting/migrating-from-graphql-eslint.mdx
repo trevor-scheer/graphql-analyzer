@@ -85,21 +85,18 @@ virtual documents with `files: ["**/*.graphql"]`. Keep the host-language
 parser and rules on the original files. See the
 [embedded configuration example](/graphql-analyzer/linting/eslint-plugin/#lint-embedded-graphql).
 
-## Preserve validation rules you need
+## Keep validation rules you need
 
 GraphQL-ESLint exports spec-validation rules such as `known-type-names`,
 `fields-on-correct-type`, and `no-undefined-variables`. The analyzer plugin
-exports those names as no-op rules so existing configurations can load.
-Native analysis performs validation internally, but these stubs do not emit
-that diagnostic stream through ESLint.
+exports those names as working ESLint rules. They report the corresponding
+graphql-js validation diagnostics with the severity set in ESLint. Configure
+`schema` for operation checks and `documents` for project-wide name checks.
 
-Do not delete a required validation rule solely because native analysis runs
-similar checks. You can retain upstream validation rules alongside native
-rules using the compatible parser:
+Keep these rules enabled when replacing the community plugin:
 
 ```js
 import analyzer from "@graphql-analyzer/eslint-plugin";
-import upstream from "@graphql-eslint/eslint-plugin";
 
 export default [
   {
@@ -107,27 +104,26 @@ export default [
     languageOptions: { parser: analyzer.parser },
     plugins: {
       "@graphql-analyzer": analyzer,
-      "@graphql-eslint": upstream,
     },
     rules: {
       "@graphql-analyzer/no-anonymous-operations": "error",
-      "@graphql-eslint/known-type-names": "error",
+      "@graphql-analyzer/known-type-names": "error",
     },
   },
 ];
 ```
 
-This configuration keeps the upstream package installed for the rules you
-still use. Configure its custom-rule schema services through the compatible
-parser as needed. Use an ESLint version supported by the upstream package;
-the upstream 4.4.0 comparison in this repository uses ESLint 9.
+The validation rules load graphql-js and schema services only when enabled.
+Use the compatible parser when combining them with custom GraphQL AST rules.
 
 ## Choose a mode and check remaining differences
 
-Use the default `parser` and `processor` when running custom GraphQL rules.
-Use `fastParser` and `fastProcessor` only for native rules. The fast entry
-points avoid JavaScript GraphQL AST construction and compatibility-loader
-imports, and provide no GraphQL visitors or parser services to custom rules.
+Use the default `parser` and `processor` when running custom GraphQL rules or
+linting GraphQL embedded in host files. `fastParser` can run the built-in
+validation rules on standalone GraphQL files; enabling one loads graphql-js and
+the schema services on demand. Without validation rules, the fast entry points
+avoid JavaScript GraphQL AST construction and compatibility-loader imports.
+They provide no GraphQL visitors or parser services to custom rules.
 
 Other differences to check include:
 
