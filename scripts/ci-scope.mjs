@@ -1,4 +1,5 @@
 import { execFileSync } from "node:child_process";
+import { extname } from "node:path";
 
 export function requiresFullCi(paths) {
   return paths.length === 0 || paths.some((path) => !path.startsWith("docs/"));
@@ -34,6 +35,42 @@ export function requiresPackagePreview(paths) {
   );
 }
 
+export function requiresRustCi(paths) {
+  const rootFiles = new Set([
+    ".npmrc",
+    "package.json",
+    "pnpm-lock.yaml",
+    "pnpm-workspace.yaml",
+    "tsconfig.json",
+  ]);
+  const prefixes = ["docs/", "editors/vscode/", "packages/eslint-plugin/", "packages/web-ide/"];
+  const extensions = new Set([
+    ".astro",
+    ".cjs",
+    ".css",
+    ".html",
+    ".js",
+    ".json",
+    ".jsonc",
+    ".md",
+    ".mdx",
+    ".mjs",
+    ".png",
+    ".svg",
+    ".ts",
+    ".tsx",
+  ]);
+  return (
+    paths.length === 0 ||
+    paths.some((path) => {
+      if (rootFiles.has(path)) return false;
+      if (!prefixes.some((prefix) => path.startsWith(prefix))) return true;
+      const filename = path.split("/").at(-1);
+      return !extensions.has(extname(path)) && ![".gitignore", ".vscodeignore"].includes(filename);
+    })
+  );
+}
+
 function changedPaths(base, head) {
   try {
     const diff = execFileSync(
@@ -57,6 +94,7 @@ if (process.argv[1]?.endsWith("/ci-scope.mjs")) {
   const full = requiresFullCi(paths);
   const docs = requiresDocsCi(paths);
   const preview = requiresPackagePreview(paths);
+  const rust = requiresRustCi(paths);
   console.error(`${paths.length} changed files; ${full ? "full" : "docs-only"} CI`);
-  process.stdout.write(`full=${full}\ndocs=${docs}\npreview=${preview}\n`);
+  process.stdout.write(`full=${full}\ndocs=${docs}\npreview=${preview}\nrust=${rust}\n`);
 }
