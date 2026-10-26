@@ -22,3 +22,11 @@ packages:
 # users install @graphql-analyzer/* into different frontend frameworks — same
 # reasoning as the docs/ site, they stay on npm to mirror what real consumers
 # do. Mirrors the pre-existing package.json#workspaces array.
+
+packageExtensions:
+  "@graphql-tools/graphql-tag-pluck@8.3.31":
+    peerDependencies:
+      typescript: "^5.0.0 || ^6.0.0"
+    peerDependenciesMeta:
+      typescript:
+        optional: true
