@@ -152,9 +152,9 @@ dependencies = [
 
 [[package]]
 name = "apollo-parser"
-version = "0.8.6"
+version = "0.8.7"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "11f6e2be4b3474e5890d34d3e483d49ec9b5cbf9e358bc62c9cc5423376df54b"
+checksum = "61e7b65fce383a71e165834de0bc0fb44b84c840e174f0c5b3914ab76c88ff14"
 dependencies = [
  "memchr",
  "rowan",
@@ -240,6 +240,12 @@ name = "base64"
 version = "0.22.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "72b3254f16251a8381aa12e40e3c4d2f0199f8c6508fbecb9d91f575e0fbb8c6"
+
+[[package]]
+name = "base64"
+version = "0.23.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "ac07cdecf99051d9a5238b80f35af32cdeba5b336e55d957b318b50137e18da5"
 
 [[package]]
 name = "better_scoped_tls"
@@ -570,9 +576,9 @@ dependencies = [
 
 [[package]]
 name = "console"
-version = "0.16.3"
+version = "0.16.6"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "d64e8af5551369d19cf50138de61f1c42074ab970f74e99be916646777f8fc87"
+checksum = "e96a4956774c13c126a8b5af4daa79384f4d826534c95a02d76afb39e2ab64e3"
 dependencies = [
  "encode_unicode",
  "libc",
@@ -667,9 +673,9 @@ dependencies = [
 
 [[package]]
 name = "crossbeam-channel"
-version = "0.5.15"
+version = "0.5.17"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "82b8f8f868b36967f9606790d1903570de9ceaf870a7bf9fbbd3016d636a2cb2"
+checksum = "98b0cc327b5bc766e7fda9c9260cc0fa81b43a8e240440422dff70788e3f9ef1"
 dependencies = [
  "crossbeam-utils",
 ]
@@ -1199,9 +1205,9 @@ dependencies = [
 
 [[package]]
 name = "glob"
-version = "0.3.3"
+version = "0.3.4"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "0cc23270f6e1808e30a928bdc84dea0b9b4136a8bc82338574f23baf47bbd280"
+checksum = "e4eba85ea1d0a966a983acd07deee566e67395d2d96b6fb39e62b5a833f1eb0b"
 
 [[package]]
 name = "granit-parser"
@@ -1218,7 +1224,7 @@ name = "graphql-analysis"
 version = "0.1.0"
 dependencies = [
  "apollo-compiler",
- "apollo-parser 0.8.6",
+ "apollo-parser 0.8.7",
  "graphql-base-db",
  "graphql-hir",
  "graphql-linter",
@@ -1250,7 +1256,7 @@ dependencies = [
 name = "graphql-apollo-ext"
 version = "0.1.0"
 dependencies = [
- "apollo-parser 0.8.6",
+ "apollo-parser 0.8.7",
 ]
 
 [[package]]
@@ -1266,7 +1272,7 @@ name = "graphql-cli"
 version = "0.2.6"
 dependencies = [
  "anyhow",
- "apollo-parser 0.8.6",
+ "apollo-parser 0.8.7",
  "ariadne",
  "clap",
  "clap_complete",
@@ -1332,7 +1338,7 @@ name = "graphql-hir"
 version = "0.1.0"
 dependencies = [
  "apollo-compiler",
- "apollo-parser 0.8.6",
+ "apollo-parser 0.8.7",
  "graphql-base-db",
  "graphql-syntax",
  "graphql-test-utils",
@@ -1345,7 +1351,7 @@ name = "graphql-ide"
 version = "0.1.0"
 dependencies = [
  "anyhow",
- "apollo-parser 0.8.6",
+ "apollo-parser 0.8.7",
  "glob",
  "graphql-analysis",
  "graphql-base-db",
@@ -1390,7 +1396,7 @@ name = "graphql-linter"
 version = "0.1.0"
 dependencies = [
  "apollo-compiler",
- "apollo-parser 0.8.6",
+ "apollo-parser 0.8.7",
  "graphql-apollo-ext",
  "graphql-base-db",
  "graphql-hir",
@@ -1411,7 +1417,7 @@ version = "0.2.5"
 dependencies = [
  "anyhow",
  "apollo-compiler",
- "apollo-parser 0.8.6",
+ "apollo-parser 0.8.7",
  "crossbeam-channel",
  "glob",
  "graphql-config",
@@ -1496,7 +1502,7 @@ name = "graphql-syntax"
 version = "0.1.0"
 dependencies = [
  "apollo-compiler",
- "apollo-parser 0.8.6",
+ "apollo-parser 0.8.7",
  "graphql-base-db",
  "graphql-extract",
  "graphql-types",
@@ -1721,7 +1727,7 @@ version = "0.1.20"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "96547c2556ec9d12fb1578c4eaf448b04993e7fb79cbaad930a656880a6bdfa0"
 dependencies = [
- "base64",
+ "base64 0.22.1",
  "bytes",
  "futures-channel",
  "futures-util",
@@ -1883,9 +1889,9 @@ dependencies = [
 
 [[package]]
 name = "indicatif"
-version = "0.18.4"
+version = "0.18.6"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "25470f23803092da7d239834776d653104d551bc4d7eacaf31e6837854b8e9eb"
+checksum = "9433806cd6b4ec1aba79c021c7e4c58fb4c3b9977c085062e611ac929998fb0c"
 dependencies = [
  "console",
  "portable-atomic",
@@ -3167,11 +3173,11 @@ checksum = "d6f6ff9a378485b298a5286656da665ba74413d36db0979633275d2e708145d4"
 
 [[package]]
 name = "reqwest"
-version = "0.13.4"
+version = "0.13.5"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "219c5811de6525e5416c7d5d53bb656d3afdbc6c5af816e0802bcfa42dbdc1c3"
+checksum = "16a1cfa75cc186dd73d5818e510e042e40927bccc9c236b061cea97e1eb08029"
 dependencies = [
- "base64",
+ "base64 0.23.1",
  "bytes",
  "futures-channel",
  "futures-core",
@@ -3226,7 +3232,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "1d1f571c72940a19d9532fe52dbea8bc9912bf1d766c2970bb824056b86f3f59"
 dependencies = [
  "async-trait",
- "base64",
+ "base64 0.22.1",
  "chrono",
  "futures",
  "pastey",
@@ -3534,7 +3540,7 @@ checksum = "7bd22781911de0ca6debda95f073c8f18bec65d1a94f1fa9573f3102e514cea4"
 dependencies = [
  "ahash",
  "annotate-snippets",
- "base64",
+ "base64 0.22.1",
  "encoding_rs_io",
  "getrandom 0.3.4",
  "granit-parser",
@@ -4233,7 +4239,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "fec7c61a0695dc1887c1b53952990f3ad2e3a31453e1f49f10e75424943a93ec"
 dependencies = [
  "async-trait",
- "base64",
+ "base64 0.22.1",
  "bytes",
  "http",
  "http-body",
