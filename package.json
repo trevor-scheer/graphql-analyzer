@@ -23,7 +23,7 @@
     "pkg-pr-new": "0.0.91",
     "typescript": "^7.0.1-rc"
   },
-  "packageManager": "pnpm@10.34.6",
+  "packageManager": "pnpm@10.34.9",
   "pnpm": {
     "onlyBuiltDependencies": [
       "@vscode/vsce-sign",
